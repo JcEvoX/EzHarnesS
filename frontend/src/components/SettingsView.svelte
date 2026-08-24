@@ -138,8 +138,8 @@
         <input
           type="text"
           bind:value={workDir}
-          placeholder={cfg?.dataDir ?? '空 = 数据目录'}
-          title="terminal 命令默认执行目录；空 = 数据目录，相对路径按数据目录解析，保存时自动创建"
+          placeholder="空 = 数据目录下 workspace/"
+          title="terminal 命令默认执行目录（模型草稿与命令产物落这里）；空 = 数据目录下 workspace/，相对路径按数据目录解析，保存时自动创建"
         />
       </label>
     </div>

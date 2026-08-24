@@ -134,7 +134,7 @@ type Settings struct {
 	SystemExtra    string     `json:"systemExtra"`
 	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
 	CompactPercent int        `json:"compactPercent"` // 上下文压缩水位（模型窗口百分比，0=禁用自动压缩）
-	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录，相对=相对数据目录）
+	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
 }
 
 /* Level 是审批策略档位。 */

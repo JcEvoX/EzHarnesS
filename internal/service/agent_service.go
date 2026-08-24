@@ -241,18 +241,22 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 }
 
 /*
-resolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录（进程 cwd），
+resolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/
+（模型草稿与命令产物落这里，不与 models.json/sessions/ 等数据文件混放），
 相对 = 相对数据目录；目录不存在则创建（terminal 的执行目录必须存在）。
 */
 func resolveWorkDir(spec string) string {
+	wd, err := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
+	if err != nil {
+		wd = "."
+	}
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
-		if wd, err := os.Getwd(); err == nil {
-			return wd
-		}
-		return "."
+		spec = filepath.Join(wd, "workspace")
+	} else if !filepath.IsAbs(spec) {
+		spec = filepath.Join(wd, spec) // 相对路径按数据目录解析
 	}
-	abs, err := filepath.Abs(spec) // 相对路径按进程 cwd（即数据目录）解析
+	abs, err := filepath.Abs(spec)
 	if err != nil {
 		return spec
 	}
