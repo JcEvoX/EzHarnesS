@@ -11,15 +11,18 @@
   let appChanged = $state(false)
   let showPaths = $state(false)
 
-  /* 上下文压缩水位（模型窗口百分比；0 = 关闭自动压缩，模型仍可主动调 compact 工具）
-  与工作目录（terminal 默认执行目录；空 = 数据目录） */
+  /* 上下文压缩水位（模型窗口百分比；0 = 关闭自动压缩，模型仍可主动调 compact 工具） */
   let percent = $state<number | ''>('')
   let origPercent = $state<number | null>(null)
-  let workDir = $state('')
-  let origWorkDir = $state('')
   let origExtra = $state('')
   let savingThreshold = $state(false)
   let thresholdMsg = $state('')
+
+  /* 工作目录（terminal 默认执行目录；空 = 数据目录下 workspace/） */
+  let workDir = $state('')
+  let origWorkDir = $state('')
+  let savingWorkDir = $state(false)
+  let workDirMsg = $state('')
 
   onMount(async () => {
     try {
@@ -54,15 +57,27 @@
       await api.saveSettings({
         systemExtra: origExtra,
         compactPercent: Math.min(Math.max(Number(percent) || 0, 0), 100),
-        workDir: workDir.trim(),
       })
       origPercent = Math.min(Math.max(Number(percent) || 0, 0), 100)
-      origWorkDir = workDir.trim()
       thresholdMsg = '已保存（下一轮对话生效）'
     } catch (e) {
       thresholdMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
     } finally {
       savingThreshold = false
+    }
+  }
+
+  async function saveWorkDir() {
+    savingWorkDir = true
+    workDirMsg = ''
+    try {
+      await api.saveSettings({ systemExtra: origExtra, workDir: workDir.trim() })
+      origWorkDir = workDir.trim()
+      workDirMsg = '已保存（下一轮对话生效）'
+    } catch (e) {
+      workDirMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      savingWorkDir = false
     }
   }
 
@@ -133,25 +148,40 @@
         <span>压缩水位（窗口百分比）</span>
         <input type="number" bind:value={percent} min="0" max="100" step="5" />
       </label>
+    </div>
+    <button
+      class="primary"
+      disabled={savingThreshold || Number(percent) === origPercent}
+      onclick={saveThreshold}
+    >
+      {savingThreshold ? '保存中…' : '保存水位'}
+    </button>
+    {#if thresholdMsg}
+      <p class="msg">{thresholdMsg}</p>
+    {/if}
+  </section>
+
+  <section>
+    <h2>工作目录</h2>
+    <p class="hint">
+      terminal 命令默认执行目录，模型草稿与命令产物落这里；空 =
+      数据目录下 workspace/，相对路径按数据目录解析，保存时目录不存在会自动创建。
+    </p>
+    <div class="grid2">
       <label class="field">
-        <span>工作目录</span>
-        <input
-          type="text"
-          bind:value={workDir}
-          placeholder="空 = 数据目录下 workspace/"
-          title="terminal 命令默认执行目录（模型草稿与命令产物落这里）；空 = 数据目录下 workspace/，相对路径按数据目录解析，保存时自动创建"
-        />
+        <span>工作目录路径</span>
+        <input type="text" bind:value={workDir} placeholder="空 = 数据目录下 workspace/" />
       </label>
     </div>
     <button
       class="primary"
-      disabled={savingThreshold || (Number(percent) === origPercent && workDir.trim() === origWorkDir)}
-      onclick={saveThreshold}
+      disabled={savingWorkDir || workDir.trim() === origWorkDir}
+      onclick={saveWorkDir}
     >
-      {savingThreshold ? '保存中…' : '保存'}
+      {savingWorkDir ? '保存中…' : '保存'}
     </button>
-    {#if thresholdMsg}
-      <p class="msg">{thresholdMsg}</p>
+    {#if workDirMsg}
+      <p class="msg">{workDirMsg}</p>
     {/if}
   </section>
 

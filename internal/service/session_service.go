@@ -37,9 +37,10 @@ func (s *SessionService) Bootstrap() BootstrapData {
 	sess := s.Hub.Active
 	st := s.Hub.SettingsSnapshot()
 	p := st.CompactPercent
+	w := st.WorkDir
 	return BootstrapData{
 		SessionID:    sess.ID,
-		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: st.WorkDir},
+		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: &w},
 		Status:       s.Snapshot(),
 		MemoryExists: memoryExists(s.Hub.Fsys),
 	}
