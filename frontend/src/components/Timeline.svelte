@@ -127,11 +127,13 @@
     if (loading) return
     loading = true
     pull = THRESHOLD // 加载期间保持指示器可见
+    const prevHeight = el?.scrollHeight ?? 0
     await store.loadPrev()
     loading = false
     pull = 0
     if (!store.hasPrev) hintNoMore()
-    if (el) el.scrollTop = 0 // 视口停在拉出内容的顶部
+    // prepend 高度补偿：视口停在原有内容处，不跳顶
+    if (el) el.scrollTop = el.scrollHeight - prevHeight
   }
 
   function onScroll() {
