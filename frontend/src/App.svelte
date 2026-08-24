@@ -3,6 +3,7 @@
   import pkg from '../package.json'
   import { store } from './lib/store.svelte'
   import Sidebar from './components/Sidebar.svelte'
+  import TitleBar from './components/TitleBar.svelte'
   import ChatView from './components/ChatView.svelte'
   import ModelsView from './components/ModelsView.svelte'
   import MemoryView from './components/MemoryView.svelte'
@@ -33,27 +34,30 @@
   })
 </script>
 
-<div class="app" class:expanded>
-  <Sidebar view={view} expanded={expanded} onNavigate={(v) => (view = v)} onToggle={() => (expanded = !expanded)} />
-  <main>
-    {#if view === 'chat'}
-      <ChatView />
-    {:else if view === 'models'}
-      <ModelsView />
-    {:else if view === 'memory'}
-      <MemoryView onNavigate={(v) => (view = v as typeof view)} />
-    {:else if view === 'knowledge'}
-      <KnowledgeView />
-    {:else if view === 'tools'}
-      <ToolsView />
-    {:else if view === 'mcp'}
-      <McpView />
-    {:else if view === 'security'}
-      <SecurityView />
-    {:else}
-      <SettingsView />
-    {/if}
-  </main>
+<div class="shell">
+  <TitleBar />
+  <div class="app" class:expanded>
+    <Sidebar view={view} expanded={expanded} onNavigate={(v) => (view = v)} onToggle={() => (expanded = !expanded)} />
+    <main>
+      {#if view === 'chat'}
+        <ChatView />
+      {:else if view === 'models'}
+        <ModelsView />
+      {:else if view === 'memory'}
+        <MemoryView onNavigate={(v) => (view = v as typeof view)} />
+      {:else if view === 'knowledge'}
+        <KnowledgeView />
+      {:else if view === 'tools'}
+        <ToolsView />
+      {:else if view === 'mcp'}
+        <McpView />
+      {:else if view === 'security'}
+        <SecurityView />
+      {:else}
+        <SettingsView />
+      {/if}
+    </main>
+  </div>
 </div>
 
 <footer class="brand-foot">
@@ -63,10 +67,16 @@
 </footer>
 
 <style>
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
   .app {
     display: grid;
     grid-template-columns: 64px 1fr;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     transition: grid-template-columns var(--dur-in) var(--ease-out);
   }
   .app.expanded {

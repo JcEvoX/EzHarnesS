@@ -28,6 +28,7 @@ import (
 	"ezharness/internal/config"
 	"ezharness/internal/controller"
 	"ezharness/internal/domain"
+	"ezharness/internal/osfs"
 	"ezharness/internal/service"
 )
 
@@ -57,7 +58,9 @@ func main() {
 		a.stop()
 		return
 	}
-	openWindow(url)
+	// 托盘常驻是行为设置（settings.json，设置页可改），窗口壳启动时读取
+	tray := domain.LoadSettings(osfs.OS{}).CloseToTray
+	openWindow(url, c, tray)
 	a.stop()
 }
 

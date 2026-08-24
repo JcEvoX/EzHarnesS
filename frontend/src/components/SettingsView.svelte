@@ -24,6 +24,10 @@
   let savingWorkDir = $state(false)
   let workDirMsg = $state('')
 
+  /* 托盘常驻（桌面端点关闭 = 最小化到托盘；窗口行为，重启应用生效） */
+  let closeToTray = $state(false)
+  let savingTray = $state(false)
+
   onMount(async () => {
     try {
       cfg = await api.appConfig()
@@ -40,10 +44,23 @@
       workDir = st.workDir ?? ''
       origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
+      closeToTray = st.closeToTray ?? false
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
     }
   })
+
+  async function saveTray(v: boolean) {
+    savingTray = true
+    try {
+      await api.saveSettings({ systemExtra: origExtra, closeToTray: v })
+      closeToTray = v
+    } catch {
+      /* 保存失败回滚开关（下次加载以服务端为准） */
+    } finally {
+      savingTray = false
+    }
+  }
 
   function checkChanged() {
     appChanged = !!cfg && (String(port) !== String(cfg.port) || dataDir.trim() !== cfg.dataDir)
@@ -186,6 +203,20 @@
   </section>
 
   <section>
+    <h2>桌面窗口</h2>
+    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更重启应用后生效。</p>
+    <label class="switch-row">
+      <span>关闭时最小化到托盘</span>
+      <input
+        type="checkbox"
+        checked={closeToTray}
+        disabled={savingTray}
+        onchange={(e) => saveTray((e.currentTarget as HTMLInputElement).checked)}
+      />
+    </label>
+  </section>
+
+  <section>
     <button class="fold" onclick={() => (showPaths = !showPaths)}>
       数据文件位置
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class:open={showPaths}>
@@ -273,6 +304,24 @@
     display: grid;
     grid-template-columns: 1fr 1.6fr;
     gap: 12px;
+  }
+  .switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+  }
+  .switch-row input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--bg-invert);
+    cursor: pointer;
   }
   .field {
     display: flex;

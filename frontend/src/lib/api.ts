@@ -92,6 +92,7 @@ export interface Settings {
   systemExtra: string
   compactPercent?: number | null
   workDir?: string
+  closeToTray?: boolean
 }
 
 export interface ModelEntry {

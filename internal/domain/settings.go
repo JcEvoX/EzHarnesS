@@ -135,6 +135,7 @@ type Settings struct {
 	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
 	CompactPercent int        `json:"compactPercent"` // 上下文压缩水位（模型窗口百分比，0=禁用自动压缩）
 	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
+	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（重启应用生效）
 }
 
 /* Level 是审批策略档位。 */
@@ -193,6 +194,7 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 		ToolRules       []ToolRule `json:"toolRules"`
 		CompactPercent  *int       `json:"compactPercent"` // 指针：区分未提交与显式 0（禁用）
 		WorkDir         string     `json:"workDir"`
+		CloseToTray     *bool      `json:"closeToTray"`
 		LegacyThreshold int        `json:"compactThreshold"`
 	}
 	if json.Unmarshal(data, &s) != nil {
@@ -200,6 +202,9 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 	}
 	out.SystemExtra = s.SystemExtra
 	out.WorkDir = s.WorkDir
+	if s.CloseToTray != nil {
+		out.CloseToTray = *s.CloseToTray
+	}
 	switch {
 	case s.CompactPercent != nil:
 		out.CompactPercent = clamp(*s.CompactPercent, 0, 100)

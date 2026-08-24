@@ -28,12 +28,22 @@ const DefaultPort = 5260
 type Config struct {
 	Port    int
 	DataDir string // 绝对路径，进程 cwd 即此
+	WindowW int    // 主窗口默认宽（0 = 1440）
+	WindowH int    // 主窗口默认高（0 = 920）
 }
+
+/* DefaultWindowW/H 是主窗口默认尺寸。 */
+const (
+	DefaultWindowW = 1440
+	DefaultWindowH = 920
+)
 
 /* appFile 是 ezharness.json 的落盘结构。 */
 type appFile struct {
 	Port    int    `json:"port"`
 	DataDir string `json:"dataDir"`
+	WindowW int    `json:"windowWidth,omitempty"`
+	WindowH int    `json:"windowHeight,omitempty"`
 }
 
 var (
@@ -98,7 +108,14 @@ func loadLocked() (Config, error) {
 	if port <= 0 {
 		port = DefaultPort
 	}
-	return Config{Port: port, DataDir: ResolveDataDir(af.DataDir)}, nil
+	w, h := af.WindowW, af.WindowH
+	if w <= 200 {
+		w = DefaultWindowW
+	}
+	if h <= 200 {
+		h = DefaultWindowH
+	}
+	return Config{Port: port, DataDir: ResolveDataDir(af.DataDir), WindowW: w, WindowH: h}, nil
 }
 
 /* Save 持久化结构配置到应用根的 ezharness.json。 */
@@ -109,7 +126,9 @@ func Save(c Config) error {
 }
 
 func saveLocked(c Config) error {
-	data, err := json.MarshalIndent(appFile{Port: c.Port, DataDir: c.DataDir}, "", "  ")
+	data, err := json.MarshalIndent(appFile{
+		Port: c.Port, DataDir: c.DataDir, WindowW: c.WindowW, WindowH: c.WindowH,
+	}, "", "  ")
 	if err != nil {
 		return err
 	}
