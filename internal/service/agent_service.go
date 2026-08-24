@@ -105,7 +105,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			planner,
 			task.New(),
 			NewMcpHook(s.Fsys),
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, taskplan.ToolName, task.ToolName)),
+			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, taskplan.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
 			compactHook, // OnEnd 在 trace/store 之前：截断+换库先发生
 			traceHook,
 			s.Sess, // 最后落盘
