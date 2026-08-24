@@ -22,14 +22,14 @@ image（文生图）/ audio（语音合成）——后两者是主模型按需�
 每槽至多一条 Enabled。结构随后续数据建模演进。
 */
 type ModelEntry struct {
-	Name          string            `json:"name"`                       // 模型名（provider 侧 ID）
+	Name          string            `json:"name"` // 模型名（provider 侧 ID）
 	BaseURL       string            `json:"baseUrl"`
 	APIKey        string            `json:"apiKey"`
-	Headers       map[string]string `json:"headers,omitempty"`          // 自定义请求头（网关鉴权、组织 ID 等）
-	Enabled       bool              `json:"enabled"`                    // 每槽至多一条启用
-	Tokens        int               `json:"tokens"`                     // 累计用量（prompt+completion）
-	Cost          float64           `json:"cost"`                       // 累计花费（单价表后续接入）
-	ContextWindow int               `json:"contextWindow,omitempty"`    // 上下文窗口（tokens，水位与压缩推荐用；0 未知）
+	Headers       map[string]string `json:"headers,omitempty"`       // 自定义请求头（网关鉴权、组织 ID 等）
+	Enabled       bool              `json:"enabled"`                 // 每槽至多一条启用
+	Tokens        int               `json:"tokens"`                  // 累计用量（prompt+completion）
+	Cost          float64           `json:"cost"`                    // 累计花费（单价表后续接入）
+	ContextWindow int               `json:"contextWindow,omitempty"` // 上下文窗口（tokens，水位与压缩推荐用；0 未知）
 }
 
 type ModelsConfig struct {
@@ -39,12 +39,13 @@ type ModelsConfig struct {
 	Audio  []ModelEntry `json:"audio"`
 }
 
-/* DefaultModelsConfig 给出出厂值（main 一条默认，apiKey 空零配置可启动）。 */
+/* DefaultModelsConfig 给出出厂值（main 一条默认并启用，apiKey 空零配置可启动）。 */
 func DefaultModelsConfig() ModelsConfig {
 	return ModelsConfig{
 		Main: []ModelEntry{{
 			Name:          "deepseek-ai/DeepSeek-V3.2",
 			BaseURL:       "https://api.siliconflow.cn/v1",
+			Enabled:       true,
 			ContextWindow: 128000,
 		}},
 	}
@@ -60,6 +61,9 @@ func LoadModelsConfig(fsys fs.FileSystem) ModelsConfig {
 	}
 	var mc ModelsConfig
 	if json.Unmarshal(data, &mc) == nil && (len(mc.Main)+len(mc.Vision)+len(mc.Image)+len(mc.Audio)) > 0 {
+		if mc.normalizeEnabled() {
+			_ = SaveModelsConfig(fsys, mc) // 旧存档无启用条目：点亮首条后回写
+		}
 		return mc
 	}
 	/* 旧扁平结构迁移 */
@@ -89,6 +93,29 @@ func SaveModelsConfig(fsys fs.FileSystem, m ModelsConfig) error {
 	return fsys.Write(context.Background(), "models.json", data)
 }
 
+/* normalizeEnabled 每槽非空且无启用条目时点亮首条（对齐 ActiveMain
+兜底取首条的语义，让前端选中态与实际生效模型一致）；返回是否变更。 */
+func (m *ModelsConfig) normalizeEnabled() bool {
+	changed := false
+	for _, slot := range []*[]ModelEntry{&m.Main, &m.Vision, &m.Image, &m.Audio} {
+		if len(*slot) == 0 {
+			continue
+		}
+		enabled := false
+		for _, e := range *slot {
+			if e.Enabled {
+				enabled = true
+				break
+			}
+		}
+		if !enabled {
+			(*slot)[0].Enabled = true
+			changed = true
+		}
+	}
+	return changed
+}
+
 /* ActiveMain 返回主模型槽的生效条目（enabled 优先，否则首条；空槽 nil）。 */
 func (m ModelsConfig) ActiveMain() *ModelEntry {
 	for i := range m.Main {
@@ -104,9 +131,10 @@ func (m ModelsConfig) ActiveMain() *ModelEntry {
 
 /* Settings 是可热更的行为设置。 */
 type Settings struct {
-	SystemExtra      string     `json:"systemExtra"`
-	ToolRules        []ToolRule `json:"toolRules"`        // 审批策略（空 = 内置默认）
-	CompactThreshold int        `json:"compactThreshold"` // 上下文压缩水位（prompt tokens，<=0 禁用自动压缩）
+	SystemExtra    string     `json:"systemExtra"`
+	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
+	CompactPercent int        `json:"compactPercent"` // 上下文压缩水位（模型窗口百分比，0=禁用自动压缩）
+	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
 }
 
 /* Level 是审批策略档位。 */
@@ -143,27 +171,41 @@ func DefaultToolRules() []ToolRule {
 	}
 }
 
-/* DefaultSettings 给出出厂值。 */
+/* DefaultSettings 给出出厂值（水位 75%：窗口自适应，留足摘要提前量）。 */
 func DefaultSettings() Settings {
 	return Settings{
-		SystemExtra: "",
-		ToolRules:   DefaultToolRules(),
+		SystemExtra:    "",
+		ToolRules:      DefaultToolRules(),
+		CompactPercent: 75,
 	}
 }
 
-/* LoadSettings 读 settings.json，缺失回落默认值。 */
+/* LoadSettings 读 settings.json，缺失回落默认值。旧版绝对值水位
+（compactThreshold，tokens）按 128k 窗口折算为百分比迁移。 */
 func LoadSettings(fsys fs.FileSystem) Settings {
 	out := DefaultSettings()
 	data, err := fsys.Read(context.Background(), "settings.json")
 	if err != nil {
 		return out
 	}
-	var s Settings
+	var s struct {
+		SystemExtra     string     `json:"systemExtra"`
+		ToolRules       []ToolRule `json:"toolRules"`
+		CompactPercent  *int       `json:"compactPercent"` // 指针：区分未提交与显式 0（禁用）
+		WorkDir         string     `json:"workDir"`
+		LegacyThreshold int        `json:"compactThreshold"`
+	}
 	if json.Unmarshal(data, &s) != nil {
 		return out
 	}
 	out.SystemExtra = s.SystemExtra
-	out.CompactThreshold = s.CompactThreshold
+	out.WorkDir = s.WorkDir
+	switch {
+	case s.CompactPercent != nil:
+		out.CompactPercent = clamp(*s.CompactPercent, 0, 100)
+	case s.LegacyThreshold > 0: // 旧绝对值折算（96000 → 75）
+		out.CompactPercent = clamp(s.LegacyThreshold*100/128000, 1, 100)
+	}
 	if len(s.ToolRules) > 0 {
 		for i := range s.ToolRules {
 			if s.ToolRules[i].Tool == "bash" {
@@ -173,6 +215,17 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 		out.ToolRules = s.ToolRules
 	}
 	return out
+}
+
+/* clamp 限值到 [lo, hi]。 */
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 /* SaveSettings 落盘行为设置。 */

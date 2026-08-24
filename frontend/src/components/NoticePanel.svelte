@@ -36,15 +36,54 @@
   }
 
   let answers = $state<Record<string, string>>({})
+
+  /* 收起为小方块：有待处理通知时右上角红点提示，localStorage 记忆收起态 */
+  const collapsedKey = 'ezh.noticePanel.collapsed'
+  let collapsed = $state((() => {
+    try {
+      return localStorage.getItem(collapsedKey) === '1'
+    } catch {
+      return false
+    }
+  })())
+  function fold(v: boolean) {
+    collapsed = v
+    try {
+      localStorage.setItem(collapsedKey, v ? '1' : '0')
+    } catch {
+      /* 存储不可用时仅本次生效 */
+    }
+  }
+  const pendingCount = $derived(notices.filter((n) => n.status === 'pending').length)
 </script>
 
-<div class="panel">
-  <div class="head">
-    <h2>通知</h2>
-    {#if notices.some((n) => n.status === 'pending')}
-      <span class="badge">{notices.filter((n) => n.status === 'pending').length} 待处理</span>
+{#if collapsed}
+  <button
+    class="mini"
+    onclick={() => fold(false)}
+    title={`通知 · 点击展开${pendingCount > 0 ? `（${pendingCount} 条待处理）` : ''}`}
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </svg>
+    {#if pendingCount > 0}
+      <i class="dot"></i>
     {/if}
-  </div>
+  </button>
+{:else}
+  <div class="panel">
+    <div class="head">
+      <h2>通知</h2>
+      {#if pendingCount > 0}
+        <span class="badge">{pendingCount} 待处理</span>
+      {/if}
+      <button class="fold" onclick={() => fold(true)} title="收起">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <path d="M5 12h14" />
+        </svg>
+      </button>
+    </div>
 
   {#if notices.length === 0}
     <p class="empty">暂无通知——审批与提问会出现在这里</p>
@@ -114,7 +153,8 @@
       {/each}
     </div>
   {/if}
-</div>
+  </div>
+{/if}
 
 <style>
   .panel {
@@ -146,6 +186,66 @@
     background: var(--accent-soft);
     border-radius: 5px;
     padding: 1px 7px;
+  }
+  /* 收起态小方块：铃铛图标，待处理通知时右上角红点；靠右贴边（.side 列的末端对齐） */
+  .mini {
+    position: relative;
+    flex: none;
+    align-self: flex-end;
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+  }
+  .mini:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .mini svg {
+    width: 16px;
+    height: 16px;
+  }
+  .dot {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #f85149;
+    border: 2px solid var(--bg);
+  }
+  .fold {
+    flex: none;
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--faint);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  .panel:hover .fold {
+    opacity: 1;
+  }
+  .fold:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .fold svg {
+    width: 11px;
+    height: 11px;
   }
   .empty {
     font-size: 11px;

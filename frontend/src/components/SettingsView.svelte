@@ -11,12 +11,18 @@
   let appChanged = $state(false)
   let showPaths = $state(false)
 
-  /* 上下文压缩水位（0 = 关闭自动压缩，模型仍可主动调 compact 工具） */
-  let threshold = $state<number | ''>('')
-  let origThreshold = $state<number | null>(null)
+  /* 上下文压缩水位（模型窗口百分比；0 = 关闭自动压缩，模型仍可主动调 compact 工具） */
+  let percent = $state<number | ''>('')
+  let origPercent = $state<number | null>(null)
   let origExtra = $state('')
   let savingThreshold = $state(false)
   let thresholdMsg = $state('')
+
+  /* 工作目录（terminal 默认执行目录；空 = 数据目录下 workspace/） */
+  let workDir = $state('')
+  let origWorkDir = $state('')
+  let savingWorkDir = $state(false)
+  let workDirMsg = $state('')
 
   onMount(async () => {
     try {
@@ -29,8 +35,10 @@
     }
     try {
       const st = await api.getSettings()
-      threshold = st.compactThreshold ?? 0
-      origThreshold = st.compactThreshold ?? 0
+      percent = st.compactPercent ?? 75
+      origPercent = st.compactPercent ?? 75
+      workDir = st.workDir ?? ''
+      origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
@@ -48,14 +56,28 @@
       // systemExtra 回传原值：保存接口是整体语义，缺省会清空
       await api.saveSettings({
         systemExtra: origExtra,
-        compactThreshold: Number(threshold) || 0,
+        compactPercent: Math.min(Math.max(Number(percent) || 0, 0), 100),
       })
-      origThreshold = Number(threshold) || 0
+      origPercent = Math.min(Math.max(Number(percent) || 0, 0), 100)
       thresholdMsg = '已保存（下一轮对话生效）'
     } catch (e) {
       thresholdMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
     } finally {
       savingThreshold = false
+    }
+  }
+
+  async function saveWorkDir() {
+    savingWorkDir = true
+    workDirMsg = ''
+    try {
+      await api.saveSettings({ systemExtra: origExtra, workDir: workDir.trim() })
+      origWorkDir = workDir.trim()
+      workDirMsg = '已保存（下一轮对话生效）'
+    } catch (e) {
+      workDirMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      savingWorkDir = false
     }
   }
 
@@ -116,24 +138,50 @@
   <section>
     <h2>上下文管理</h2>
     <p class="hint">
-      上下文压缩水位（prompt tokens）：轮末超过即自动压缩归档并开启新会话；0
-      表示关闭自动压缩（模型仍可主动调用 compact 工具，状态栏会提示推荐压缩时机）。
+      上下文压缩水位 = 模型上下文窗口 × 百分比：轮末 prompt tokens
+      超过即自动压缩归档并开启新会话，换模型自动适配（如 128K 窗口 × 75% =
+      96000）；0 表示关闭自动压缩（模型仍可主动调用 compact
+      工具，状态栏会提示推荐压缩时机）。
     </p>
     <div class="grid2">
       <label class="field">
-        <span>压缩水位（tokens）</span>
-        <input type="number" bind:value={threshold} min="0" step="1000" />
+        <span>压缩水位（窗口百分比）</span>
+        <input type="number" bind:value={percent} min="0" max="100" step="5" />
       </label>
     </div>
     <button
       class="primary"
-      disabled={savingThreshold || Number(threshold) === origThreshold}
+      disabled={savingThreshold || Number(percent) === origPercent}
       onclick={saveThreshold}
     >
       {savingThreshold ? '保存中…' : '保存水位'}
     </button>
     {#if thresholdMsg}
       <p class="msg">{thresholdMsg}</p>
+    {/if}
+  </section>
+
+  <section>
+    <h2>工作目录</h2>
+    <p class="hint">
+      terminal 命令默认执行目录，模型草稿与命令产物落这里；空 =
+      数据目录下 workspace/，相对路径按数据目录解析，保存时目录不存在会自动创建。
+    </p>
+    <div class="grid2">
+      <label class="field">
+        <span>工作目录路径</span>
+        <input type="text" bind:value={workDir} placeholder="空 = 数据目录下 workspace/" />
+      </label>
+    </div>
+    <button
+      class="primary"
+      disabled={savingWorkDir || workDir.trim() === origWorkDir}
+      onclick={saveWorkDir}
+    >
+      {savingWorkDir ? '保存中…' : '保存'}
+    </button>
+    {#if workDirMsg}
+      <p class="msg">{workDirMsg}</p>
     {/if}
   </section>
 

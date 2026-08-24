@@ -76,7 +76,8 @@ SystemExtra（用户在设置页填写的附加提示，原文拼接）
 ### 4.1 触发
 
 - **模型自主**：`compact_context` 工具（用户要求换话题、状态栏 suggestCompact 时模型调用）。
-- **水位自动**：轮末 `promptTokens > CompactThreshold`（settings.json 配置，`0 = 禁用`）。
+- **水位自动**：轮末 `promptTokens > 窗口 × CompactPercent%`（settings.json
+  配置百分比，随模型窗口自适应，`0 = 禁用`，默认 75）。
   阈值建议留足提前量（约窗口 75%，如 128K 窗口配 96000）——summarize 的输入是全量
   历史拼接，压得太晚会让摘要调用自身溢出，且无解（只能防，不能治）。
 

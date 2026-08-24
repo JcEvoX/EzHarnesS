@@ -36,10 +36,11 @@ type BootstrapData struct {
 func (s *SessionService) Bootstrap() BootstrapData {
 	sess := s.Hub.Active
 	st := s.Hub.SettingsSnapshot()
-	p := st.CompactThreshold
+	p := st.CompactPercent
+	w := st.WorkDir
 	return BootstrapData{
 		SessionID:    sess.ID,
-		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactThreshold: &p},
+		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: &w},
 		Status:       s.Snapshot(),
 		MemoryExists: memoryExists(s.Hub.Fsys),
 	}
@@ -47,12 +48,12 @@ func (s *SessionService) Bootstrap() BootstrapData {
 
 /* HistoryData 是历史响应。 */
 type HistoryData struct {
-	ID          string                    `json:"id"`
-	Busy        bool                      `json:"busy"`
-	Messages    []types.Message           `json:"messages"`
-	PrevSession string                    `json:"prevSession,omitempty"` // compact 链上一会话（懒加载用）
-	PrevTitle   string                    `json:"prevTitle,omitempty"`   // 上一话题标题（压缩标记用）
-	Decisions   []hooks.DecisionRecord    `json:"decisions,omitempty"`   // 人机决策记录（工具卡徽标用）
+	ID          string                 `json:"id"`
+	Busy        bool                   `json:"busy"`
+	Messages    []types.Message        `json:"messages"`
+	PrevSession string                 `json:"prevSession,omitempty"` // compact 链上一会话（懒加载用）
+	PrevTitle   string                 `json:"prevTitle,omitempty"`   // 上一话题标题（压缩标记用）
+	Decisions   []hooks.DecisionRecord `json:"decisions,omitempty"`   // 人机决策记录（工具卡徽标用）
 }
 
 /* Status 是右栏状态卡数据（命中率与用量为本会话口径，切会话/重启清零）。 */
