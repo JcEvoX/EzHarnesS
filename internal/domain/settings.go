@@ -22,14 +22,14 @@ image（文生图）/ audio（语音合成）——后两者是主模型按需�
 每槽至多一条 Enabled。结构随后续数据建模演进。
 */
 type ModelEntry struct {
-	Name          string            `json:"name"`                       // 模型名（provider 侧 ID）
+	Name          string            `json:"name"` // 模型名（provider 侧 ID）
 	BaseURL       string            `json:"baseUrl"`
 	APIKey        string            `json:"apiKey"`
-	Headers       map[string]string `json:"headers,omitempty"`          // 自定义请求头（网关鉴权、组织 ID 等）
-	Enabled       bool              `json:"enabled"`                    // 每槽至多一条启用
-	Tokens        int               `json:"tokens"`                     // 累计用量（prompt+completion）
-	Cost          float64           `json:"cost"`                       // 累计花费（单价表后续接入）
-	ContextWindow int               `json:"contextWindow,omitempty"`    // 上下文窗口（tokens，水位与压缩推荐用；0 未知）
+	Headers       map[string]string `json:"headers,omitempty"`       // 自定义请求头（网关鉴权、组织 ID 等）
+	Enabled       bool              `json:"enabled"`                 // 每槽至多一条启用
+	Tokens        int               `json:"tokens"`                  // 累计用量（prompt+completion）
+	Cost          float64           `json:"cost"`                    // 累计花费（单价表后续接入）
+	ContextWindow int               `json:"contextWindow,omitempty"` // 上下文窗口（tokens，水位与压缩推荐用；0 未知）
 }
 
 type ModelsConfig struct {
@@ -132,8 +132,9 @@ func (m ModelsConfig) ActiveMain() *ModelEntry {
 /* Settings 是可热更的行为设置。 */
 type Settings struct {
 	SystemExtra    string     `json:"systemExtra"`
-	ToolRules      []ToolRule `json:"toolRules"`     // 审批策略（空 = 内置默认）
+	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
 	CompactPercent int        `json:"compactPercent"` // 上下文压缩水位（模型窗口百分比，0=禁用自动压缩）
+	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录，相对=相对数据目录）
 }
 
 /* Level 是审批策略档位。 */
@@ -191,12 +192,14 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 		SystemExtra     string     `json:"systemExtra"`
 		ToolRules       []ToolRule `json:"toolRules"`
 		CompactPercent  *int       `json:"compactPercent"` // 指针：区分未提交与显式 0（禁用）
+		WorkDir         string     `json:"workDir"`
 		LegacyThreshold int        `json:"compactThreshold"`
 	}
 	if json.Unmarshal(data, &s) != nil {
 		return out
 	}
 	out.SystemExtra = s.SystemExtra
+	out.WorkDir = s.WorkDir
 	switch {
 	case s.CompactPercent != nil:
 		out.CompactPercent = clamp(*s.CompactPercent, 0, 100)

@@ -90,6 +90,7 @@ export interface AppConfig {
 export interface Settings {
   systemExtra: string
   compactPercent?: number | null
+  workDir?: string
 }
 
 export interface ModelEntry {

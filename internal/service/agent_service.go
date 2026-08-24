@@ -14,6 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/core"
@@ -85,7 +87,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	compactHook := hooks.NewCompact(provider, s.Fsys, s.Sess, sys, a.Hub.Topics, traceHook,
-		window*st.CompactPercent/100, // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
+		window*st.CompactPercent/100,                              // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
 		func() string { return buildSystemBase(ctx, st, s.Fsys) }, // compact 即新 session：全量重载
 		func(info hooks.CompactInfo) { a.Hub.Active.SetIdentity(info.NewID) },
 	)
@@ -97,7 +99,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		core.WithHooks(
 			sys, // startHooks 首位：system 唯一来源
 			contextfix.New(),
-			filetools.New(s.Fsys),
+			filetools.New(s.Fsys, filetools.WithWorkDir(resolveWorkDir(st.WorkDir))),
 			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir),
 			statusHook,
 			approver,
@@ -239,6 +241,26 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 }
 
 /*
+resolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录（进程 cwd），
+相对 = 相对数据目录；目录不存在则创建（terminal 的执行目录必须存在）。
+*/
+func resolveWorkDir(spec string) string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		if wd, err := os.Getwd(); err == nil {
+			return wd
+		}
+		return "."
+	}
+	abs, err := filepath.Abs(spec) // 相对路径按进程 cwd（即数据目录）解析
+	if err != nil {
+		return spec
+	}
+	_ = os.MkdirAll(abs, 0o755)
+	return abs
+}
+
+/*
 buildSystemBase 组装 session 的 system 基础段：人格 + SystemExtra +
 标签化注入块（<memory> 长期记忆结构+索引 / <skills> 技能列表 /
 <mcp> MCP 列表）。只在 session 创建时调用一次（同 session 不变）；
@@ -254,9 +276,16 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 	if st.SystemExtra != "" {
 		b.WriteString("\n\n" + st.SystemExtra)
 	}
+	dataDir, _ := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
+	workDir := resolveWorkDir(st.WorkDir)
+	b.WriteString("\n\n<workspace>\n" +
+		"# 工作目录：" + workDir + "（terminal 命令默认在此执行；每条命令是独立进程，cd 不会跨命令保留）\n" +
+		"# 数据目录：" + dataDir + "（settings.json/mcp.json 等配置与 memory/、sessions/ 存档所在）\n" +
+		"# 路径规则：所有文件读写与命令一律使用绝对路径，不要依赖当前目录。\n" +
+		"</workspace>")
 	b.WriteString("\n\n<memory>\n" +
 		"# 长期记忆\n" +
-		"- 根目录 memory/（工作目录相对），分三个区：\n" +
+		"- 根目录 " + filepath.ToSlash(filepath.Join(dataDir, "memory")) + "/，分三个区：\n" +
 		"  - memory/longterm/ —— 长期记忆：harness.md 是索引（下方已加载，" +
 		"可直接用文件工具更新），主题文件按需创建，不进上下文，用 findstr/grep 检索\n" +
 		"  - memory/skills/ —— 能力记忆：沉淀的技能\n" +

@@ -11,9 +11,12 @@
   let appChanged = $state(false)
   let showPaths = $state(false)
 
-  /* 上下文压缩水位（模型窗口百分比；0 = 关闭自动压缩，模型仍可主动调 compact 工具） */
+  /* 上下文压缩水位（模型窗口百分比；0 = 关闭自动压缩，模型仍可主动调 compact 工具）
+  与工作目录（terminal 默认执行目录；空 = 数据目录） */
   let percent = $state<number | ''>('')
   let origPercent = $state<number | null>(null)
+  let workDir = $state('')
+  let origWorkDir = $state('')
   let origExtra = $state('')
   let savingThreshold = $state(false)
   let thresholdMsg = $state('')
@@ -31,6 +34,8 @@
       const st = await api.getSettings()
       percent = st.compactPercent ?? 75
       origPercent = st.compactPercent ?? 75
+      workDir = st.workDir ?? ''
+      origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
@@ -49,8 +54,10 @@
       await api.saveSettings({
         systemExtra: origExtra,
         compactPercent: Math.min(Math.max(Number(percent) || 0, 0), 100),
+        workDir: workDir.trim(),
       })
       origPercent = Math.min(Math.max(Number(percent) || 0, 0), 100)
+      origWorkDir = workDir.trim()
       thresholdMsg = '已保存（下一轮对话生效）'
     } catch (e) {
       thresholdMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
@@ -126,13 +133,22 @@
         <span>压缩水位（窗口百分比）</span>
         <input type="number" bind:value={percent} min="0" max="100" step="5" />
       </label>
+      <label class="field">
+        <span>工作目录</span>
+        <input
+          type="text"
+          bind:value={workDir}
+          placeholder={cfg?.dataDir ?? '空 = 数据目录'}
+          title="terminal 命令默认执行目录；空 = 数据目录，相对路径按数据目录解析，保存时自动创建"
+        />
+      </label>
     </div>
     <button
       class="primary"
-      disabled={savingThreshold || Number(percent) === origPercent}
+      disabled={savingThreshold || (Number(percent) === origPercent && workDir.trim() === origWorkDir)}
       onclick={saveThreshold}
     >
-      {savingThreshold ? '保存中…' : '保存水位'}
+      {savingThreshold ? '保存中…' : '保存'}
     </button>
     {#if thresholdMsg}
       <p class="msg">{thresholdMsg}</p>
