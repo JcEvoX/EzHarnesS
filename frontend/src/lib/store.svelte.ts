@@ -292,8 +292,18 @@ class AppStore {
 
   /* ── 发送 / 取消 ── */
 
+  /* 打断式发送：运行中再来指令 = 先终止当前轮（等引擎真正退出，含工具树杀），
+     再执行新指令；等待超时则放弃并提示。 */
   async send(text: string) {
     if (!this.activeId || !text.trim()) return
+    if (this.busy) {
+      this.lastStatus = '正在终止当前轮…'
+      await this.cancel()
+      if (!(await this.waitIdle(8000))) {
+        this.lastStatus = '当前轮未能及时终止，请稍后重试'
+        return
+      }
+    }
     this.blocks.push({ kind: 'user', uid: this.nuid(), text })
     this.busy = true
     this.lastStatus = ''
@@ -303,6 +313,22 @@ class AppStore {
       this.busy = false
       this.lastStatus = `发送失败：${(e as Error).message}`
     }
+  }
+
+  /* 轮询等待轮结束（turn_end 置 busy=false）；超时返回 false。 */
+  private waitIdle(timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const t0 = Date.now()
+      const timer = setInterval(() => {
+        if (!this.busy) {
+          clearInterval(timer)
+          resolve(true)
+        } else if (Date.now() - t0 > timeoutMs) {
+          clearInterval(timer)
+          resolve(false)
+        }
+      }, 100)
+    })
   }
 
   async cancel() {
@@ -683,9 +709,11 @@ class AppStore {
         this.busy = false
         this.modelActive = false
         this.lastTool = ''
-        // 兜底：残留 building 块（模型输出了调用但引擎未执行）标记完成
+        // 兜底收尾：取消路径引擎不发 model_end，流式块的打字光标须在此收掉；
+        // 残留 building 工具块（模型输出了调用但引擎未执行）同样标记完成
         for (const b of this.blocks) {
           if (b.kind === 'tool' && b.state === 'building') b.state = 'done'
+          if (b.kind === 'assistant' && b.streaming) b.streaming = false
         }
         for (const f of Object.values(this.forks)) {
           for (const t of f.tools) {

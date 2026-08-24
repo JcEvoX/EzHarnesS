@@ -117,9 +117,16 @@
       </svg>
     </button>
     {#if store.busy}
+      <!-- 运行中：⏹ 终止当前轮；已输入文字时 ⬆ 可打断并改发新指令 -->
       <button class="stop" onclick={() => void store.cancel()} title="取消当前轮">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <rect x="7" y="7" width="10" height="10" rx="1.5" />
+        </svg>
+      </button>
+      <button class="send ghost" onclick={send} disabled={!text.trim()} title="终止当前轮并发送新指令">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19V5" />
+          <path d="M5 12l7-5 5 5" />
         </svg>
       </button>
     {:else}
@@ -337,6 +344,17 @@
   .send svg {
     width: 15px;
     height: 15px;
+  }
+  /* 运行中的打断发送键：与 ⏹ 并列，弱化样式区分主操作 */
+  .send.ghost {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--fg);
+    width: 30px;
+    height: 30px;
+  }
+  .send.ghost:disabled {
+    opacity: 0.25;
   }
   .send:disabled {
     opacity: 0.2;
