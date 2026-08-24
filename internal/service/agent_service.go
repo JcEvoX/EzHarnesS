@@ -287,18 +287,20 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"# 数据目录：" + dataDir + "（settings.json/mcp.json 等配置与 memory/、sessions/ 存档所在）\n" +
 		"# 路径规则：所有文件读写与命令一律使用绝对路径，不要依赖当前目录。\n" +
 		"</workspace>")
+	memRoot := filepath.ToSlash(filepath.Join(dataDir, "memory"))
 	b.WriteString("\n\n<memory>\n" +
-		"# 长期记忆\n" +
-		"- 根目录 " + filepath.ToSlash(filepath.Join(dataDir, "memory")) + "/，分三个区：\n" +
-		"  - memory/longterm/ —— 长期记忆：harness.md 是索引（下方已加载，" +
-		"可直接用文件工具更新），主题文件按需创建，不进上下文，用 findstr/grep 检索\n" +
-		"  - memory/skills/ —— 能力记忆：沉淀的技能\n" +
-		"  - sessions/ —— 话题存档：历史会话全文（compact 后的旧库）\n" +
-		"# 索引（harness.md）\n" +
+		"# 长期记忆（下列均为完整绝对路径，直接使用，不要自行拼接）\n" +
+		"- 索引 " + memRoot + "/longterm/harness.md：长期记忆入口，全文见下方，可用文件工具直接更新\n" +
+		"- 主题记忆 " + memRoot + "/longterm/：按主题的记忆文件（如 user.md），按需创建，不进上下文，用 findstr/grep 检索\n" +
+		"- 技能 " + memRoot + "/skills/：沉淀的技能，每技能一个子目录（清单见 <skills>）\n" +
+		"- 话题存档 " + filepath.ToSlash(filepath.Join(dataDir, "sessions")) + "/：历史会话全文（compact 后的旧库；在数据目录下，不在 memory 里）\n" +
+		"# 索引 harness.md 全文\n" +
 		hooks.EnsureHarnessMd(ctx, fsys) +
 		"\n</memory>")
 	if skills, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir); err == nil && len(skills) > 0 {
-		b.WriteString("\n\n<skills>\n（仅名称与描述；使用前先调用 load_skill 获取完整指令与脚本路径）")
+		b.WriteString("\n\n<skills>\n（本清单由系统运行时生成，不在任何文件里；技能正文在 " +
+			memRoot+"/skills/<名>/SKILL.md，可用文件工具编辑，改动下个 session 生效；"+
+			"使用前先调用 load_skill 获取完整指令与脚本路径）")
 		for _, sk := range skills {
 			fmt.Fprintf(&b, "\n- %s: %s", sk.Name, sk.Description)
 		}
