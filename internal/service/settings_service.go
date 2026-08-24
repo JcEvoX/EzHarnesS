@@ -24,12 +24,13 @@ type SettingsService struct {
 }
 
 /* SettingsView 是设置页行为设置视图（模型归 /api/models）。
-CompactPercent/WorkDir 用指针：区分"未提交该字段"与"提交空值
-（0=禁用压缩 / 空=工作目录回默认）"。 */
+CompactPercent/WorkDir/CloseToTray 用指针：区分"未提交该字段"与"提交
+空值（0=禁用压缩 / 空=工作目录回默认 / false=关闭托盘常驻）"。 */
 type SettingsView struct {
 	SystemExtra    string  `json:"systemExtra"`
 	CompactPercent *int    `json:"compactPercent,omitempty"`
 	WorkDir        *string `json:"workDir,omitempty"`
+	CloseToTray    *bool   `json:"closeToTray,omitempty"`
 }
 
 /* Get 返回当前行为设置。 */
@@ -37,7 +38,7 @@ func (s *SettingsService) Get() SettingsView {
 	st := s.Hub.SettingsSnapshot()
 	p := st.CompactPercent
 	w := st.WorkDir
-	return SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: &w}
+	return SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: &w, CloseToTray: &st.CloseToTray}
 }
 
 /* Update 保存行为设置并重建 agent（busy 时拒绝；水位随 Reassemble 生效）。 */
@@ -52,6 +53,9 @@ func (s *SettingsService) Update(v SettingsView) error {
 	}
 	if v.WorkDir != nil {
 		st.WorkDir = strings.TrimSpace(*v.WorkDir)
+	}
+	if v.CloseToTray != nil {
+		st.CloseToTray = *v.CloseToTray
 	}
 	if st.WorkDir != "" {
 		if abs, err := filepath.Abs(st.WorkDir); err == nil {

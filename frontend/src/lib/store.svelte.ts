@@ -77,7 +77,7 @@ function nowHM(): string {
   return new Date().toTimeString().slice(0, 5)
 }
 
-/* 解析 <agent_status> 载荷（非状态记录返回 null） */
+/* 解析 <agent_status> 载荷（旧格式 JSON；新格式中文文本返回 null） */
 function parseStatus(content: string): StatusPayload | null {
   const open = '<agent_status>'
   const close = '</agent_status>'
@@ -90,6 +90,34 @@ function parseStatus(content: string): StatusPayload | null {
   } catch {
     return null
   }
+}
+
+/* 提取 <end_reason> 正文为一行 */
+function endReasonText(content: string): string {
+  const m = content.match(/<end_reason>([\s\S]*?)<\/end_reason>/)
+  return (m?.[1] ?? '').trim().replace(/\s+/g, ' ')
+}
+
+/* 终止原因文案（completed 由调用方排除，不产生提示） */
+function stopNote(reason: string): string {
+  switch (reason) {
+    case 'cancelled':
+      return '用户手动停止本轮'
+    case 'max_iterations':
+      return '达到最大迭代次数上限'
+    case 'error':
+      return '执行出错中止'
+    case 'aborted':
+      return '被策略中止'
+    default:
+      return `本轮结束（${reason}）`
+  }
+}
+
+function fmtDur(totalSecs: number): string {
+  if (totalSecs < 60) return `${totalSecs} 秒`
+  if (totalSecs < 3600) return `${Math.floor(totalSecs / 60)} 分 ${totalSecs % 60} 秒`
+  return `${Math.floor(totalSecs / 3600)} 小时 ${Math.floor((totalSecs % 3600) / 60)} 分钟`
 }
 
 class AppStore {
@@ -199,12 +227,19 @@ class AppStore {
     const out: Block[] = []
     for (const m of messages) {
       if (m.role === 'user') {
-        const d = parseStatus(m.content)
-        // 状态记录仅异常时（推荐压缩/资源变更）入时间线，平时只在右上角
+        const d = parseStatus(m.content) // 旧格式：JSON 载荷
         if (d) {
+          // 状态记录仅异常时（推荐压缩/资源变更）入时间线，平时只在右上角
           if (d.suggestCompact || d.changes?.length) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: d })
           }
+        } else if (m.content.includes('<agent_status>')) {
+          // 新格式：中文语义化文本；同样仅异常行进时间线
+          if (m.content.includes('建议压缩') || m.content.includes('资源变更')) {
+            out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
+          }
+        } else if (m.content.includes('<end_reason>')) {
+          out.push({ kind: 'note', uid: this.nuid(), text: `⏹ ${endReasonText(m.content)}` })
         } else {
           out.push({ kind: 'user', uid: this.nuid(), text: m.content })
         }
@@ -257,8 +292,18 @@ class AppStore {
 
   /* ── 发送 / 取消 ── */
 
+  /* 打断式发送：运行中再来指令 = 先终止当前轮（等引擎真正退出，含工具树杀），
+     再执行新指令；等待超时则放弃并提示。 */
   async send(text: string) {
     if (!this.activeId || !text.trim()) return
+    if (this.busy) {
+      this.lastStatus = '正在终止当前轮…'
+      await this.cancel()
+      if (!(await this.waitIdle(8000))) {
+        this.lastStatus = '当前轮未能及时终止，请稍后重试'
+        return
+      }
+    }
     this.blocks.push({ kind: 'user', uid: this.nuid(), text })
     this.busy = true
     this.lastStatus = ''
@@ -268,6 +313,22 @@ class AppStore {
       this.busy = false
       this.lastStatus = `发送失败：${(e as Error).message}`
     }
+  }
+
+  /* 轮询等待轮结束（turn_end 置 busy=false）；超时返回 false。 */
+  private waitIdle(timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const t0 = Date.now()
+      const timer = setInterval(() => {
+        if (!this.busy) {
+          clearInterval(timer)
+          resolve(true)
+        } else if (Date.now() - t0 > timeoutMs) {
+          clearInterval(timer)
+          resolve(false)
+        }
+      }, 100)
+    })
   }
 
   async cancel() {
@@ -571,7 +632,7 @@ class AppStore {
         }
         const dtype: DecisionData['dtype'] =
           ev.type === 'approve.request' ? 'approve' : ev.type === 'askuser.request' ? 'ask' : 'plan'
-        this.blocks.push({
+        const card: Block = {
           kind: 'decision',
           uid: this.nuid(),
           id,
@@ -583,7 +644,11 @@ class AppStore {
           forkId: ev.forkId || '',
           resolved: false,
           resolution: '',
-        })
+        }
+        // 决策卡紧跟对应工具卡成组展示；无对应工具卡（fork 内等）时兜底追加末尾
+        const ti = this.blocks.findIndex((b) => b.kind === 'tool' && b.id === id)
+        if (ti >= 0) this.blocks.splice(ti + 1, 0, card)
+        else this.blocks.push(card)
         // 通知栏同步：fork 内请求带 fork 标识，跳转锚点指向时间线决策卡；最新在最前
         this.notices.unshift({
           id,
@@ -644,9 +709,11 @@ class AppStore {
         this.busy = false
         this.modelActive = false
         this.lastTool = ''
-        // 兜底：残留 building 块（模型输出了调用但引擎未执行）标记完成
+        // 兜底收尾：取消路径引擎不发 model_end，流式块的打字光标须在此收掉；
+        // 残留 building 工具块（模型输出了调用但引擎未执行）同样标记完成
         for (const b of this.blocks) {
           if (b.kind === 'tool' && b.state === 'building') b.state = 'done'
+          if (b.kind === 'assistant' && b.streaming) b.streaming = false
         }
         for (const f of Object.values(this.forks)) {
           for (const t of f.tools) {
@@ -672,6 +739,15 @@ class AppStore {
         this.lastStatus =
           `${d.stopReason || 'end'} · ${d.iterations ?? 0} 迭代` +
           (u ? ` · 本轮 ${u.PromptTokens}→${u.CompletionTokens} tokens（缓存 ${u.CachedTokens}）` : '')
+        // 非正常终止：时间线补一条结束原因（持久化正文已由后端写入历史）
+        if (d.stopReason && d.stopReason !== 'completed') {
+          const secs = d.elapsedMs ? Math.round(d.elapsedMs / 1000) : 0
+          this.blocks.push({
+            kind: 'note',
+            uid: this.nuid(),
+            text: `⏹ ${stopNote(d.stopReason)}（${d.iterations ?? 0} 轮${secs ? ` · ${fmtDur(secs)}` : ''}）`,
+          })
+        }
         void this.refreshStatus()
         break
       }

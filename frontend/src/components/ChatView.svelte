@@ -130,14 +130,16 @@
     min-height: 0;
     display: flex;
   }
-  /* 主列：聊天记录 + 输入框。右侧悬浮列不占布局宽度，内容在整体
-  偏左的区域居中（留出右侧给悬浮卡，窄屏时允许少量重叠） */
+  /* 主列：聊天记录 + 输入框。限制最大宽度并在剩余空间居中，
+  时间线滚动条因此贴在内容右缘，而不是被推到窗口最右侧；
+  右侧悬浮列不占布局宽度，窄屏时允许少量重叠 */
   .main-col {
     flex: 1;
     min-width: 0;
+    max-width: 880px;
+    margin: 0 auto;
     display: flex;
     flex-direction: column;
-    padding-right: 128px;
   }
   /* 右侧悬浮列：状态卡 + 通知栏浮在内容之上。容器点击穿透，
   卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */
@@ -146,7 +148,7 @@
     top: 16px;
     right: 16px;
     bottom: 30px;
-    width: 232px;
+    width: 260px;
     z-index: 5;
     display: flex;
     flex-direction: column;

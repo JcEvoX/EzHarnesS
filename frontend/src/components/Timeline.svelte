@@ -1,14 +1,45 @@
 <script lang="ts">
-  import { store } from '../lib/store.svelte'
+  import { store, type Block } from '../lib/store.svelte'
   import Logo from './Logo.svelte'
   import MessageItem from './MessageItem.svelte'
   import ToolBlock from './ToolBlock.svelte'
+  import ToolGroup from './ToolGroup.svelte'
   import ForkCard from './ForkCard.svelte'
   import DecisionCard from './DecisionCard.svelte'
   import StatusTagCard from './StatusTagCard.svelte'
 
   let el: HTMLDivElement
   let stick = true
+
+  /* 连续工具段分组：≥ TOOL_GROUP_MIN 折成一条摘要（审批卡等非 tool 块打断分组） */
+  const TOOL_GROUP_MIN = 5
+  type Seg = { type: 'one'; b: Block } | { type: 'tools'; blocks: Block[] }
+  const segs = $derived.by(() => {
+    const out: Seg[] = []
+    let cur: Block[] = []
+    const flush = () => {
+      if (cur.length) out.push({ type: 'tools', blocks: cur })
+      cur = []
+    }
+    for (const b of store.blocks) {
+      if (b.kind === 'tool') cur.push(b)
+      else {
+        flush()
+        out.push({ type: 'one', b })
+      }
+    }
+    flush()
+    return out
+  })
+
+  let openGroups = $state<Set<number>>(new Set())
+
+  function toggleGroup(key: number) {
+    const s = new Set(openGroups)
+    if (s.has(key)) s.delete(key)
+    else s.add(key)
+    openGroups = s
+  }
 
   /* ── 下拉加载（pull-to-load）：置顶后 wheel 向上/触屏下拉累积拉动量，
      达阈值拉出上一会话；指示器随拉动量渐显，内容展开动画 ── */
@@ -96,11 +127,13 @@
     if (loading) return
     loading = true
     pull = THRESHOLD // 加载期间保持指示器可见
+    const prevHeight = el?.scrollHeight ?? 0
     await store.loadPrev()
     loading = false
     pull = 0
     if (!store.hasPrev) hintNoMore()
-    if (el) el.scrollTop = 0 // 视口停在拉出内容的顶部
+    // prepend 高度补偿：视口停在原有内容处，不跳顶
+    if (el) el.scrollTop = el.scrollHeight - prevHeight
   }
 
   function onScroll() {
@@ -140,41 +173,48 @@
         </span>
       </div>
     {/if}
-    {#each store.blocks as b (b.uid)}
-      {#if b.kind === 'user'}
-        <div class:reveal={store.batchIds.has(b.uid)}>
-          <MessageItem text={b.text} role="user" />
+    {#each segs as seg}
+      {#if seg.type === 'tools'}
+        {@const key = seg.blocks[0].uid}
+        {#if seg.blocks.length >= TOOL_GROUP_MIN}
+          <ToolGroup blocks={seg.blocks} open={openGroups.has(key)} onToggle={() => toggleGroup(key)} />
+        {:else}
+          {#each seg.blocks as b (b.uid)}
+            <div class:reveal={store.batchIds.has(b.uid)}>
+              <ToolBlock data={b} />
+            </div>
+          {/each}
+        {/if}
+      {:else if seg.b.kind === 'user'}
+        <div class:reveal={store.batchIds.has(seg.b.uid)}>
+          <MessageItem text={seg.b.text} role="user" />
         </div>
-      {:else if b.kind === 'assistant'}
-        <div class:reveal={store.batchIds.has(b.uid)}>
-          <MessageItem text={b.text} reasoning={b.reasoning} streaming={b.streaming} role="assistant" />
+      {:else if seg.b.kind === 'assistant'}
+        <div class:reveal={store.batchIds.has(seg.b.uid)}>
+          <MessageItem text={seg.b.text} reasoning={seg.b.reasoning} streaming={seg.b.streaming} role="assistant" />
         </div>
-      {:else if b.kind === 'tool'}
-        <div class:reveal={store.batchIds.has(b.uid)}>
-          <ToolBlock data={b} />
+      {:else if seg.b.kind === 'fork'}
+        <div class:reveal={store.batchIds.has(seg.b.uid)}>
+          <ForkCard fork={store.forks[seg.b.forkId]} />
         </div>
-      {:else if b.kind === 'fork'}
-        <div class:reveal={store.batchIds.has(b.uid)}>
-          <ForkCard fork={store.forks[b.forkId]} />
+      {:else if seg.b.kind === 'decision'}
+        <div id={`decision-${seg.b.id}`} class:reveal={store.batchIds.has(seg.b.uid)}>
+          <DecisionCard data={seg.b} />
         </div>
-      {:else if b.kind === 'decision'}
-        <div id={`decision-${b.id}`} class:reveal={store.batchIds.has(b.uid)}>
-          <DecisionCard data={b} />
+      {:else if seg.b.kind === 'status'}
+        <div class:reveal={store.batchIds.has(seg.b.uid)}>
+          <StatusTagCard data={seg.b.data} raw={seg.b.text} />
         </div>
-      {:else if b.kind === 'status'}
-        <div class:reveal={store.batchIds.has(b.uid)}>
-          <StatusTagCard data={b.data} raw={b.text} />
-        </div>
-      {:else if b.kind === 'note'}
-        <div class="note" class:reveal={store.batchIds.has(b.uid)}>
+      {:else if seg.b.kind === 'note'}
+        <div class="note" class:reveal={store.batchIds.has(seg.b.uid)}>
           <span class="line"></span>
-          {b.text}
+          {seg.b.text}
           <span class="line"></span>
         </div>
       {/if}
     {/each}
-    {#if thinking}
-      <div class="thinking"><span class="tdot"></span>模型输出中…</div>
+    {#if thinking || store.lastTool}
+      <div class="thinking"><span class="tdot"></span>{store.lastTool ? `⚙ ${store.lastTool} 执行中…` : '模型输出中…'}</div>
     {/if}
     {#if store.blocks.length === 0}
       <div class="empty">

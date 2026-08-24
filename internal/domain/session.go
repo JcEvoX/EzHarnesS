@@ -174,11 +174,15 @@ func (s *Session) StartRun(ctx context.Context, text string) (*core.RunHandle, c
 	return h, cancel, nil
 }
 
-/* FinishRun 结束当前轮：更新历史、清未决请求、释放占用。
-返回本轮是否发生了状态更新（state 非 nil 时历史以 state 为准）。 */
+/*
+FinishRun 结束当前轮：更新历史、清未决请求、释放占用。
+历史以 state 为准（含手动取消/出错轮）：引擎保证每个已入史的 tool_call
+都有结果消息，取消轮的部分输出也保留--sessionstore 落盘的与内存的
+必须一致，否则同进程续聊丢上下文（重启反而恢复）。
+*/
 func (s *Session) FinishRun(state *types.LoopState, runErr error) {
 	s.mu.Lock()
-	if state != nil && runErr == nil {
+	if state != nil {
 		s.history = state.Messages
 	}
 	s.cur = nil

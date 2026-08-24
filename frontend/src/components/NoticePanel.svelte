@@ -258,7 +258,11 @@
     gap: 8px;
     max-height: 45vh;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
+    /* 两侧留 6px：pending 态负边距（-6px）恰好贴到 padding box 边缘，
+       既保留左侧通栏高亮又不产生横向溢出 */
+    padding: 0 6px;
   }
   .notice {
     display: flex;

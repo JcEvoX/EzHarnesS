@@ -11,6 +11,7 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -34,8 +35,9 @@ type StatusMcp struct {
 	Desc string `json:"desc,omitempty"`
 }
 
-/* StatusData 是状态记录内容（JSON，前端直接解析渲染）。
-skill/mcp 全量清单在 system（<skills>/<mcp> 块），这里只注入变更。 */
+/* StatusData 是状态快照内容（SSE 事件给前端渲染；注入给模型的正文
+由 render 转成中文语义化文本）。skill/mcp 全量清单在 system
+（<skills>/<mcp> 块），这里只注入变更。 */
 type StatusData struct {
 	Now                string   `json:"now"`
 	SinceLastOutputMin int64    `json:"sinceLastOutputMin"` // 0 = 无记录
@@ -69,7 +71,7 @@ func (h *Status) Name() string { return "status" }
 /* OnStart 组装状态并在用户输入前插入（startHooks 运行时末条必为本轮 input）。 */
 func (h *Status) OnStart(ctx context.Context, state *types.LoopState) error {
 	data := h.build(ctx)
-	content := "<" + StatusTag + ">\n" + jsonOf(data) + "\n</" + StatusTag + ">"
+	content := "<" + StatusTag + ">\n" + renderStatus(data) + "\n</" + StatusTag + ">"
 
 	msg := types.Message{Role: types.RoleUser, Content: content}
 	if n := len(state.Messages); n > 0 && state.Messages[n-1].Role == types.RoleUser {
@@ -79,6 +81,29 @@ func (h *Status) OnStart(ctx context.Context, state *types.LoopState) error {
 	}
 	state.EmitEvent(EventStatus, data)
 	return nil
+}
+
+/*
+renderStatus 把状态数据渲染成模型可读的中文文本（裸 JSON 的键名与
+"+ mcp" 之类缩写对模型不友好）。前端历史重建按关键词识别异常行
+（建议压缩/资源变更），普通轮次不进时间线。
+*/
+func renderStatus(d StatusData) string {
+	var b strings.Builder
+	b.WriteString("当前时间：" + d.Now)
+	if d.CtxWindow > 0 {
+		fmt.Fprintf(&b, "\n上下文水位：%d / %d tokens", d.CtxTokens, d.CtxWindow)
+		if d.SuggestCompact {
+			b.WriteString("（已超窗口 70%，建议调用 compact_context 压缩上下文）")
+		}
+	}
+	if d.SinceLastOutputMin > 0 {
+		fmt.Fprintf(&b, "\n距上次输出：%d 分钟", d.SinceLastOutputMin)
+	}
+	if len(d.Changes) > 0 {
+		b.WriteString("\n本轮资源变更：" + strings.Join(d.Changes, "；"))
+	}
+	return b.String()
 }
 
 /* OnEnd 记录最近输出时间（下轮"距上次输出"用）。 */
@@ -122,28 +147,38 @@ func (h *Status) build(ctx context.Context) StatusData {
 	return data
 }
 
-/* diffNames 对比新旧名单产出变更记录（新增 + / 移除 -）。 */
+/* diffNames 对比新旧名单产出变更记录（中文完整短语，模型可读）。 */
 func diffNames(oldS, newS []string, kind string) []string {
+	label := map[string]string{"skill": "技能", "mcp": "MCP 服务"}[kind]
 	var out []string
 	for _, n := range newS {
 		if !slices.Contains(oldS, n) {
-			out = append(out, "+ "+kind+": "+n)
+			out = append(out, "新增"+label+" "+n)
 		}
 	}
 	for _, n := range oldS {
 		if !slices.Contains(newS, n) {
-			out = append(out, "- "+kind+": "+n)
+			out = append(out, "移除"+label+" "+n)
 		}
 	}
 	return out
 }
 
-func jsonOf(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "{}"
+/* FriendlyStop 把轮停止原因映射为终止说明（end_reason 记录用；completed 返回空）。 */
+func FriendlyStop(reason string) string {
+	switch reason {
+	case "cancelled":
+		return "用户手动停止本轮"
+	case "max_iterations":
+		return "达到最大迭代次数上限，本轮结束"
+	case "aborted":
+		return "被策略中止"
+	case "error":
+		return "执行出错中止"
+	case "":
+		return ""
 	}
-	return string(b)
+	return "本轮结束（" + reason + "）"
 }
 
 /* ParseStatusTag 从消息内容解析 <agent_status> 载荷（非状态记录返回 nil）。 */
