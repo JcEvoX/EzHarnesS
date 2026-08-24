@@ -34,6 +34,7 @@ func (c *ChatService) Send(text string) error {
 	}
 
 	go func() {
+		started := time.Now()
 		for ev := range h.Events() {
 			if ev.Type == event.EventModelEnd {
 				if r, ok := ev.Data.(*types.ModelResponse); ok {
@@ -49,11 +50,14 @@ func (c *ChatService) Send(text string) error {
 			usage = &state.Usage
 			stop, iters = string(state.StopReason), state.Iteration
 		}
+		if stop == "" && waitErr != nil {
+			stop = "error" // 与 TurnEnd 帧同口径
+		}
 		s.FinishRun(state, waitErr)
 		cancel() // 释放 turnCtx（决策 select 的 Done 依赖）
 		c.Hub.Stats.AddTurn(usage)
 		c.Hub.RecordUsage(usage) // 主模型条目用量累计
-		s.Publish(domain.TurnEnd(stop, iters, usage, waitErr))
+		s.Publish(domain.TurnEnd(stop, iters, usage, waitErr, time.Since(started).Milliseconds()))
 	}()
 	return nil
 }

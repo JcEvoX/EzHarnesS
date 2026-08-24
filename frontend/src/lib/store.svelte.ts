@@ -77,7 +77,7 @@ function nowHM(): string {
   return new Date().toTimeString().slice(0, 5)
 }
 
-/* 解析 <agent_status> 载荷（非状态记录返回 null） */
+/* 解析 <agent_status> 载荷（旧格式 JSON；新格式中文文本返回 null） */
 function parseStatus(content: string): StatusPayload | null {
   const open = '<agent_status>'
   const close = '</agent_status>'
@@ -90,6 +90,34 @@ function parseStatus(content: string): StatusPayload | null {
   } catch {
     return null
   }
+}
+
+/* 提取 <end_reason> 正文为一行 */
+function endReasonText(content: string): string {
+  const m = content.match(/<end_reason>([\s\S]*?)<\/end_reason>/)
+  return (m?.[1] ?? '').trim().replace(/\s+/g, ' ')
+}
+
+/* 终止原因文案（completed 由调用方排除，不产生提示） */
+function stopNote(reason: string): string {
+  switch (reason) {
+    case 'cancelled':
+      return '用户手动停止本轮'
+    case 'max_iterations':
+      return '达到最大迭代次数上限'
+    case 'error':
+      return '执行出错中止'
+    case 'aborted':
+      return '被策略中止'
+    default:
+      return `本轮结束（${reason}）`
+  }
+}
+
+function fmtDur(totalSecs: number): string {
+  if (totalSecs < 60) return `${totalSecs} 秒`
+  if (totalSecs < 3600) return `${Math.floor(totalSecs / 60)} 分 ${totalSecs % 60} 秒`
+  return `${Math.floor(totalSecs / 3600)} 小时 ${Math.floor((totalSecs % 3600) / 60)} 分钟`
 }
 
 class AppStore {
@@ -199,12 +227,19 @@ class AppStore {
     const out: Block[] = []
     for (const m of messages) {
       if (m.role === 'user') {
-        const d = parseStatus(m.content)
-        // 状态记录仅异常时（推荐压缩/资源变更）入时间线，平时只在右上角
+        const d = parseStatus(m.content) // 旧格式：JSON 载荷
         if (d) {
+          // 状态记录仅异常时（推荐压缩/资源变更）入时间线，平时只在右上角
           if (d.suggestCompact || d.changes?.length) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: d })
           }
+        } else if (m.content.includes('<agent_status>')) {
+          // 新格式：中文语义化文本；同样仅异常行进时间线
+          if (m.content.includes('建议压缩') || m.content.includes('资源变更')) {
+            out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
+          }
+        } else if (m.content.includes('<end_reason>')) {
+          out.push({ kind: 'note', uid: this.nuid(), text: `⏹ ${endReasonText(m.content)}` })
         } else {
           out.push({ kind: 'user', uid: this.nuid(), text: m.content })
         }
@@ -676,6 +711,15 @@ class AppStore {
         this.lastStatus =
           `${d.stopReason || 'end'} · ${d.iterations ?? 0} 迭代` +
           (u ? ` · 本轮 ${u.PromptTokens}→${u.CompletionTokens} tokens（缓存 ${u.CachedTokens}）` : '')
+        // 非正常终止：时间线补一条结束原因（持久化正文已由后端写入历史）
+        if (d.stopReason && d.stopReason !== 'completed') {
+          const secs = d.elapsedMs ? Math.round(d.elapsedMs / 1000) : 0
+          this.blocks.push({
+            kind: 'note',
+            uid: this.nuid(),
+            text: `⏹ ${stopNote(d.stopReason)}（${d.iterations ?? 0} 轮${secs ? ` · ${fmtDur(secs)}` : ''}）`,
+          })
+        }
         void this.refreshStatus()
         break
       }

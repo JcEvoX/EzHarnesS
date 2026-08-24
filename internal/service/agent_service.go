@@ -110,6 +110,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, taskplan.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
 			compactHook, // OnEnd 在 trace/store 之前：截断+换库先发生
 			traceHook,
+			hooks.NewEndNote(), // 非正常终止补 <end_reason>，须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
 		),
 		core.WithLoopParams(core.LoopParams{MaxIterations: 12}),

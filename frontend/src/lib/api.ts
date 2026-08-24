@@ -25,7 +25,8 @@ export interface SseEvent {
   data?: any
 }
 
-/* agent_status 状态栏载荷（后端 hooks.StatusData 的 JSON 形状） */
+/* agent_status 状态栏载荷（后端 hooks.StatusData 的 JSON 形状，SSE snapshot 用；
+   注入消息历史的正文是中文语义化文本，历史重建走关键词识别） */
 export interface StatusPayload {
   now: string
   sinceLastOutputMin: number

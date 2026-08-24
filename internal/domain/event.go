@@ -71,6 +71,7 @@ type TurnEndData struct {
 	StopReason string       `json:"stopReason"`
 	Err        string       `json:"err,omitempty"`
 	Iterations int          `json:"iterations"`
+	ElapsedMs  int64        `json:"elapsedMs,omitempty"` // 本轮总耗时（前端终止提示用）
 	Usage      *types.Usage `json:"usage,omitempty"`
 }
 
@@ -145,8 +146,8 @@ func mapTaskEvent(out *Event, e event.Event) {
 }
 
 /* TurnEnd 构造合成的 turn_end 帧。 */
-func TurnEnd(stop string, iterations int, usage *types.Usage, err error) Event {
-	d := TurnEndData{StopReason: stop, Iterations: iterations, Usage: usage}
+func TurnEnd(stop string, iterations int, usage *types.Usage, err error, elapsedMs int64) Event {
+	d := TurnEndData{StopReason: stop, Iterations: iterations, ElapsedMs: elapsedMs, Usage: usage}
 	if err != nil {
 		d.Err = err.Error()
 		if d.StopReason == "" {

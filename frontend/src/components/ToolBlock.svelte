@@ -20,6 +20,16 @@
   /* building 态参数尾部预览（tail 跟随，像日志一样看内容增长） */
   const tail = $derived(data.state === 'building' ? data.args.slice(-600) : '')
   const nchars = $derived(data.args.length)
+
+  /* done 态折叠时结果首行摘要：不用展开即可大致知道干了什么 */
+  const preview = $derived.by(() => {
+    if (data.state !== 'done') return ''
+    const src = (data.err || data.result || '').trim()
+    if (!src) return ''
+    const line = src.split(/\r?\n/).find((l) => l.trim()) || ''
+    const one = line.trim().replace(/\s+/g, ' ')
+    return one.length > 90 ? one.slice(0, 90) + '…' : one
+  })
 </script>
 
 <div class="tool enter-rise" class:done={data.state === 'done'}>
@@ -40,6 +50,9 @@
     {/if}
     {#if data.state === 'building'}
       <span class="building-tag">构造中 {nchars} 字</span>
+    {/if}
+    {#if preview && !shown}
+      <span class="preview" title={preview}>{preview}</span>
     {/if}
     {#if data.state === 'done' && data.err}
       <span class="err-tag">error</span>
@@ -155,6 +168,19 @@
     font-size: 10px;
     color: var(--faint);
     font-variant-numeric: tabular-nums;
+  }
+  /* 折叠态结果首行摘要：右侧弹性截断，与 error 徽标同侧 */
+  .preview {
+    margin-left: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .preview + .err-tag {
+    margin-left: 8px;
   }
   pre.stream {
     font-family: var(--font-mono);

@@ -19,10 +19,11 @@
       <span class="warn">推荐压缩</span>
     {/if}
     {#each data.changes || [] as c (c)}
-      <span class={c.startsWith('+') ? 'add' : 'del'}>{c}</span>
+      <span class={c.startsWith('新增') ? 'add' : 'del'}>{c}</span>
     {/each}
   {:else}
-    <pre class="raw">{raw}</pre>
+    <!-- 新格式：中文语义化正文，原文展示 -->
+    <pre class="raw">{raw.replace(/^<agent_status>|<\/agent_status>$/g, '').trim()}</pre>
   {/if}
 </div>
 

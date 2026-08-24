@@ -173,8 +173,8 @@
         </div>
       {/if}
     {/each}
-    {#if thinking}
-      <div class="thinking"><span class="tdot"></span>模型输出中…</div>
+    {#if thinking || store.lastTool}
+      <div class="thinking"><span class="tdot"></span>{store.lastTool ? `⚙ ${store.lastTool} 执行中…` : '模型输出中…'}</div>
     {/if}
     {#if store.blocks.length === 0}
       <div class="empty">

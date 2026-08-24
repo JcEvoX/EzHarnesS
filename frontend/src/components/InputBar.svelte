@@ -60,7 +60,9 @@
 
 <div class="bar" class:focused>
   <div class="fade"></div>
-  {#if store.lastStatus}
+  {#if store.busy && store.lastTool}
+    <div class="status">⚙ {store.lastTool} 执行中…（点击 ⏹ 终止）</div>
+  {:else if store.lastStatus}
     <div class="status">{store.lastStatus}</div>
   {/if}
   {#if files.length}
