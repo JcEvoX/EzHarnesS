@@ -25,9 +25,9 @@
   let saving = $state(false)
   let message = $state('')
   let adding = $state<SlotKey | null>(null)
-  let draft = $state({ name: '', baseUrl: '', apiKey: '', pairs: [] as HeaderPair[] })
+  let draft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, pairs: [] as HeaderPair[] })
   let editing = $state<{ slot: SlotKey; idx: number } | null>(null)
-  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', pairs: [] as HeaderPair[] })
+  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, pairs: [] as HeaderPair[] })
 
   onMount(async () => {
     try {
@@ -89,9 +89,10 @@
         enabled: cfg[slot].length === 0,
         tokens: 0,
         cost: 0,
+        contextWindow: Number(draft.contextWindow) || 0,
       },
     ]
-    draft = { name: '', baseUrl: '', apiKey: '', pairs: [] }
+    draft = { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, pairs: [] }
     adding = null
     void persist()
   }
@@ -104,6 +105,7 @@
       name: m.name,
       baseUrl: m.baseUrl,
       apiKey: m.apiKey,
+      contextWindow: m.contextWindow || 128000,
       pairs: Object.entries(m.headers ?? {}).map(([key, value]) => ({ key, value })),
     }
   }
@@ -121,6 +123,7 @@
             baseUrl: editDraft.baseUrl.trim(),
             apiKey: editDraft.apiKey.trim(),
             headers: Object.keys(headers).length ? headers : undefined, // 删光时清掉旧值
+            contextWindow: Number(editDraft.contextWindow) || 0,
           }
         : e,
     )
@@ -172,7 +175,7 @@
                 <button class="dot" class:on={m.enabled} onclick={() => enable(k.key, i)} title={m.enabled ? '已启用' : '点击启用'}></button>
                 <div class="info">
                   <span class="name">{m.name}</span>
-                  <span class="meta">{m.baseUrl} · {maskKey(m.apiKey)}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
+                  <span class="meta">{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
                 </div>
                 <div class="usage">
                   <span class="tokens" title="累计用量">{m.tokens > 0 ? fmtTokens(m.tokens) : '0'} tokens</span>
@@ -185,6 +188,7 @@
                   <input type="text" placeholder="模型名" bind:value={editDraft.name} />
                   <input type="text" placeholder="API 端点" bind:value={editDraft.baseUrl} />
                   <input type="password" placeholder="API Key" bind:value={editDraft.apiKey} />
+                  <input type="number" placeholder="上下文窗口（tokens）" bind:value={editDraft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
                   {#each editDraft.pairs as p, j}
                     <div class="hdr-row">
                       <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />
@@ -213,6 +217,7 @@
               <input type="text" placeholder="模型名（如 deepseek-ai/DeepSeek-V3.2）" bind:value={draft.name} />
               <input type="text" placeholder={defaultBase()} bind:value={draft.baseUrl} />
               <input type="password" placeholder="API Key" bind:value={draft.apiKey} />
+              <input type="number" placeholder="上下文窗口（tokens）" bind:value={draft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
               {#each draft.pairs as p, j}
                 <div class="hdr-row">
                   <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />

@@ -36,10 +36,10 @@ type BootstrapData struct {
 func (s *SessionService) Bootstrap() BootstrapData {
 	sess := s.Hub.Active
 	st := s.Hub.SettingsSnapshot()
-	p := st.CompactThreshold
+	p := st.CompactPercent
 	return BootstrapData{
 		SessionID:    sess.ID,
-		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactThreshold: &p},
+		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p},
 		Status:       s.Snapshot(),
 		MemoryExists: memoryExists(s.Hub.Fsys),
 	}

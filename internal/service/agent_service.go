@@ -85,7 +85,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	compactHook := hooks.NewCompact(provider, s.Fsys, s.Sess, sys, a.Hub.Topics, traceHook,
-		a.Hub.SettingsSnapshot().CompactThreshold,
+		window*st.CompactPercent/100, // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
 		func() string { return buildSystemBase(ctx, st, s.Fsys) }, // compact 即新 session：全量重载
 		func(info hooks.CompactInfo) { a.Hub.Active.SetIdentity(info.NewID) },
 	)

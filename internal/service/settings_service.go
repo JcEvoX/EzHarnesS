@@ -22,25 +22,28 @@ type SettingsService struct {
 }
 
 /* SettingsView 是设置页行为设置视图（模型归 /api/models）。
-CompactThreshold 用指针：区分"未提交该字段"与"提交 0（禁用自动压缩）"。 */
+CompactPercent 用指针：区分"未提交该字段"与"提交 0（禁用自动压缩）"。 */
 type SettingsView struct {
-	SystemExtra      string `json:"systemExtra"`
-	CompactThreshold *int   `json:"compactThreshold,omitempty"`
+	SystemExtra    string `json:"systemExtra"`
+	CompactPercent *int   `json:"compactPercent,omitempty"`
 }
 
 /* Get 返回当前行为设置。 */
 func (s *SettingsService) Get() SettingsView {
 	st := s.Hub.SettingsSnapshot()
-	p := st.CompactThreshold
-	return SettingsView{SystemExtra: st.SystemExtra, CompactThreshold: &p}
+	p := st.CompactPercent
+	return SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p}
 }
 
 /* Update 保存行为设置并重建 agent（busy 时拒绝；水位随 Reassemble 生效）。 */
 func (s *SettingsService) Update(v SettingsView) error {
 	st := s.Hub.SettingsSnapshot()
 	st.SystemExtra = v.SystemExtra
-	if v.CompactThreshold != nil {
-		st.CompactThreshold = *v.CompactThreshold
+	if v.CompactPercent != nil {
+		if *v.CompactPercent < 0 || *v.CompactPercent > 100 {
+			return errors.New("压缩水位百分比需在 0-100 之间")
+		}
+		st.CompactPercent = *v.CompactPercent
 	}
 	if err := domain.SaveSettings(s.Hub.Fsys, st); err != nil {
 		return err

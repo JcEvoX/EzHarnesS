@@ -89,7 +89,7 @@ export interface AppConfig {
 
 export interface Settings {
   systemExtra: string
-  compactThreshold?: number | null
+  compactPercent?: number | null
 }
 
 export interface ModelEntry {
@@ -100,6 +100,7 @@ export interface ModelEntry {
   enabled: boolean
   tokens: number
   cost: number
+  contextWindow?: number
 }
 
 export interface ModelsConfig {
