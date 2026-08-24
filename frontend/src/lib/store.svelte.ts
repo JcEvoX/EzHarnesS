@@ -571,7 +571,7 @@ class AppStore {
         }
         const dtype: DecisionData['dtype'] =
           ev.type === 'approve.request' ? 'approve' : ev.type === 'askuser.request' ? 'ask' : 'plan'
-        this.blocks.push({
+        const card: Block = {
           kind: 'decision',
           uid: this.nuid(),
           id,
@@ -583,7 +583,11 @@ class AppStore {
           forkId: ev.forkId || '',
           resolved: false,
           resolution: '',
-        })
+        }
+        // 决策卡紧跟对应工具卡成组展示；无对应工具卡（fork 内等）时兜底追加末尾
+        const ti = this.blocks.findIndex((b) => b.kind === 'tool' && b.id === id)
+        if (ti >= 0) this.blocks.splice(ti + 1, 0, card)
+        else this.blocks.push(card)
         // 通知栏同步：fork 内请求带 fork 标识，跳转锚点指向时间线决策卡；最新在最前
         this.notices.unshift({
           id,

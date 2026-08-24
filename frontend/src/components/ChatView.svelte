@@ -137,7 +137,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    padding-right: 128px;
+    padding-right: 156px;
   }
   /* 右侧悬浮列：状态卡 + 通知栏浮在内容之上。容器点击穿透，
   卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */
@@ -146,7 +146,7 @@
     top: 16px;
     right: 16px;
     bottom: 30px;
-    width: 232px;
+    width: 260px;
     z-index: 5;
     display: flex;
     flex-direction: column;
