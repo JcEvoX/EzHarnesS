@@ -38,7 +38,13 @@ func openWindow(a *app) {
 		Width:     a.cfg.WindowW,
 		Height:    a.cfg.WindowH,
 		Frameless: true,
-		Windows:   application.WindowsWindow{NonClientRegionSupport: true},
+		// 组合宿主 + 非客户区支持：前者让 WndProc 接入宿主命中路由
+		// （边缘缩放 resizeBorderHitTest + app-region 拖拽命中），后者开启
+		// WebView2 对 CSS app-region 的解析。二者缺一则边缘无法缩放。
+		Windows: application.WindowsWindow{
+			NonClientRegionSupport:    true,
+			WebView2CompositionHosting: true,
+		},
 	}
 	if distFS() != nil { // release：前端由 wails 资产服务器服务（直通 gin）
 		appOpts.Assets = application.AssetOptions{Handler: http.HandlerFunc(a.serveHTTP)}
