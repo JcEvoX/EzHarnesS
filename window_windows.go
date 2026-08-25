@@ -134,7 +134,7 @@ type notifyIconData struct {
 	DwStateMask      uint32
 	SzInfo           [256]uint16
 	UVersion         uint32
-	SzInfoTitle      [256]uint16
+	SzInfoTitle      [64]uint16 // Win32 定义是 64，写错会让 cbSize 不被系统认可，Shell_NotifyIcon 直接失败
 	DwInfoFlags      uint32
 	GuidItem         [16]byte
 	HBalloonIcon     syscall.Handle

@@ -172,12 +172,14 @@ func DefaultToolRules() []ToolRule {
 	}
 }
 
-/* DefaultSettings 给出出厂值（水位 75%：窗口自适应，留足摘要提前量）。 */
+/* DefaultSettings 给出出厂值（水位 75%：窗口自适应，留足摘要提前量；
+桌面端关闭默认进托盘而非退出）。 */
 func DefaultSettings() Settings {
 	return Settings{
 		SystemExtra:    "",
 		ToolRules:      DefaultToolRules(),
 		CompactPercent: 75,
+		CloseToTray:    true,
 	}
 }
 
