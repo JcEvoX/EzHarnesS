@@ -135,7 +135,7 @@ type Settings struct {
 	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
 	CompactPercent int        `json:"compactPercent"` // 上下文压缩水位（模型窗口百分比，0=禁用自动压缩）
 	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
-	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（重启应用生效）
+	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（关窗时实时读取，即改即生效）
 }
 
 /* Level 是审批策略档位。 */

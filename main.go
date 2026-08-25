@@ -28,7 +28,6 @@ import (
 	"ezharness/internal/config"
 	"ezharness/internal/controller"
 	"ezharness/internal/domain"
-	"ezharness/internal/osfs"
 	"ezharness/internal/service"
 )
 
@@ -44,6 +43,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	a.winCtl = &controller.WindowController{}
 	if err := a.start(); err != nil {
 		log.Fatalf("端口 %d 监听失败: %v", c.Port, err)
 	}
@@ -58,9 +58,7 @@ func main() {
 		a.stop()
 		return
 	}
-	// 托盘常驻是行为设置（settings.json，设置页可改），窗口壳启动时读取
-	tray := domain.LoadSettings(osfs.OS{}).CloseToTray
-	openWindow(url, c, tray)
+	openWindow(a) // 阻塞至应用退出
 	a.stop()
 }
 
@@ -88,6 +86,7 @@ func (a *app) buildRouter() *gin.Engine {
 		Mcp:    &controller.McpController{Svc: service.NewMcpService(hub.Fsys)},
 		Apps:   &controller.AppsController{Svc: &service.AppsService{Fsys: hub.Fsys}},
 		App:    &controller.AppController{Svc: appSvc},
+		Window: a.winCtl,
 	}
 	return controller.NewRouter(controllers, distFS())
 }

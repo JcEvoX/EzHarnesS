@@ -1,35 +1,49 @@
 <script lang="ts">
-  /* 桌面壳自绘标题栏：win_* 由 Go 侧 webview Bind 注入，浏览器访问时不存在则不渲染 */
-  const w = window as unknown as Record<string, ((...a: unknown[]) => Promise<unknown>) | undefined>
-  const desktop = typeof w.win_min === 'function'
+  /* 桌面壳标题栏：wails 资产域（wails.localhost）或 ?desktop 参数时渲染。
+     三键/状态走 /api/window/*（Go 侧桥接原生窗口），拖拽与双击最大化由
+     WebView2 原生非客户区支持处理（CSS app-region），浏览器访问不渲染 */
+  const desktop =
+    location.hostname === 'wails.localhost' ||
+    new URLSearchParams(location.search).has('desktop')
 
   let maximized = $state(false)
 
-  async function toggleMax() {
-    await w.win_max?.()
-    maximized = (await w.win_is_max?.()) === true
+  function post(action: string): Promise<Response> {
+    return fetch(`/api/window/${action}`, { method: 'POST' })
   }
 
-  function drag(e: MouseEvent) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('.tbtn')) return
-    void w.win_drag?.()
+  async function syncMax() {
+    try {
+      const r = await fetch('/api/window/state')
+      if (r.ok) maximized = (await r.json()).maximized === true
+    } catch {
+      /* 状态获取失败保持原样 */
+    }
+  }
+
+  async function toggleMax() {
+    try {
+      const r = await post('max')
+      if (r.ok) maximized = (await r.json()).maximized === true
+    } catch {
+      void syncMax()
+    }
   }
 
   /* 最大化状态跟随：拖拽还原/系统快捷键改变窗口态时同步按钮图标 */
   $effect(() => {
     if (!desktop) return
-    const sync = () => void w.win_is_max?.().then((v) => (maximized = v === true))
-    sync()
-    window.addEventListener('resize', sync)
-    return () => window.removeEventListener('resize', sync)
+    void syncMax()
+    window.addEventListener('resize', syncMax)
+    return () => window.removeEventListener('resize', syncMax)
   })
 </script>
 
 {#if desktop}
-  <div class="titlebar" onmousedown={drag} ondblclick={toggleMax}>
+  <div class="titlebar">
     <span class="name">ezharness</span>
     <div class="btns">
-      <button class="tbtn" onclick={() => void w.win_min?.()} title="最小化">
+      <button class="tbtn" onclick={() => void post('min')} title="最小化">
         <svg viewBox="0 0 12 12"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
       <button class="tbtn" onclick={toggleMax} title={maximized ? '还原' : '最大化'}>
@@ -44,7 +58,7 @@
           </svg>
         {/if}
       </button>
-      <button class="tbtn close" onclick={() => void w.win_close?.()} title="关闭">
+      <button class="tbtn close" onclick={() => void post('close')} title="关闭">
         <svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
     </div>
@@ -59,6 +73,7 @@
     flex: none;
     background: var(--bg);
     user-select: none;
+    app-region: drag;
   }
   .name {
     margin-left: 14px;
@@ -71,6 +86,7 @@
     margin-left: auto;
     display: flex;
     height: 100%;
+    app-region: no-drag;
   }
   .tbtn {
     display: grid;

@@ -22,6 +22,7 @@ type Controllers struct {
 	Mcp      *McpController
 	Apps     *AppsController
 	App      *AppController
+	Window   *WindowController
 }
 
 /* NewRouter 装配 gin engine 与全部路由。dist 非 nil 时服务前端静态资源。 */
@@ -67,6 +68,11 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.POST("/mcp/call", c.Mcp.Call)
 
 		api.GET("/apps", c.Apps.List)
+
+		api.POST("/window/min", c.Window.Minimise)
+		api.POST("/window/max", c.Window.ToggleMaximise)
+		api.GET("/window/state", c.Window.State)
+		api.POST("/window/close", c.Window.Close)
 
 		api.POST("/sessions/:id/decisions/approve", c.Chat.DecideApprove)
 		api.POST("/sessions/:id/decisions/answer", c.Chat.DecideAnswer)

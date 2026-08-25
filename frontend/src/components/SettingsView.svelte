@@ -24,7 +24,7 @@
   let savingWorkDir = $state(false)
   let workDirMsg = $state('')
 
-  /* 托盘常驻（桌面端点关闭 = 最小化到托盘；窗口行为，重启应用生效） */
+  /* 托盘常驻（桌面端点关闭 = 最小化到托盘；关窗时实时读取，即改即生效） */
   let closeToTray = $state(false)
   let savingTray = $state(false)
 
@@ -204,7 +204,7 @@
 
   <section>
     <h2>桌面窗口</h2>
-    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更重启应用后生效。</p>
+    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。</p>
     <label class="switch-row">
       <span>关闭时最小化到托盘</span>
       <input

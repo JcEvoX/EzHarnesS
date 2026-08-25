@@ -17,15 +17,20 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/gin-gonic/gin"
+
 	"ezharness/internal/config"
+	"ezharness/internal/controller"
 	"ezharness/internal/service"
 )
 
 type app struct {
-	mu   sync.Mutex
-	cfg  config.Config
-	srv  *http.Server
-	boot atomic.Int64 // 服务代际（换代重启递增，跨代共享）
+	mu     sync.Mutex
+	cfg    config.Config
+	srv    *http.Server
+	router atomic.Pointer[gin.Engine] // 当前一代路由（wails 资产服务器直通用）
+	winCtl *controller.WindowController
+	boot   atomic.Int64 // 服务代际（换代重启递增，跨代共享）
 }
 
 /* newApp 创建应用并切到数据目录（进程 cwd 即数据根）。 */
@@ -73,12 +78,26 @@ func (a *app) start() error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: a.buildRouter()}
+	engine := a.buildRouter()
+	srv := &http.Server{Handler: engine}
 	a.mu.Lock()
 	a.srv = srv
 	a.mu.Unlock()
+	a.router.Store(engine)
 	go func() { _ = srv.Serve(ln) }()
 	return nil
+}
+
+/*
+serveHTTP 直通当前一代 gin 路由（wails 资产服务器的 Handler）：
+桌面窗口的页面与 /api 同进程同源直达，SSE 流式直通。
+*/
+func (a *app) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if engine := a.router.Load(); engine != nil {
+		engine.ServeHTTP(w, r)
+		return
+	}
+	http.NotFound(w, r)
 }
 
 /* snapshot 返回当前配置副本。 */
@@ -104,11 +123,13 @@ func (a *app) restart(port int, dataDir string, ln net.Listener) {
 	if err := os.MkdirAll(dataDir, 0o755); err == nil {
 		_ = os.Chdir(dataDir)
 	}
-	srv := &http.Server{Handler: a.buildRouter()}
+	engine := a.buildRouter()
+	srv := &http.Server{Handler: engine}
 	a.mu.Lock()
 	a.cfg.Port, a.cfg.DataDir = port, dataDir
 	a.srv = srv
 	a.mu.Unlock()
+	a.router.Store(engine)
 	if ln == nil {
 		var err error
 		if ln, err = net.Listen("tcp", a.addr()); err != nil {
