@@ -54,6 +54,7 @@ type HistoryData struct {
 	PrevSession string                 `json:"prevSession,omitempty"` // compact 链上一会话（懒加载用）
 	PrevTitle   string                 `json:"prevTitle,omitempty"`   // 上一话题标题（压缩标记用）
 	Decisions   []hooks.DecisionRecord `json:"decisions,omitempty"`   // 人机决策记录（工具卡徽标用）
+	Forks       []hooks.ForkSummary    `json:"forks,omitempty"`       // fork 分身摘要（入口卡重建，详情懒加载）
 }
 
 /* Status 是右栏状态卡数据（命中率与用量为本会话口径，切会话/重启清零）。 */
@@ -140,16 +141,38 @@ func (s *SessionService) History() HistoryData {
 		}
 	}
 	h.Decisions = hooks.LoadDecisions(context.Background(), s.Hub.Active.Fsys, h.ID)
+	h.Forks = hooks.ListForks(context.Background(), s.Hub.Active.Fsys, h.ID)
 	return h
+}
+
+/* ForkData 是 fork 分身详情响应（抽屉懒加载）。 */
+type ForkData struct {
+	ID        string                 `json:"id"`
+	Messages  []types.Message        `json:"messages"`
+	Decisions []hooks.DecisionRecord `json:"decisions,omitempty"` // 主库决策记录（前端按 callId 匹配）
+}
+
+/* Fork 返回 fork 分身增量消息（存档均为已结束分身；运行中靠实时事件）。 */
+func (s *SessionService) Fork(ctx context.Context, id, fid string) (*ForkData, error) {
+	snap, err := hooks.LoadFork(ctx, s.Hub.Fsys, id, fid)
+	if err != nil {
+		return nil, err
+	}
+	return &ForkData{
+		ID:        snap.ID,
+		Messages:  snap.Messages,
+		Decisions: hooks.LoadDecisions(ctx, s.Hub.Fsys, id),
+	}, nil
 }
 
 /* PrevData 是懒加载上一会话响应。 */
 type PrevData struct {
-	ID          string          `json:"id"`
-	Title       string          `json:"title,omitempty"`
-	Summary     string          `json:"summary,omitempty"`
-	Messages    []types.Message `json:"messages"`
-	PrevSession string          `json:"prevSession,omitempty"` // 再上一级 ID（非空可继续上翻）
+	ID          string              `json:"id"`
+	Title       string              `json:"title,omitempty"`
+	Summary     string              `json:"summary,omitempty"`
+	Messages    []types.Message     `json:"messages"`
+	Forks       []hooks.ForkSummary `json:"forks,omitempty"`      // 旧库的分身摘要（入口卡重建）
+	PrevSession string              `json:"prevSession,omitempty"` // 再上一级 ID（非空可继续上翻）
 }
 
 /*
@@ -176,7 +199,8 @@ func (s *SessionService) Prev(ctx context.Context, id string) (*PrevData, bool, 
 		}
 	}
 	return &PrevData{ID: prev.ID, Title: title, Summary: summary,
-		Messages: prev.Messages, PrevSession: prev.PrevSession}, true, nil
+		Messages: prev.Messages, Forks: hooks.ListForks(ctx, s.Hub.Fsys, prev.ID),
+		PrevSession: prev.PrevSession}, true, nil
 }
 
 /* Summarize 生成当前会话摘要（模型调用）。 */

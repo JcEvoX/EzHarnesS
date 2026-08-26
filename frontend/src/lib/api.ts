@@ -25,6 +25,15 @@ export interface SseEvent {
   data?: any
 }
 
+/* fork 分身摘要（history 响应；后端 hooks.ForkSummary） */
+export interface ForkSummary {
+  id: string
+  task: string
+  answer?: string
+  stopReason?: string
+  iterations: number
+}
+
 /* agent_status 状态栏载荷（后端 hooks.StatusData 的 JSON 形状，SSE snapshot 用；
    注入消息历史的正文是中文语义化文本，历史重建走关键词识别） */
 export interface StatusPayload {
@@ -214,7 +223,14 @@ export const api = {
         prevSession?: string
         prevTitle?: string
         decisions?: DecisionRecord[]
+        forks?: ForkSummary[]
       }>,
+    ),
+
+  /* fork 分身详情（抽屉懒加载）：增量消息 + 主库决策记录 */
+  getFork: (id: string, fid: string) =>
+    fetch(`/api/sessions/${id}/forks/${fid}`).then(
+      json<{ id: string; messages: HistoryMessage[]; decisions?: DecisionRecord[] }>,
     ),
 
   /* compact 链上一会话（懒加载）；无上级返回 null */
@@ -225,6 +241,7 @@ export const api = {
         title?: string
         summary?: string
         messages: HistoryMessage[]
+        forks?: ForkSummary[]
         prevSession?: string
       }),
     ),

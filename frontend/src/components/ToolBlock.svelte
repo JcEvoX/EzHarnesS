@@ -2,12 +2,12 @@
   import type { ToolBlockData } from '../lib/store.svelte'
 
   let { data }: { data: ToolBlockData } = $props()
-  /* null＝用户未操作：building 态默认展开（看流式输出），其余态默认折叠；
-     用户点击后固定，不再随状态切换 */
+  /* null＝用户未操作：未完成（building/running）默认展开（过程可见），
+     done 默认折叠；用户点击后固定，不再随状态切换 */
   let open = $state<boolean | null>(null)
 
-  /* 当前可见性：未操作时 building 展开、其余折叠 */
-  const shown = $derived(open ?? data.state === 'building')
+  /* 当前可见性：未操作时执行中展开、完成折叠 */
+  const shown = $derived(open ?? data.state !== 'done')
 
   function prettyArgs(raw: string): string {
     try {

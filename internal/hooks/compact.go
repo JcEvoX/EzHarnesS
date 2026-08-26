@@ -33,6 +33,9 @@ const CompactTool = "compact_context"
 /* EventCompact 是上下文压缩事件（主循环专属，Data 为 CompactInfo）。 */
 const EventCompact = event.EventType("session.compact")
 
+/* EventCompacting 是压缩开始事件（水位自动路径无工具卡可见，补压缩中提示）。 */
+const EventCompacting = event.EventType("session.compacting")
+
 /* CompactInfo 描述一次压缩。 */
 type CompactInfo struct {
 	OldID    string `json:"oldId"`
@@ -117,11 +120,16 @@ func (c *Compact) OnToolStart(ctx context.Context, state *types.LoopState, call 
 /*
 OnEnd 收尾与水位自动压缩。挂起的压缩（工具路径）先收尾：旧库补写
 完整历史并封存、切新库、新库跳过落盘。水位自动路径在同一处就地
-压缩并收尾（轮末触发，无剩余迭代）。失败发 error 事件。
+压缩并收尾（轮末触发，无剩余迭代）。fork 本轮已就地压缩过的跳过
+水位检查（LastResponse 水位是压缩前的，会对小增量二次压缩）。
+失败发 error 事件。
 */
 func (c *Compact) OnEnd(ctx context.Context, state *types.LoopState) error {
 	if c.pending != nil {
 		c.finishPending(ctx, state)
+		return nil
+	}
+	if state.ForkID != "" && state.Metadata["fork_compacted"] == true {
 		return nil
 	}
 	if c.threshold <= 0 || state.LastResponse == nil {
@@ -130,6 +138,8 @@ func (c *Compact) OnEnd(ctx context.Context, state *types.LoopState) error {
 	if state.LastResponse.Usage.PromptTokens <= c.threshold {
 		return nil
 	}
+	// 自动路径无工具卡可见：先发压缩中提示（摘要最多 2 分钟，静默会被当成卡死）
+	state.EmitEvent(EventCompacting, "上下文水位达到阈值，正在压缩归档…")
 	var err error
 	if state.ForkID != "" {
 		err = c.compactFork(ctx, state, true, "fork 上下文水位达到阈值")
@@ -305,6 +315,10 @@ func (c *Compact) compactFork(ctx context.Context, state *types.LoopState, auto 
 	newMsgs = append(newMsgs, keepTail(state.Messages, auto)...)
 	state.Messages = newMsgs
 	state.SeedLen = 1
+	if state.Metadata == nil {
+		state.Metadata = map[string]any{}
+	}
+	state.Metadata["fork_compacted"] = true // OnEnd 水位检查据此跳过（防同轮二次压缩）
 	return nil
 }
 

@@ -4,6 +4,7 @@ import {
   api,
   subscribe,
   type DecisionRecord,
+  type ForkSummary,
   type HistoryMessage,
   type Settings,
   type SseEvent,
@@ -21,16 +22,18 @@ export interface ToolBlockData {
   decision?: string // 人机决策徽标（已批准/已拒绝…，刷新后由 decisions.jsonl 重建）
 }
 
+/* ForkState 是分身聊天框的数据模型：blocks 与主时间线同构，
+实时事件归约与存档回放共用 buildBlocks。owner=所属会话 ID（fork 存档
+在所属库的 forks/ 下，compact 链上的旧库分身懒加载按 owner 取）。 */
 export interface ForkState {
   id: string
+  owner: string
   task: string
   status: 'running' | 'done'
-  text: string
-  reasoning: string
-  tools: ToolBlockData[]
+  blocks: Block[]
   answer: string
   stopReason: string
-  collapsed: boolean
+  loaded: boolean
 }
 
 export interface DecisionData {
@@ -49,6 +52,7 @@ export interface NoticeData {
   id: string
   kind: 'approve' | 'ask' | 'plan' | 'info'
   source: string // 'agent' 或 fork 标识
+  forkId: string // 非空＝分身请求：跳转打开分身抽屉而非主时间线
   title: string
   detail: string
   time: string
@@ -129,6 +133,9 @@ class AppStore {
   busy = $state(false)
   lastStatus = $state('')
   tick = $state(0)
+  /* 分身抽屉：当前打开的分身与待定位的决策卡（通知跳转用） */
+  activeForkId = $state('')
+  jumpDecision = $state('')
   /* 模型调用进行中（model_start→model_end），思考指示用 */
   modelActive = $state(false)
 
@@ -181,11 +188,25 @@ class AppStore {
     this.blocks = []
     this.forks = {}
     this.notices = []
+    this.activeForkId = ''
     this.busy = false
     this.lastStatus = ''
     try {
       const s = await api.getHistory(this.activeId)
-      this.blocks = this.buildBlocks(s.messages, s.decisions)
+      // 分身摘要重建（骨架，过程详情打开抽屉时懒加载）
+      for (const f of s.forks ?? []) {
+        this.forks[f.id] = {
+          id: f.id,
+          owner: this.activeId,
+          task: f.task,
+          status: 'done',
+          blocks: [],
+          answer: f.answer || '',
+          stopReason: f.stopReason || '',
+          loaded: false,
+        }
+      }
+      this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [])
       this.busy = s.busy
       this.prevCursor = this.activeId
       this.hasPrev = !!s.prevSession
@@ -203,7 +224,22 @@ class AppStore {
       if (!res) {
         this.hasPrev = false
       } else {
-        const prevBlocks = this.buildBlocks(res.messages)
+        // 旧库分身摘要建骨架（懒加载按所属库 ID 取详情）
+        for (const fk of res.forks ?? []) {
+          if (!this.forks[fk.id]) {
+            this.forks[fk.id] = {
+              id: fk.id,
+              owner: res.id,
+              task: fk.task,
+              status: 'done',
+              blocks: [],
+              answer: fk.answer || '',
+              stopReason: fk.stopReason || '',
+              loaded: false,
+            }
+          }
+        }
+        const prevBlocks = this.buildBlocks(res.messages, undefined, res.forks ?? [])
         const sep: Block = {
           kind: 'note',
           uid: this.nuid(),
@@ -221,9 +257,11 @@ class AppStore {
     }
   }
 
-  /* 历史重建：user/assistant/tool 消息序列，tool_calls 展开为工具块；决策记录映射为徽标 */
-  private buildBlocks(messages: HistoryMessage[], decisions?: DecisionRecord[]): Block[] {
+  /* 历史重建：user/assistant/tool 消息序列，tool_calls 展开为工具块；决策记录映射为徽标。
+     forks 摘要按 task 调用顺序插分身入口卡（forkID 升序与调用序一致）。 */
+  private buildBlocks(messages: HistoryMessage[], decisions?: DecisionRecord[], forks?: ForkSummary[]): Block[] {
     const dmap = new Map((decisions || []).map((d) => [d.callId, d.resolution]))
+    const forkQueue = [...(forks || [])]
     const out: Block[] = []
     for (const m of messages) {
       if (m.role === 'user') {
@@ -266,6 +304,11 @@ class AppStore {
             state: 'done',
             decision: dmap.get(tc.ID || ''),
           })
+          // task 调用紧随分身入口卡（真实启动的 fork 才有摘要：审批拒绝/失败的不插）
+          if (tc.Name === 'task' && forkQueue.length > 0) {
+            const f = forkQueue.shift()!
+            out.push({ kind: 'fork', uid: this.nuid(), forkId: f.id })
+          }
         }
       } else if (m.role === 'tool') {
         // 按调用 ID 回填结果到对应工具块
@@ -288,6 +331,51 @@ class AppStore {
       }
     }
     return out
+  }
+
+  /* ── 分身抽屉 ── */
+
+  /* ensureFork 取分身状态，不存在则建骨架（SSE 重放/异常时序兜底）。 */
+  private ensureFork(fid: string): ForkState {
+    if (!this.forks[fid]) {
+      this.forks[fid] = {
+        id: fid,
+        owner: this.activeId,
+        task: '',
+        status: 'running',
+        blocks: [],
+        answer: '',
+        stopReason: '',
+        loaded: false,
+      }
+    }
+    return this.forks[fid]
+  }
+
+  /* openFork 打开/切换分身抽屉；decisionId 非空时打开后滚动定位到该决策卡，
+     切换（无 decisionId）清掉旧跳转目标。 */
+  openFork(fid: string, decisionId = '') {
+    this.activeForkId = fid
+    this.jumpDecision = decisionId
+    void this.loadForkDetail(fid)
+  }
+
+  closeFork() {
+    this.activeForkId = ''
+  }
+
+  /* loadForkDetail 懒加载存档详情（已结束分身的执行记录重建）；运行中的
+     走实时流。实时已累积过内容的分身不覆盖（避免 uid 全换导致折叠态重置）。 */
+  private async loadForkDetail(fid: string) {
+    const f = this.forks[fid]
+    if (!f || f.loaded || f.status === 'running') return
+    f.loaded = true
+    try {
+      const r = await api.getFork(f.owner || this.activeId, fid)
+      if (f.blocks.length === 0) f.blocks = this.buildBlocks(r.messages, r.decisions)
+    } catch {
+      f.loaded = false // 失败可重试
+    }
   }
 
   /* ── 发送 / 取消 ── */
@@ -377,9 +465,14 @@ class AppStore {
       n.status = 'done'
       n.resolution = resolution
     }
-    // 对应工具卡打决策徽标（与 decisions.jsonl 重建同源）
-    const t = this.blocks.find((b) => b.kind === 'tool' && b.id === id)
-    if (t && t.kind === 'tool') t.decision = resolution
+    // 对应工具卡打决策徽标（与 decisions.jsonl 重建同源）；分身工具卡在分身块数组里
+    for (const bs of [this.blocks, ...Object.values(this.forks).map((f) => f.blocks)]) {
+      const t = bs.find((b) => b.kind === 'tool' && b.id === id)
+      if (t && t.kind === 'tool') {
+        t.decision = resolution
+        break
+      }
+    }
   }
 
   /* 关闭通知：仅已处理/过期可关，pending 保留待处理 */
@@ -395,6 +488,7 @@ class AppStore {
     block.resolved = true
     block.resolution = approve ? '已批准' : reason ? `已拒绝：${reason}` : '已拒绝'
     this.resolveNotice(block.id, block.resolution)
+    this.settleNotice(block.id)
     await api.decideApprove(this.activeId, block.id, approve, reason).catch(() => {})
   }
 
@@ -403,6 +497,7 @@ class AppStore {
     block.resolved = true
     block.resolution = input || '(未回答)'
     this.resolveNotice(block.id, block.resolution)
+    this.settleNotice(block.id)
     await api.decideAnswer(this.activeId, block.id, input).catch(() => {})
   }
 
@@ -412,7 +507,15 @@ class AppStore {
     block.resolution =
       kind === 'execute' ? '已执行' : kind === 'reject' ? '已否决' : `修改意见：${input}`
     this.resolveNotice(block.id, block.resolution)
+    this.settleNotice(block.id)
     await api.decidePlan(this.activeId, block.id, kind, input).catch(() => {})
+  }
+
+  /* settleNotice 决策完成后自动收起通知条目（结果已在决策卡上可见，通知不留副本）。 */
+  private settleNotice(id: string) {
+    setTimeout(() => {
+      this.notices = this.notices.filter((x) => x.id !== id)
+    }, 1200)
   }
 
   /* ── 事件归约 ── */
@@ -423,6 +526,15 @@ class AppStore {
       case 'loop_start': {
         // 回放重建：本轮 user 输入（实时路径 send 已本地 push，同文本去重）
         const text = typeof ev.data === 'string' ? ev.data : ''
+        if (ev.forkId) {
+          // 分身输入进分身聊天框（含任务包装前缀，即分身收到的原文）
+          const f = this.ensureFork(ev.forkId)
+          const last = f.blocks[f.blocks.length - 1]
+          if (text && !(last && last.kind === 'user' && last.text === text)) {
+            f.blocks.push({ kind: 'user', uid: this.nuid(), text })
+          }
+          break
+        }
         const last = this.blocks[this.blocks.length - 1]
         if (text && !(last && last.kind === 'user' && last.text === text)) {
           this.blocks.push({ kind: 'user', uid: this.nuid(), text })
@@ -432,10 +544,13 @@ class AppStore {
       case 'decision.resolved': {
         // 回放纠正：已决审批的决策卡与工具卡徽标（实时路径本地已处理，幂等）
         const d = ev.data || {}
-        const b = this.blocks.find((x) => x.kind === 'decision' && x.id === d.id)
-        if (b && b.kind === 'decision' && !b.resolved) {
-          b.resolved = true
-          b.resolution = d.resolution || ''
+        const all = [this.blocks, ...Object.values(this.forks).map((f) => f.blocks)]
+        for (const bs of all) {
+          const b = bs.find((x) => x.kind === 'decision' && x.id === d.id)
+          if (b && b.kind === 'decision' && !b.resolved) {
+            b.resolved = true
+            b.resolution = d.resolution || ''
+          }
         }
         if (d.id) this.resolveNotice(d.id, d.resolution || '')
         break
@@ -448,35 +563,22 @@ class AppStore {
         // 流式工具调用增量：按 index 分桶累积成 building 态工具块
         const d = ev.data || {}
         const key = `b-${ev.forkId || 'm'}-${d.index ?? 0}`
-        if (ev.forkId) {
-          const f = this.forks[ev.forkId]
-          if (!f) break
-          let t = f.tools.find((b) => b.id === key && b.state === 'building')
-          if (!t) {
-            t = { id: key, name: '', args: '', result: '', err: '', state: 'building' }
-            f.tools.push(t)
-          }
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        const t = bs.find((b) => b.kind === 'tool' && b.id === key && b.state === 'building')
+        if (t && t.kind === 'tool') {
           if (d.nameDelta) t.name += d.nameDelta
           if (d.argsDelta) t.args += d.argsDelta
         } else {
-          const t = this.blocks.find(
-            (b) => b.kind === 'tool' && b.id === key && b.state === 'building',
-          )
-          if (t && t.kind === 'tool') {
-            if (d.nameDelta) t.name += d.nameDelta
-            if (d.argsDelta) t.args += d.argsDelta
-          } else {
-            this.blocks.push({
-              kind: 'tool',
-              uid: this.nuid(),
-              id: key,
-              name: d.nameDelta || '',
-              args: d.argsDelta || '',
-              result: '',
-              err: '',
-              state: 'building',
-            })
-          }
+          bs.push({
+            kind: 'tool',
+            uid: this.nuid(),
+            id: key,
+            name: d.nameDelta || '',
+            args: d.argsDelta || '',
+            result: '',
+            err: '',
+            state: 'building',
+          })
         }
         break
       }
@@ -484,35 +586,30 @@ class AppStore {
       case 'reasoning_chunk': {
         const delta: string = typeof ev.data === 'string' ? ev.data : ''
         if (!delta) break
-        if (ev.forkId) {
-          const f = this.forks[ev.forkId]
-          if (f) {
-            if (ev.type === 'model_chunk') f.text += delta
-            else f.reasoning += delta
-          }
-        } else {
-          this.appendMain(delta, ev.type === 'model_chunk')
-        }
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        this.appendDelta(bs, delta, ev.type === 'model_chunk')
         break
       }
       case 'model_end': {
         this.modelActive = false
-        const last = this.lastStreamingAssistant()
-        if (last) {
-          last.streaming = false
-        } else if (!ev.forkId && (ev.data?.content || ev.data?.reasoning)) {
-          // 回放重建：无流式块时按聚合帧补完整回复（实时路径 chunk 已建块）
-          this.blocks.push({
-            kind: 'assistant',
-            uid: this.nuid(),
-            text: ev.data.content || '',
-            reasoning: ev.data.reasoning || '',
-            streaming: false,
-          })
-        }
-        const u = ev.data?.usage
-        if (u && this.status) {
-          this.status.contextTokens = u.PromptTokens || 0
+        if (!ev.forkId) {
+          const last = this.lastStreamingAssistant()
+          if (last) {
+            last.streaming = false
+          } else if (ev.data?.content || ev.data?.reasoning) {
+            // 回放重建：无流式块时按聚合帧补完整回复（实时路径 chunk 已建块）
+            this.blocks.push({
+              kind: 'assistant',
+              uid: this.nuid(),
+              text: ev.data.content || '',
+              reasoning: ev.data.reasoning || '',
+              streaming: false,
+            })
+          }
+          const u = ev.data?.usage
+          if (u && this.status) {
+            this.status.contextTokens = u.PromptTokens || 0
+          }
         }
         break
       }
@@ -520,52 +617,36 @@ class AppStore {
         const d = ev.data || {}
         const args = typeof d.args === 'string' ? d.args : JSON.stringify(d.args ?? '')
         // 认领流式构造期（building）的同名块：换真实 callID、完整 args、转执行态
-        if (ev.forkId) {
-          const f = this.forks[ev.forkId]
-          const t = f?.tools.find((b) => b.state === 'building' && b.name === d.name)
-          if (f && t) {
-            t.id = d.id || ''
-            t.args = args
-            t.state = 'running'
-          } else if (f) {
-            f.tools.push({
-              id: d.id || '', name: d.name || '', args, result: '', err: '', state: 'running',
-            })
-          }
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        // 去重：决策路径已补插过同 id 工具卡时只补名参，不再push（防重复块乱序）
+        const dup = bs.find((b) => b.kind === 'tool' && b.id === d.id && b.state !== 'building')
+        if (dup && dup.kind === 'tool') {
+          if (!dup.name) dup.name = d.name || ''
+          if (!dup.args) dup.args = args
+          break
+        }
+        const t = bs.find((b) => b.kind === 'tool' && b.state === 'building' && b.name === d.name)
+        if (t && t.kind === 'tool') {
+          t.id = d.id || ''
+          t.args = args
+          t.state = 'running'
         } else {
-          const t = this.blocks.find(
-            (b) => b.kind === 'tool' && b.state === 'building' && b.name === d.name,
-          )
-          if (t && t.kind === 'tool') {
-            t.id = d.id || ''
-            t.args = args
-            t.state = 'running'
-          } else {
-            this.blocks.push({
-              kind: 'tool', uid: this.nuid(), id: d.id || '', name: d.name || '',
-              args, result: '', err: '', state: 'running',
-            })
-          }
+          bs.push({
+            kind: 'tool', uid: this.nuid(), id: d.id || '', name: d.name || '',
+            args, result: '', err: '', state: 'running',
+          })
         }
         if (!ev.forkId) this.lastTool = d.name || ''
         break
       }
       case 'tool_end': {
         const d = ev.data || {}
-        if (ev.forkId) {
-          const t = this.forks[ev.forkId]?.tools.find((x) => x.id === d.callId)
-          if (t) {
-            t.result = d.content || ''
-            t.err = d.err || ''
-            t.state = 'done'
-          }
-        } else {
-          const t = this.blocks.find((b) => b.kind === 'tool' && b.id === d.callId)
-          if (t && t.kind === 'tool') {
-            t.result = d.content || ''
-            t.err = d.err || ''
-            t.state = 'done'
-          }
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        const t = bs.find((b) => b.kind === 'tool' && b.id === d.callId)
+        if (t && t.kind === 'tool') {
+          t.result = d.content || ''
+          t.err = d.err || ''
+          t.state = 'done'
         }
         if (!ev.forkId) this.lastTool = ''
         break
@@ -573,18 +654,15 @@ class AppStore {
       case 'task.start': {
         const d = ev.data || {}
         const fid = d.id || ev.forkId || ''
-        this.forks[fid] = {
-          id: fid,
-          task: d.task || '',
-          status: 'running',
-          text: '',
-          reasoning: '',
-          tools: [],
-          answer: '',
-          stopReason: '',
-          collapsed: false,
-        }
-        this.blocks.push({ kind: 'fork', uid: this.nuid(), forkId: fid })
+        const f = this.ensureFork(fid)
+        f.task = d.task || ''
+        f.status = 'running'
+        // 入口卡紧跟对应的 task 工具卡（callId 精确匹配，回退最后一张 task 卡）
+        let ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.id === d.callId)
+        if (ti < 0) ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.name === 'task')
+        const card: Block = { kind: 'fork', uid: this.nuid(), forkId: fid }
+        if (ti >= 0) this.blocks.splice(ti + 1, 0, card)
+        else this.blocks.push(card)
         break
       }
       case 'task.end': {
@@ -594,7 +672,6 @@ class AppStore {
           f.status = 'done'
           f.answer = ev.data?.answer || ''
           f.stopReason = ev.data?.stopReason || ''
-          f.collapsed = true
         }
         break
       }
@@ -603,14 +680,16 @@ class AppStore {
       case 'taskplan.request': {
         const d = ev.data || {}
         const id = d.id || ''
+        // 分身请求路由进分身聊天框（不进主时间线）；bs=目标块数组
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
         // 去重：SSE 断线重连会重放 pending 帧
-        if (!id || this.blocks.some((b) => b.kind === 'decision' && b.id === id)) break
+        if (!id || bs.some((b) => b.kind === 'decision' && b.id === id)) break
         let args = d.args
         if (typeof args !== 'string') args = JSON.stringify(args ?? {})
         // 工具卡补插：刷新/重放时本轮快照未含此调用（turn 未落盘），
         // 决策卡之前补一个执行中的工具卡
-        if (!ev.forkId && !this.blocks.some((b) => b.kind === 'tool' && b.id === id)) {
-          this.blocks.push({
+        if (!bs.some((b) => b.kind === 'tool' && b.id === id)) {
+          bs.push({
             kind: 'tool',
             uid: this.nuid(),
             id,
@@ -645,15 +724,16 @@ class AppStore {
           resolved: false,
           resolution: '',
         }
-        // 决策卡紧跟对应工具卡成组展示；无对应工具卡（fork 内等）时兜底追加末尾
-        const ti = this.blocks.findIndex((b) => b.kind === 'tool' && b.id === id)
-        if (ti >= 0) this.blocks.splice(ti + 1, 0, card)
-        else this.blocks.push(card)
-        // 通知栏同步：fork 内请求带 fork 标识，跳转锚点指向时间线决策卡；最新在最前
+        // 决策卡紧跟对应工具卡成组展示；无对应工具卡时兜底追加末尾
+        const ti = bs.findIndex((b) => b.kind === 'tool' && b.id === id)
+        if (ti >= 0) bs.splice(ti + 1, 0, card)
+        else bs.push(card)
+        // 通知栏同步：fork 内请求带 fork 标识，跳转打开分身抽屉定位决策卡；最新在最前
         this.notices.unshift({
           id,
           kind: dtype,
           source: ev.forkId || 'agent',
+          forkId: ev.forkId || '',
           title: d.name || '',
           detail: question || plan || '',
           time: nowHM(),
@@ -665,10 +745,13 @@ class AppStore {
       }
       case 'error': {
         const msg = typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data ?? '')
-        this.blocks.push({ kind: 'assistant', uid: this.nuid(), text: `⚠️ ${msg}`, reasoning: '', streaming: false })
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        bs.push({ kind: 'assistant', uid: this.nuid(), text: `⚠️ ${msg}`, reasoning: '', streaming: false })
         break
       }
       case 'status.snapshot': {
+        // 分身状态快照不入主时间线、不碰主水位（分身上下文与主循环无关）
+        if (ev.forkId) break
         const d = ev.data ?? null
         // 右上角实时同步：最新快照 + 上下文水位
         this.live = d
@@ -686,6 +769,12 @@ class AppStore {
           if (idx >= 0) this.blocks.splice(idx, 0, block)
           else this.blocks.push(block)
         }
+        break
+      }
+      case 'session.compacting': {
+        // 水位自动压缩开始（无工具卡可见）：时间线提示压缩进行中
+        const msg = typeof ev.data === 'string' ? ev.data : '上下文正在压缩归档…'
+        this.blocks.push({ kind: 'note', uid: this.nuid(), text: `⇳ ${msg}` })
         break
       }
       case 'session.compact': {
@@ -711,13 +800,10 @@ class AppStore {
         this.lastTool = ''
         // 兜底收尾：取消路径引擎不发 model_end，流式块的打字光标须在此收掉；
         // 残留 building 工具块（模型输出了调用但引擎未执行）同样标记完成
-        for (const b of this.blocks) {
-          if (b.kind === 'tool' && b.state === 'building') b.state = 'done'
-          if (b.kind === 'assistant' && b.streaming) b.streaming = false
-        }
-        for (const f of Object.values(this.forks)) {
-          for (const t of f.tools) {
-            if (t.state === 'building') t.state = 'done'
+        for (const bs of [this.blocks, ...Object.values(this.forks).map((f) => f.blocks)]) {
+          for (const b of bs) {
+            if (b.kind === 'tool' && b.state === 'building') b.state = 'done'
+            if (b.kind === 'assistant' && b.streaming) b.streaming = false
           }
         }
         // 轮已结束：残留 pending 决策的回传会被后端丢弃，标记过期
@@ -754,19 +840,24 @@ class AppStore {
     }
   }
 
-  private appendMain(delta: string, isContent: boolean) {
-    let last = this.lastStreamingAssistant()
+  /* appendDelta 流式文本追加到块数组（主时间线与分身聊天框共用）。 */
+  private appendDelta(bs: Block[], delta: string, isContent: boolean) {
+    let last = this.lastStreaming(bs)
     if (!last) {
-      this.blocks.push({ kind: 'assistant', uid: this.nuid(), text: '', reasoning: '', streaming: true })
-      last = this.blocks[this.blocks.length - 1] as Extract<Block, { kind: 'assistant' }>
+      bs.push({ kind: 'assistant', uid: this.nuid(), text: '', reasoning: '', streaming: true })
+      last = bs[bs.length - 1] as Extract<Block, { kind: 'assistant' }>
     }
     if (isContent) last.text += delta
     else last.reasoning += delta
   }
 
   private lastStreamingAssistant(): Extract<Block, { kind: 'assistant' }> | null {
-    for (let i = this.blocks.length - 1; i >= 0; i--) {
-      const b = this.blocks[i]
+    return this.lastStreaming(this.blocks)
+  }
+
+  private lastStreaming(bs: Block[]): Extract<Block, { kind: 'assistant' }> | null {
+    for (let i = bs.length - 1; i >= 0; i--) {
+      const b = bs[i]
       if (b.kind === 'assistant') {
         return b.streaming ? b : null
       }

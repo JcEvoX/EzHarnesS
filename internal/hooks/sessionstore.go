@@ -14,11 +14,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xuanlv2002/ezloop/ext/fs"
+	"github.com/xuanlv2002/ezloop/ext/hook/task"
 	"github.com/xuanlv2002/ezloop/types"
 )
 
@@ -338,6 +340,75 @@ func LoadSnap(ctx context.Context, fsys fs.FileSystem, id string) (*SessionSnap,
 		return nil, fmt.Errorf("sessionstore: decode %s: %w", id, err)
 	}
 	return &s, nil
+}
+
+/* ForkSummary 是 fork 分身的列表摘要（历史重建 fork 卡片用）。 */
+type ForkSummary struct {
+	ID         string `json:"id"`
+	Task       string `json:"task"`                 // 剥掉包装前缀的任务描述
+	Answer     string `json:"answer,omitempty"`     // 最终回答
+	StopReason string `json:"stopReason,omitempty"` // 空 = 正常完成
+	Iterations int    `json:"iterations"`
+}
+
+/*
+ListForks 返回主会话全部 fork 摘要，按 forkID 序号升序（与主库
+task 调用顺序一致，前端据此把卡片插到对应工具块之后）。
+存档均为已结束的分身（OnEnd 落盘），运行中的分身由实时事件重建。
+*/
+func ListForks(ctx context.Context, fsys fs.FileSystem, id string) []ForkSummary {
+	entries, err := fsys.List(ctx, SessionsDir+"/"+id+"/forks")
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir {
+			names = append(names, e.Name)
+		}
+	}
+	sort.Strings(names)
+	out := make([]ForkSummary, 0, len(names))
+	for _, name := range names {
+		snap, err := LoadFork(ctx, fsys, id, name)
+		if err != nil {
+			continue
+		}
+		out = append(out, ForkSummary{
+			ID:         snap.ID,
+			Task:       strings.TrimPrefix(snap.Input, task.TaskInputPrefix),
+			Answer:     snapLastAssistant(snap.Messages),
+			StopReason: snap.StopReason,
+			Iterations: snap.Iterations,
+		})
+	}
+	return out
+}
+
+/* LoadFork 读取 fork 分身快照（sessions/<id>/forks/<fid>/session.json）。 */
+func LoadFork(ctx context.Context, fsys fs.FileSystem, id, fid string) (*SessionSnap, error) {
+	if fid == "" || strings.Contains(fid, "/") || strings.Contains(fid, "\\") || strings.Contains(fid, "..") {
+		return nil, fmt.Errorf("sessionstore: bad fork id %q", fid)
+	}
+	data, err := fsys.Read(ctx, SessionsDir+"/"+id+"/forks/"+fid+"/session.json")
+	if err != nil {
+		return nil, fmt.Errorf("sessionstore: load fork %s/%s: %w", id, fid, err)
+	}
+	var s SessionSnap
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, fmt.Errorf("sessionstore: decode fork %s/%s: %w", id, fid, err)
+	}
+	return &s, nil
+}
+
+/* snapLastAssistant 取最后一条 assistant 消息正文。 */
+func snapLastAssistant(msgs []types.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == types.RoleAssistant {
+			return msgs[i].Content
+		}
+	}
+	return ""
 }
 
 /* ListMain 返回主会话 ID 清单（只认 sessions/ 下的目录项，忽略旧平铺文件）。 */

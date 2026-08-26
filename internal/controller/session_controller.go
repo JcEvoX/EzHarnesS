@@ -49,6 +49,16 @@ func (c *SessionController) Prev(g *gin.Context) {
 	g.JSON(http.StatusOK, d)
 }
 
+/* Fork GET /api/sessions/:id/forks/:fid（fork 分身详情，抽屉懒加载）。 */
+func (c *SessionController) Fork(g *gin.Context) {
+	d, err := c.Svc.Fork(g.Request.Context(), g.Param("id"), g.Param("fid"))
+	if err != nil {
+		g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, d)
+}
+
 /* Summary POST /api/sessions/:id/summary。 */
 func (c *SessionController) Summary(g *gin.Context) {
 	text, err := c.Svc.Summarize(g.Request.Context())

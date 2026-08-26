@@ -41,6 +41,7 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 
 		api.GET("/sessions/:id", c.Session.History)
 		api.GET("/sessions/:id/prev", c.Session.Prev)
+		api.GET("/sessions/:id/forks/:fid", c.Session.Fork)
 		api.GET("/sessions/:id/events", c.Chat.Events)
 		api.POST("/sessions/:id/messages", c.Chat.SendMessage)
 		api.POST("/sessions/:id/cancel", c.Chat.CancelTurn)

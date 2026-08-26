@@ -8,6 +8,7 @@
     id: string
     kind: 'approve' | 'ask' | 'plan' | 'info'
     source: string // 'agent' 或 fork 名
+    forkId?: string // 非空＝分身请求：跳转打开分身抽屉
     title: string
     detail?: string
     time: string

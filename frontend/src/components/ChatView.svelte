@@ -4,6 +4,7 @@
   import StatusCard from './StatusCard.svelte'
   import NoticePanel from './NoticePanel.svelte'
   import MagicBoard from './MagicBoard.svelte'
+  import ForkPanel from './ForkPanel.svelte'
   import { store } from '../lib/store.svelte'
   import type { Notice } from './NoticePanel.svelte'
 
@@ -64,10 +65,12 @@
     boardOpen = false
   }
 
-  /* 通知内联操作 → 决策回传（联动时间线卡与通知状态） */
+  /* 通知内联操作 → 决策回传（联动时间线卡/分身抽屉卡与通知状态） */
   function resolveNotice(id: string, action: string, input?: string) {
     const n = store.notices.find((x) => x.id === id)
-    const block = store.blocks.find((b) => b.kind === 'decision' && b.id === id)
+    const block = [store.blocks, ...Object.values(store.forks).map((f) => f.blocks)]
+      .flatMap((bs) => bs)
+      .find((b) => b.kind === 'decision' && b.id === id)
     if (!n || !block || block.kind !== 'decision') return
     if (n.kind === 'approve') {
       void store.decideApprove(block, action === 'approve', '')
@@ -78,8 +81,13 @@
     }
   }
 
+  /* 通知跳转：分身请求打开分身抽屉定位决策卡；主请求滚动时间线 */
   function jumpToNotice(n: Notice) {
     if (!n.target) return
+    if (n.forkId) {
+      store.openFork(n.forkId, n.target)
+      return
+    }
     document.getElementById(n.target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 </script>
@@ -105,6 +113,7 @@
     <StatusCard />
     <NoticePanel notices={store.notices} onResolve={resolveNotice} onJump={jumpToNotice} onDismiss={(id) => store.dismissNotice(id)} />
   </aside>
+  <ForkPanel />
   {#if dragging}
     <div class="dropzone">
       <div class="hint-box">
