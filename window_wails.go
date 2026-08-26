@@ -73,10 +73,20 @@ func openWindow(a *app) {
 	wailsApp := application.New(application.Options{Name: "ezharness"})
 	win := wailsApp.Window.NewWithOptions(opts)
 
-	if w, h := clampToScreen(win, a.cfg.WindowW, a.cfg.WindowH); w != a.cfg.WindowW || h != a.cfg.WindowH {
-		win.SetSize(w, h)
-	}
-	win.Show()
+	// Run 之前 Show() 是静默 no-op（窗口 impl 尚未创建），必须在应用
+	// 启动后的事件里显示：页面加载完成 → 按屏幕工作区钳制尺寸 → Show
+	// （Hidden 起步防超大窗口闪现；仅首次导航生效，刷新不重触发）
+	shown := false
+	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) {
+		if shown {
+			return
+		}
+		shown = true
+		if w, h := clampToScreen(win, a.cfg.WindowW, a.cfg.WindowH); w != a.cfg.WindowW || h != a.cfg.WindowH {
+			win.SetSize(w, h)
+		}
+		win.Show()
+	})
 
 	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
