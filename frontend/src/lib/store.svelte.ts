@@ -511,11 +511,9 @@ class AppStore {
     await api.decidePlan(this.activeId, block.id, kind, input).catch(() => {})
   }
 
-  /* settleNotice 决策完成后自动收起通知条目（结果已在决策卡上可见，通知不留副本）。 */
+  /* settleNotice 决策完成后立即移除通知条目（结果已在决策卡上可见，通知不留副本）。 */
   private settleNotice(id: string) {
-    setTimeout(() => {
-      this.notices = this.notices.filter((x) => x.id !== id)
-    }, 1200)
+    this.notices = this.notices.filter((x) => x.id !== id)
   }
 
   /* ── 事件归约 ── */
