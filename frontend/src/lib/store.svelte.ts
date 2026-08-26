@@ -592,20 +592,23 @@ class AppStore {
       }
       case 'model_end': {
         this.modelActive = false
+        // 关闭本次调用所属块流的流式态（fork 关自己的）：否则下一轮正文
+        // 会追加进工具调用前的旧流式块（思考直调工具时正文顺序错乱）
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        const last = this.lastStreaming(bs)
+        if (last) {
+          last.streaming = false
+        } else if (!ev.forkId && (ev.data?.content || ev.data?.reasoning)) {
+          // 回放重建：无流式块时按聚合帧补完整回复（实时路径 chunk 已建块）
+          this.blocks.push({
+            kind: 'assistant',
+            uid: this.nuid(),
+            text: ev.data.content || '',
+            reasoning: ev.data.reasoning || '',
+            streaming: false,
+          })
+        }
         if (!ev.forkId) {
-          const last = this.lastStreamingAssistant()
-          if (last) {
-            last.streaming = false
-          } else if (ev.data?.content || ev.data?.reasoning) {
-            // 回放重建：无流式块时按聚合帧补完整回复（实时路径 chunk 已建块）
-            this.blocks.push({
-              kind: 'assistant',
-              uid: this.nuid(),
-              text: ev.data.content || '',
-              reasoning: ev.data.reasoning || '',
-              streaming: false,
-            })
-          }
           const u = ev.data?.usage
           if (u && this.status) {
             this.status.contextTokens = u.PromptTokens || 0
