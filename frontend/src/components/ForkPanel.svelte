@@ -201,6 +201,10 @@
     flex-direction: column;
     gap: 10px;
   }
+  /* 子项不压缩：flex 列容器溢出时默认 shrink 会把消息块挤扁（伪乱序） */
+  .body > :global(*) {
+    flex: none;
+  }
   .placeholder {
     color: var(--faint);
     font-size: 12.5px;

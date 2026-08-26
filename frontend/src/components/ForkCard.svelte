@@ -40,7 +40,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    width: 100%;
+    width: calc(100% - 40px); /* 与 ToolBlock 等长：扣掉左缩进，不超出右缘 */
     margin-left: 40px;
     padding: 8px 14px;
     border: 1px solid var(--line-strong);
