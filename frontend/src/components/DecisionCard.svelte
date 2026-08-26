@@ -5,6 +5,9 @@
   let { data }: { data: DecisionData } = $props()
 
   let input = $state('')
+  /* 决策完成后自动折叠成一行；点头部可展开回看详情（open 用户操作优先） */
+  let open = $state<boolean | null>(null)
+  const collapsed = $derived(data.resolved && open !== true)
 
   function pretty(raw: string): string {
     try {
@@ -29,7 +32,14 @@
 </script>
 
 <div class="card enter-float" class:resolved={data.resolved}>
-  <div class="head">
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div
+    class="head"
+    class:foldable={data.resolved}
+    onclick={() => {
+      if (data.resolved) open = !collapsed
+    }}
+  >
     {#if data.dtype === 'approve'}
       <span class="icon approve">?</span>
       <span class="title">审批请求</span>
@@ -45,9 +55,11 @@
     {/if}
     {#if data.resolved}
       <span class="resolution">{data.resolution}</span>
+      <span class="fold-arrow" class:open={!collapsed}>{collapsed ? '▸' : '▾'}</span>
     {/if}
   </div>
 
+  {#if !collapsed}
   <div class="content">
     {#if data.dtype === 'ask' && data.question}
       <p class="question">{data.question}</p>
@@ -100,6 +112,7 @@
       </div>
     {/if}
   {/if}
+  {/if}
 </div>
 
 <style>
@@ -121,6 +134,17 @@
     padding: 8px 14px;
     border-bottom: 1px solid var(--line);
     background: var(--bg-soft);
+  }
+  .head.foldable {
+    cursor: pointer;
+  }
+  .head.foldable:hover {
+    background: color-mix(in srgb, var(--bg-soft) 60%, var(--bg));
+  }
+  .fold-arrow {
+    margin-left: auto;
+    color: var(--faint);
+    font-size: 10px;
   }
   .icon {
     display: grid;
