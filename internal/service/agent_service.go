@@ -108,6 +108,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			task.New(),
 			NewMcpHook(s.Fsys),
 			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, taskplan.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
+			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			compactHook, // OnEnd 在 trace/store 之前：截断+换库先发生
 			traceHook,
 			hooks.NewEndNote(), // 非正常终止补 <end_reason>，须在 sessionstore 落盘前
