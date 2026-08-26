@@ -256,6 +256,9 @@ export const api = {
 
   getApps: () => fetch('/api/apps').then(json<{ apps: AppEntry[] }>),
 
+  /* 桌面壳为快应用开独立子窗口（浏览器访问 503，调用方回落新标签页） */
+  openApp: (name: string) => post<{ ok: boolean }>('/api/apps/open', { name }),
+
   getMcp: () => fetch('/api/mcp').then(json<{ servers: McpServerView[] }>),
 
   saveMcp: (f: McpFile) => post<{ ok: boolean }>('/api/mcp', f),

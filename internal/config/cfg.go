@@ -28,14 +28,14 @@ const DefaultPort = 5260
 type Config struct {
 	Port    int
 	DataDir string // 绝对路径，进程 cwd 即此
-	WindowW int    // 主窗口默认宽（0 = 1440）
-	WindowH int    // 主窗口默认高（0 = 920）
+	WindowW int    // 主窗口默认宽（0 = 1280）
+	WindowH int    // 主窗口默认高（0 = 800）
 }
 
-/* DefaultWindowW/H 是主窗口默认尺寸。 */
+/* DefaultWindowW/H 是主窗口默认尺寸（16:10，超出屏幕工作区时启动钳制）。 */
 const (
-	DefaultWindowW = 1440
-	DefaultWindowH = 920
+	DefaultWindowW = 1280
+	DefaultWindowH = 800
 )
 
 /* appFile 是 ezharness.json 的落盘结构。 */

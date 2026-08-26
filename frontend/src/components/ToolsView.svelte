@@ -3,7 +3,10 @@
   import { api, type AppEntry } from '../lib/api'
 
   /* 快应用 = agent 经 save_app 生成的 html 小工具（apps/ 目录）。
-  启动 = 新标签页直开静态服务。 */
+  桌面窗口（?desktop=1）= 后端开独立子窗口；浏览器访问 = 新标签页直开
+  （webview 里 window.open 会被丢给系统默认浏览器，体验割裂）。 */
+  const desktop = new URLSearchParams(location.search).has('desktop')
+
   let apps = $state<AppEntry[]>([])
   let loaded = $state(false)
 
@@ -17,7 +20,15 @@
     loaded = true
   })
 
-  function launch(a: AppEntry) {
+  async function launch(a: AppEntry) {
+    if (desktop) {
+      try {
+        await api.openApp(a.name)
+        return
+      } catch {
+        /* 无窗口壳（503）回落新标签页 */
+      }
+    }
     window.open(`/apps/${encodeURIComponent(a.name)}`, '_blank')
   }
 </script>

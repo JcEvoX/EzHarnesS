@@ -17,7 +17,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gin-gonic/gin"
 
 	"ezharness/internal/config"
 	"ezharness/internal/controller"
@@ -28,7 +27,6 @@ type app struct {
 	mu     sync.Mutex
 	cfg    config.Config
 	srv    *http.Server
-	router atomic.Pointer[gin.Engine] // 当前一代路由（wails 资产服务器直通用）
 	winCtl *controller.WindowController
 	boot   atomic.Int64 // 服务代际（换代重启递增，跨代共享）
 }
@@ -83,21 +81,8 @@ func (a *app) start() error {
 	a.mu.Lock()
 	a.srv = srv
 	a.mu.Unlock()
-	a.router.Store(engine)
 	go func() { _ = srv.Serve(ln) }()
 	return nil
-}
-
-/*
-serveHTTP 直通当前一代 gin 路由（wails 资产服务器的 Handler）：
-桌面窗口的页面与 /api 同进程同源直达，SSE 流式直通。
-*/
-func (a *app) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if engine := a.router.Load(); engine != nil {
-		engine.ServeHTTP(w, r)
-		return
-	}
-	http.NotFound(w, r)
 }
 
 /* snapshot 返回当前配置副本。 */
@@ -129,7 +114,6 @@ func (a *app) restart(port int, dataDir string, ln net.Listener) {
 	a.cfg.Port, a.cfg.DataDir = port, dataDir
 	a.srv = srv
 	a.mu.Unlock()
-	a.router.Store(engine)
 	if ln == nil {
 		var err error
 		if ln, err = net.Listen("tcp", a.addr()); err != nil {

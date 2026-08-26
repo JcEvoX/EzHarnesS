@@ -13,7 +13,7 @@ frontend:
 # 发布：前端产物嵌入单二进制（windowsgui 隐藏控制台）
 build:
 	cd frontend && npm run build
-	go build -tags release -ldflags "-s -w -H windowsgui" -o ezharness.exe .
+	go build -tags release -o ezharness.exe .
 
 run: build
 	./ezharness.exe

@@ -68,6 +68,7 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.POST("/mcp/call", c.Mcp.Call)
 
 		api.GET("/apps", c.Apps.List)
+		api.POST("/apps/open", c.Apps.Open)
 
 		api.POST("/window/min", c.Window.Minimise)
 		api.POST("/window/max", c.Window.ToggleMaximise)

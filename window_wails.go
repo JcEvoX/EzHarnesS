@@ -2,9 +2,9 @@
 window 是桌面窗口壳（Wails v3，跨平台）：无边框窗口 + 系统托盘 +
 关闭最小化到托盘。
 
-- 前端由 wails 资产服务器服务：Assets.Handler 直通当前 gin engine
-  （同进程同源直调，无代理层，SSE 流式直通）；页面经 /api/window/*
-  控制三键。dev 模式不嵌前端，窗口直开 Vite dev server。
+- 页面一律走本进程 gin 的真实网络地址（release=http://127.0.0.1:<port>，
+  dev=Vite dev server）：不经 wails 资产桥——该桥在 Windows 上缓冲整个
+  响应，SSE 等流式无法工作；走网络后桌面端与浏览器访问行为完全一致。
 - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
   （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
 - 托盘常驻：左键切换窗口显示，右键菜单（打开/退出）。
@@ -14,7 +14,9 @@ package main
 
 import (
 	_ "embed"
-	"net/http"
+	"fmt"
+	"math"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -29,14 +31,31 @@ var trayIcon []byte
 // devURL dev 模式前端在 Vite dev server（proxy /api 到本进程）。
 const devURL = "http://localhost:5173/?desktop=1"
 
-/* openWindow 打开主窗口并阻塞至应用退出；返回后调用方收尾 server。 */
+var appWinSeq atomic.Int64 // 快应用子窗口命名序号
+
+/* clampToScreen 把窗口尺寸按主屏工作区等比钳制，返回可用尺寸。 */
+func clampToScreen(win *application.WebviewWindow, w, h int) (int, int) {
+	sc, err := win.GetScreen()
+	if err != nil || sc == nil {
+		return w, h
+	}
+	wa := sc.WorkArea
+	if w <= wa.Width && h <= wa.Height {
+		return w, h
+	}
+	scale := math.Min(float64(wa.Width)/float64(w), float64(wa.Height)/float64(h))
+	return int(float64(w) * scale), int(float64(h) * scale)
+}
+
+/* openWindow 打开主窗口并阻塞至应用退出；返回后调用方收尾 server。
+URL 走本进程真实网络地址（start 已完成 listen 后才开窗，无竞态）。 */
 func openWindow(a *app) {
-	appOpts := application.Options{Name: "ezharness"}
 	opts := application.WebviewWindowOptions{
 		Name:      "main",
 		Title:     "ezharness",
 		Width:     a.cfg.WindowW,
 		Height:    a.cfg.WindowH,
+		Hidden:    true, // 尺寸钳制后再显示，避免超大窗口闪现
 		Frameless: true,
 		// 组合宿主 + 非客户区支持：前者让 WndProc 接入宿主命中路由
 		// （边缘缩放 resizeBorderHitTest + app-region 拖拽命中），后者开启
@@ -46,14 +65,18 @@ func openWindow(a *app) {
 			WebView2CompositionHosting: true,
 		},
 	}
-	if distFS() != nil { // release：前端由 wails 资产服务器服务（直通 gin）
-		appOpts.Assets = application.AssetOptions{Handler: http.HandlerFunc(a.serveHTTP)}
-		opts.URL = "/?desktop=1"
+	if distFS() != nil { // release：gin 直出内嵌前端
+		opts.URL = fmt.Sprintf("http://127.0.0.1:%d/?desktop=1", a.cfg.Port)
 	} else { // dev：前端在 Vite dev server
 		opts.URL = devURL
 	}
-	wailsApp := application.New(appOpts)
+	wailsApp := application.New(application.Options{Name: "ezharness"})
 	win := wailsApp.Window.NewWithOptions(opts)
+
+	if w, h := clampToScreen(win, a.cfg.WindowW, a.cfg.WindowH); w != a.cfg.WindowW || h != a.cfg.WindowH {
+		win.SetSize(w, h)
+	}
+	win.Show()
 
 	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -62,7 +85,7 @@ func openWindow(a *app) {
 			e.Cancel()
 		}
 	})
-	a.winCtl.Set(wailsWindow{win})
+	a.winCtl.Set(wailsWindow{wailsApp: wailsApp, win: win, port: func() int { return a.snapshot().Port }})
 
 	tray := wailsApp.SystemTray.New()
 	tray.SetIcon(trayIcon)
@@ -87,9 +110,32 @@ func openWindow(a *app) {
 }
 
 /* wailsWindow 适配 wails Window 到 controller.WindowControl（剥掉返回值）。 */
-type wailsWindow struct{ w *application.WebviewWindow }
+type wailsWindow struct {
+	wailsApp *application.App
+	win      *application.WebviewWindow
+	port     func() int
+}
 
-func (a wailsWindow) Minimise()         { a.w.Minimise() }
-func (a wailsWindow) ToggleMaximise()   { a.w.ToggleMaximise() }
-func (a wailsWindow) IsMaximised() bool { return a.w.IsMaximised() }
-func (a wailsWindow) Close()            { a.w.Close() }
+func (a wailsWindow) Minimise()         { a.win.Minimise() }
+func (a wailsWindow) ToggleMaximise()   { a.win.ToggleMaximise() }
+func (a wailsWindow) IsMaximised() bool { return a.win.IsMaximised() }
+func (a wailsWindow) Close()            { a.win.Close() }
+
+/* OpenAppWindow 为快应用开独立子窗口：页面走本进程 gin 直出的绝对 URL
+（release 与 dev 一致；wails 资产域只服务主窗口相对路径）。带系统标题栏。 */
+func (a wailsWindow) OpenAppWindow(path, title string) {
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", a.port(), path)
+	opts := application.WebviewWindowOptions{
+		Name:   fmt.Sprintf("app-%d", appWinSeq.Add(1)),
+		Title:  title,
+		URL:    url,
+		Width:  960,
+		Height: 640,
+		Hidden: true,
+	}
+	w := a.wailsApp.Window.NewWithOptions(opts)
+	if cw, ch := clampToScreen(w, opts.Width, opts.Height); cw != opts.Width || ch != opts.Height {
+		w.SetSize(cw, ch)
+	}
+	w.Show()
+}

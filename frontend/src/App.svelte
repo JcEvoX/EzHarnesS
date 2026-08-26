@@ -17,8 +17,9 @@
   let expanded = $state(false)
 
   onMount(() => {
-    void store.bootstrap().catch(() => {
-      store.lastStatus = '后端不可达'
+    void store.bootstrap().catch((e) => {
+      console.error('bootstrap 失败', e)
+      store.lastStatus = `启动失败：${(e as Error).message}`
     })
     // 窗口重新聚焦时刷新（skill/MCP 可能在别的窗口或本机文件系统被改）
     const onFocus = () => {

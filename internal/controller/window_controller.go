@@ -18,6 +18,7 @@ type WindowControl interface {
 	ToggleMaximise()
 	IsMaximised() bool
 	Close()
+	OpenAppWindow(path, title string) // 快应用独立子窗口
 }
 
 type WindowController struct {
@@ -71,4 +72,13 @@ func (c *WindowController) Close(g *gin.Context) {
 		return
 	}
 	g.Status(http.StatusServiceUnavailable)
+}
+
+/* OpenApp POST /api/apps/open：桌面壳为快应用开子窗口（path 形如 /apps/x.html）。 */
+func (c *WindowController) OpenApp(path, title string) bool {
+	if w := c.current(); w != nil {
+		w.OpenAppWindow(path, title)
+		return true
+	}
+	return false
 }
