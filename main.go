@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -30,6 +31,9 @@ import (
 	"ezharness/internal/domain"
 	"ezharness/internal/service"
 )
+
+/* appStart 进程启动时刻（启动分段计时日志用）。 */
+var appStart = time.Now()
 
 func main() {
 	c, err := config.Load()

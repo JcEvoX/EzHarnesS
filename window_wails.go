@@ -88,12 +88,13 @@ func openWindow(a *app) {
 			win.SetSize(w, h)
 		}
 		win.Show()
-		log.Print("ezharness 窗口已显示")
+		log.Printf("ezharness 窗口已显示（启动后 %.1fs）", time.Since(appStart).Seconds())
 	}
 	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) { show() })
 	// NavigationCompleted 偶发丢失（WebView2 时序）会让 Hidden 窗口永远
-	// 不显示：超时兜底，与事件路径经 CAS 幂等合流
-	time.AfterFunc(3*time.Second, show)
+	// 不显示：超时兜底，与事件路径经 CAS 幂等合流。若显示恒比事件
+	// 晚 ~2s 即兜底触发（事件丢失），其余慢在 WebView2 初始化/页面加载
+	time.AfterFunc(2*time.Second, show)
 
 	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）。
 	// quitting 是托盘退出意图：Quit() 会触发关窗流程，若仍走 CloseToTray
@@ -137,6 +138,7 @@ func openWindow(a *app) {
 	})
 	tray.SetMenu(menu)
 
+	log.Printf("窗口装配完成（启动后 %.1fs），初始化 WebView", time.Since(appStart).Seconds())
 	_ = wailsApp.Run() // 阻塞主线程；退出（关窗/托盘退出）后返回
 }
 
