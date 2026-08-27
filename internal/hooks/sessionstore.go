@@ -211,7 +211,9 @@ func (h *Store) OnEnd(_ context.Context, state *types.LoopState) error {
 	fork := state.ForkID != ""
 	msgs := stripSystem(state.Messages)
 	if fork && state.SeedLen > 0 && state.SeedLen <= len(msgs) {
-		msgs = msgs[state.SeedLen:]
+		// SeedLen 含 system（fork.go 语义），stripSystem 后数组少 1：
+		// 起点 -1 才不会把 seed 后首条（任务 input / 压缩 handover）剥掉
+		msgs = msgs[state.SeedLen-1:]
 	}
 
 	out := SessionSnap{
