@@ -37,7 +37,7 @@
     class="head"
     class:foldable={data.resolved}
     onclick={() => {
-      if (data.resolved) open = !collapsed
+      if (data.resolved) open = collapsed
     }}
   >
     {#if data.dtype === 'approve'}

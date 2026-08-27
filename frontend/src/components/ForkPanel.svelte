@@ -196,6 +196,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden; /* 长路径/长参数只换行不横滚 */
     scrollbar-gutter: stable; /* 预留滚动条槽：内容加载不因滚动条出现而晃动 */
     padding: 14px 16px;
     display: flex;

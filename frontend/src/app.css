@@ -38,6 +38,7 @@ body {
   color: var(--fg);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden; /* 页面级禁横滚：超宽内容一律换行/内滚 */
 }
 
 ::selection {

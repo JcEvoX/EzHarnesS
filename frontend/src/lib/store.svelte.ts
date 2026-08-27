@@ -489,6 +489,7 @@ class AppStore {
     block.resolution = approve ? '已批准' : reason ? `已拒绝：${reason}` : '已拒绝'
     this.resolveNotice(block.id, block.resolution)
     this.settleNotice(block.id)
+    this.removeResolvedApprovals(block.id)
     await api.decideApprove(this.activeId, block.id, approve, reason).catch(() => {})
   }
 
@@ -514,6 +515,17 @@ class AppStore {
   /* settleNotice 决策完成后立即移除通知条目（结果已在决策卡上可见，通知不留副本）。 */
   private settleNotice(id: string) {
     this.notices = this.notices.filter((x) => x.id !== id)
+  }
+
+  /* removeResolvedApprovals 已决审批卡整体移除：批准/拒绝结果以工具卡徽标呈现，
+     时间线不留一行重复摘要（询问/规划卡保留，折叠可展开回看）。 */
+  private removeResolvedApprovals(id: string) {
+    const strip = (bs: Block[]) => {
+      const i = bs.findIndex((b) => b.kind === 'decision' && b.id === id && b.dtype === 'approve')
+      if (i >= 0) bs.splice(i, 1)
+    }
+    strip(this.blocks)
+    for (const f of Object.values(this.forks)) strip(f.blocks)
   }
 
   /* ── 事件归约 ── */
@@ -550,7 +562,10 @@ class AppStore {
             b.resolution = d.resolution || ''
           }
         }
-        if (d.id) this.resolveNotice(d.id, d.resolution || '')
+        if (d.id) {
+          this.resolveNotice(d.id, d.resolution || '')
+          this.removeResolvedApprovals(d.id)
+        }
         break
       }
       case 'model_start': {
@@ -841,15 +856,39 @@ class AppStore {
     }
   }
 
-  /* appendDelta 流式文本追加到块数组（主时间线与分身聊天框共用）。 */
+  /* appendDelta 流式文本追加到块数组（主时间线与分身聊天框共用）。
+     正文与工具同响应乱序兜底：部分 provider 按"思考→工具调用→正文"
+     的顺序发增量，正文若追进旧思考块会渲染在其后工具行的上方——
+     候选块之下已有本轮工具/决策行时，正文另起新块插到末尾。 */
   private appendDelta(bs: Block[], delta: string, isContent: boolean) {
-    let last = this.lastStreaming(bs)
-    if (!last) {
-      bs.push({ kind: 'assistant', uid: this.nuid(), text: '', reasoning: '', streaming: true })
-      last = bs[bs.length - 1] as Extract<Block, { kind: 'assistant' }>
+    let idx = -1
+    for (let i = bs.length - 1; i >= 0; i--) {
+      const b = bs[i]
+      if (b.kind === 'assistant') {
+        if (!b.streaming) break
+        idx = i
+        break
+      }
+      if (b.kind === 'user') break
     }
-    if (isContent) last.text += delta
-    else last.reasoning += delta
+    let staleGap = false
+    if (idx >= 0 && isContent) {
+      for (let i = idx + 1; i < bs.length; i++) {
+        const k = bs[i].kind
+        if (k === 'tool' || k === 'decision') {
+          staleGap = true
+          break
+        }
+        if (k === 'assistant') break
+      }
+    }
+    if (idx < 0 || staleGap) {
+      bs.push({ kind: 'assistant', uid: this.nuid(), text: '', reasoning: '', streaming: true })
+      idx = bs.length - 1
+    }
+    const b = bs[idx] as Extract<Block, { kind: 'assistant' }>
+    if (isContent) b.text += delta
+    else b.reasoning += delta
   }
 
   private lastStreamingAssistant(): Extract<Block, { kind: 'assistant' }> | null {
