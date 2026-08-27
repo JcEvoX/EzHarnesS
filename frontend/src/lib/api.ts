@@ -257,13 +257,6 @@ export const api = {
   decideAnswer: (id: string, callId: string, input: string) =>
     post<{ ok: boolean }>(`/api/sessions/${id}/decisions/answer`, { callId, input }),
 
-  decidePlan: (
-    id: string,
-    callId: string,
-    kind: 'execute' | 'reject' | 'revise',
-    input: string,
-  ) => post<{ ok: boolean }>(`/api/sessions/${id}/decisions/plan`, { callId, kind, input }),
-
   summarize: (id: string) => post<{ text: string }>(`/api/sessions/${id}/summary`),
 
   getSettings: () => fetch('/api/settings').then(json<Settings>),

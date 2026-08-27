@@ -17,7 +17,6 @@ import (
 	"github.com/xuanlv2002/ezloop/event"
 	"github.com/xuanlv2002/ezloop/ext/hook/approve"
 	"github.com/xuanlv2002/ezloop/ext/hook/askuser"
-	"github.com/xuanlv2002/ezloop/ext/hook/taskplan"
 	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/internal/hooks"
@@ -42,7 +41,6 @@ type Wiring struct {
 	Provider  ModelProvider
 	ApproveCh chan<- approve.Decision
 	AnswerCh  chan<- askuser.Answer
-	PlanCh    chan<- taskplan.Decision
 	ToolNames []string
 	Trace     *hooks.Trace // 调用链记录（Resume 切会话时同步切 trace）
 }
@@ -234,15 +232,6 @@ func (s *Session) DecideAnswer(a askuser.Answer) {
 	sendDecision(s, w.AnswerCh, a, a.CallID)
 }
 
-/* DecidePlan 回传规划处置。 */
-func (s *Session) DecidePlan(d taskplan.Decision) {
-	w := s.Wired()
-	if w == nil {
-		return
-	}
-	sendDecision(s, w.PlanCh, d, d.CallID)
-}
-
 /* ── SSE 订阅（领域事件出口，HTTP 帧写出在 controller）── */
 
 /* Subscribe 注册一个订阅者，返回事件 channel 与注销函数。 */
@@ -335,7 +324,7 @@ func (s *Session) clearPending(callID string) {
 /* decisionCallID 提取人机请求帧的工具调用 ID。 */
 func decisionCallID(e Event) (string, bool) {
 	switch e.Type {
-	case "approve.request", "askuser.request", "taskplan.request":
+	case "approve.request", "askuser.request":
 		var d struct {
 			ID string `json:"id"`
 		}

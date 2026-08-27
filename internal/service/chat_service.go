@@ -10,7 +10,6 @@ import (
 	"github.com/xuanlv2002/ezloop/event"
 	"github.com/xuanlv2002/ezloop/ext/hook/approve"
 	"github.com/xuanlv2002/ezloop/ext/hook/askuser"
-	"github.com/xuanlv2002/ezloop/ext/hook/taskplan"
 	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/internal/domain"
@@ -84,17 +83,6 @@ func (c *ChatService) DecideAnswer(callID, input string) {
 	c.Hub.Active.DecideAnswer(answerOf(callID, input))
 }
 
-/* DecidePlan 回传规划处置。 */
-func (c *ChatService) DecidePlan(callID, kind, input string) {
-	d := planDecision(callID, kind, input)
-	res := map[taskplan.Kind]string{taskplan.Execute: "规划已执行", taskplan.Reject: "规划已否决"}[d.Kind]
-	if res == "" {
-		res = "修改意见：" + input
-	}
-	c.recordDecision("plan", callID, res)
-	c.Hub.Active.DecidePlan(d)
-}
-
 /* recordDecision 持久化决策记录（轮末刷新后工具卡徽标用）并发
 decision.resolved 帧（轮内刷新回放时纠正决策卡与徽标）。失败静默。 */
 func (c *ChatService) recordDecision(kind, callID, resolution string) {
@@ -115,17 +103,4 @@ func approveDecision(callID string, ok bool, reason string) approve.Decision {
 
 func answerOf(callID, input string) askuser.Answer {
 	return askuser.Answer{CallID: callID, Input: input}
-}
-
-func planDecision(callID, kind, input string) taskplan.Decision {
-	d := taskplan.Decision{CallID: callID, Input: input}
-	switch kind {
-	case "execute":
-		d.Kind = taskplan.Execute
-	case "reject":
-		d.Kind = taskplan.Reject
-	default:
-		d.Kind = taskplan.Revise
-	}
-	return d
 }

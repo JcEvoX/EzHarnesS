@@ -117,7 +117,7 @@ func MapEvent(e event.Event) Event {
 	case "task.start", "task.end":
 		mapTaskEvent(&out, e)
 	default:
-		// approve.request / askuser.request / taskplan.request：Data 恒 *types.ToolCall
+		// approve.request / askuser.request：Data 恒 *types.ToolCall
 		if c, ok := e.Data.(*types.ToolCall); ok {
 			out.Data = raw(ToolStartData{ID: c.ID, Name: c.Name, Args: c.Args})
 		}

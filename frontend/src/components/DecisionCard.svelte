@@ -25,9 +25,9 @@
     void store.decideAnswer(data, input)
     input = ''
   }
-  function plan(kind: 'execute' | 'reject' | 'revise') {
-    void store.decidePlan(data, kind, input)
-    input = ''
+  /* 点选即提交：选项文本直接作为回答回传 */
+  function decideOption(label: string) {
+    void store.decideAnswer(data, label)
   }
 </script>
 
@@ -43,12 +43,9 @@
     {#if data.dtype === 'approve'}
       <span class="icon approve">?</span>
       <span class="title">审批请求</span>
-    {:else if data.dtype === 'ask'}
+    {:else}
       <span class="icon ask">?</span>
       <span class="title">ez 想问你</span>
-    {:else}
-      <span class="icon plan">▸</span>
-      <span class="title">规划待审</span>
     {/if}
     {#if data.forkId}
       <span class="from">⟨{data.forkId}⟩</span>
@@ -63,8 +60,13 @@
   <div class="content">
     {#if data.dtype === 'ask' && data.question}
       <p class="question">{data.question}</p>
-    {:else if data.dtype === 'plan' && data.plan}
-      <pre class="plan">{data.plan}</pre>
+      {#if !data.resolved && data.options.length}
+        <div class="options">
+          {#each data.options as o (o)}
+            <button class="opt" onclick={() => decideOption(o)}>{o}</button>
+          {/each}
+        </div>
+      {/if}
     {:else}
       <div class="call">
         <span class="tool-name">{data.name}</span>
@@ -85,7 +87,7 @@
         <button class="btn ghost" onclick={() => approve(false)}>拒绝</button>
         <button class="btn solid" onclick={() => approve(true)}>批准</button>
       </div>
-    {:else if data.dtype === 'ask'}
+    {:else}
       <div class="actions">
         <input
           type="text"
@@ -97,18 +99,6 @@
           }}
         />
         <button class="btn solid" onclick={answer}>回答</button>
-      </div>
-    {:else}
-      <div class="actions">
-        <input
-          type="text"
-          placeholder="修改意见（选填，随 Revise 生效）"
-          bind:value={input}
-          onkeydown={(e) => e.stopPropagation()}
-        />
-        <button class="btn ghost" onclick={() => plan('reject')}>否决</button>
-        <button class="btn ghost" onclick={() => plan('revise')}>修改</button>
-        <button class="btn solid" onclick={() => plan('execute')}>执行</button>
       </div>
     {/if}
   {/if}
@@ -183,11 +173,28 @@
     font-size: 14.5px;
     white-space: pre-wrap;
   }
-  .plan {
-    font-family: var(--font-ui);
-    font-size: 13.5px;
-    white-space: pre-wrap;
-    line-height: 1.65;
+  /* 选项按钮：点选即提交，与输入框自由输入二选一 */
+  .options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .opt {
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: transparent;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .opt:hover {
+    background: var(--bg-invert);
+    color: var(--fg-invert);
   }
   .call {
     display: flex;

@@ -76,8 +76,6 @@
       void store.decideApprove(block, action === 'approve', '')
     } else if (n.kind === 'ask') {
       void store.decideAnswer(block, input ?? '')
-    } else if (n.kind === 'plan') {
-      void store.decidePlan(block, action === 'execute' ? 'execute' : 'reject', input ?? '')
     }
   }
 

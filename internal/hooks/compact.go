@@ -88,9 +88,13 @@ func NewCompact(p provider.ModelProvider, fsys fs.FileSystem, sess *Store, sys *
 
 func (c *Compact) Name() string { return "compact" }
 
-/* OnStart 注册 compact_context 工具。 */
+/* OnStart 注册 compact_context 工具并注入使用说明（sys 首位重写 base 后追加，每轮重拼幂等）。 */
 func (c *Compact) OnStart(_ context.Context, state *types.LoopState) error {
 	state.Tools.Register(compactTool{})
+	if len(state.Messages) > 0 && state.Messages[0].Role == types.RoleSystem {
+		state.Messages[0].Content += "\n\n<tool-guide>\ncompact_context：把当前会话压缩归档并开启新会话（摘要自动交接）。" +
+			"话题告一段落、或感觉上下文已很长影响质量时主动调用，无需用户同意。\n</tool-guide>"
+	}
 	return nil
 }
 

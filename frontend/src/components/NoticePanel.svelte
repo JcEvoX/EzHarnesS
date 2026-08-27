@@ -6,7 +6,7 @@
   */
   export interface Notice {
     id: string
-    kind: 'approve' | 'ask' | 'plan' | 'info'
+    kind: 'approve' | 'ask' | 'info'
     source: string // 'agent' 或 fork 名
     forkId?: string // 非空＝分身请求：跳转打开分身抽屉
     title: string
@@ -32,7 +32,6 @@
   const kindMeta: Record<Notice['kind'], { label: string; icon: string }> = {
     approve: { label: '审批', icon: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
     ask: { label: '询问', icon: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>' },
-    plan: { label: '规划', icon: '<path d="M4 6h16M4 12h16M4 18h10"/>' },
     info: { label: '通知', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 11v5"/>' },
   }
 
@@ -134,9 +133,6 @@
                   }}
                 />
                 <button class="btn ok" onclick={() => answers[n.id]?.trim() && onResolve?.(n.id, 'answer', answers[n.id].trim())}>回答</button>
-              {:else if n.kind === 'plan'}
-                <button class="btn ok" onclick={() => onResolve?.(n.id, 'execute')}>执行</button>
-                <button class="btn no" onclick={() => onResolve?.(n.id, 'reject')}>否决</button>
               {/if}
               {#if n.target}
                 <button class="jump" onclick={() => onJump?.(n)} title="跳转到对应位置">查看 →</button>

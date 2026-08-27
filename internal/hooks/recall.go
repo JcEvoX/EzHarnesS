@@ -33,9 +33,13 @@ func NewRecall(fsys fs.FileSystem, topics *Topics) *Recall {
 
 func (r *Recall) Name() string { return "recall" }
 
-/* OnStart 注册 recall_topic 工具。 */
+/* OnStart 注册 recall_topic 工具并注入使用说明（sys 首位重写 base 后追加，每轮重拼幂等）。 */
 func (r *Recall) OnStart(_ context.Context, state *types.LoopState) error {
 	state.Tools.Register(recallTool{})
+	if len(state.Messages) > 0 && state.Messages[0].Role == types.RoleSystem {
+		state.Messages[0].Content += "\n\n<tool-guide>\nrecall_topic：会话经压缩翻页后，既往话题只余摘要；" +
+			"需要旧话题的完整细节（历史决定、过程记录）时用它回读原文。\n</tool-guide>"
+	}
 	return nil
 }
 

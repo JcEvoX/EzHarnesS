@@ -26,7 +26,6 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/hook/offload"
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 	"github.com/xuanlv2002/ezloop/ext/hook/task"
-	"github.com/xuanlv2002/ezloop/ext/hook/taskplan"
 	"github.com/xuanlv2002/ezloop/ext/provider/openai"
 	"github.com/xuanlv2002/ezloop/ext/warp/model/modelretry"
 	"github.com/xuanlv2002/ezloop/ext/warp/tool/limit"
@@ -73,7 +72,6 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 
 	approver, approveCh := approve.New(a.needsApprove)
 	asker, answerCh := askuser.New()
-	planner, planCh := taskplan.New()
 
 	window := main.ContextWindow
 	if window <= 0 {
@@ -88,7 +86,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	compactHook := hooks.NewCompact(provider, s.Fsys, s.Sess, sys, a.Hub.Topics, traceHook,
 		window*st.CompactPercent/100, // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
-		window,                              // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
+		window, // 模型窗口（压缩提示展示水位比例用）
 		func() string { return buildSystemBase(ctx, st, s.Fsys) }, // compact 即新 session：全量重载
 		func(info hooks.CompactInfo) { a.Hub.Active.SetIdentity(info.NewID) },
 	)
@@ -98,17 +96,16 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		core.WithToolWarp(limit.Warp(4), safetool.Warp()),
 		core.WithTools(tools.SaveApp(s.Fsys)...),
 		core.WithHooks(
-			sys, // startHooks 首位：system 唯一来源
+			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
 			filetools.New(s.Fsys, filetools.WithWorkDir(resolveWorkDir(st.WorkDir))),
 			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir),
 			statusHook,
 			approver,
 			asker,
-			planner,
 			task.New(),
 			NewMcpHook(s.Fsys),
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, taskplan.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
+			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			compactHook, // OnEnd 在 trace/store 之前：截断+换库先发生
 			traceHook,
@@ -124,11 +121,10 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		Provider:  provider,
 		ApproveCh: approveCh,
 		AnswerCh:  answerCh,
-		PlanCh:    planCh,
 		Trace:     traceHook,
 		ToolNames: []string{
 			"read_file", "write_file", "edit_file", "bash", "save_app",
-			askuser.ToolName, taskplan.ToolName, task.ToolName,
+			askuser.ToolName, task.ToolName,
 			"mcp_router", hooks.CompactTool, hooks.SkillTool,
 		},
 	})
@@ -152,7 +148,7 @@ func (a *AgentService) Reassemble(st domain.Settings) error {
 */
 func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 	switch c.Name {
-	case askuser.ToolName, taskplan.ToolName, hooks.SkillTool, hooks.CompactTool:
+	case askuser.ToolName, hooks.SkillTool, hooks.CompactTool:
 		return false // 交互与内部工具不属用户管控面（加载技能/压缩均为只读元操作）
 	}
 	name := c.Name
@@ -277,7 +273,7 @@ skill 全文与记忆细节不注入（模型按需用文件工具读取），�
 func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) string {
 	var b strings.Builder
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
-		"能用工具就用工具，回答简洁。可并行的子任务用 task 分身去做。" +
+		"能用工具就用工具，回答简洁。" +
 		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动。" +
 		"重要的用户偏好与事实可写入长期记忆（结构见 <memory> 块）。")
 	if st.SystemExtra != "" {

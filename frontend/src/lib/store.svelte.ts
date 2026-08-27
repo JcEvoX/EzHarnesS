@@ -38,11 +38,11 @@ export interface ForkState {
 
 export interface DecisionData {
   id: string
-  dtype: 'approve' | 'ask' | 'plan'
+  dtype: 'approve' | 'ask'
   name: string
   args: string
   question: string
-  plan: string
+  options: string[]
   forkId: string
   resolved: boolean
   resolution: string
@@ -50,7 +50,7 @@ export interface DecisionData {
 
 export interface NoticeData {
   id: string
-  kind: 'approve' | 'ask' | 'plan' | 'info'
+  kind: 'approve' | 'ask' | 'info'
   source: string // 'agent' 或 fork 标识
   forkId: string // 非空＝分身请求：跳转打开分身抽屉而非主时间线
   title: string
@@ -502,16 +502,6 @@ class AppStore {
     await api.decideAnswer(this.activeId, block.id, input).catch(() => {})
   }
 
-  async decidePlan(block: DecisionData, kind: 'execute' | 'reject' | 'revise', input: string) {
-    if (!this.activeId) return
-    block.resolved = true
-    block.resolution =
-      kind === 'execute' ? '已执行' : kind === 'reject' ? '已否决' : `修改意见：${input}`
-    this.resolveNotice(block.id, block.resolution)
-    this.settleNotice(block.id)
-    await api.decidePlan(this.activeId, block.id, kind, input).catch(() => {})
-  }
-
   /* settleNotice 决策完成后立即移除通知条目（结果已在决策卡上可见，通知不留副本）。 */
   private settleNotice(id: string) {
     this.notices = this.notices.filter((x) => x.id !== id)
@@ -692,8 +682,7 @@ class AppStore {
         break
       }
       case 'approve.request':
-      case 'askuser.request':
-      case 'taskplan.request': {
+      case 'askuser.request': {
         const d = ev.data || {}
         const id = d.id || ''
         // 分身请求路由进分身聊天框（不进主时间线）；bs=目标块数组
@@ -717,16 +706,15 @@ class AppStore {
           })
         }
         let question = ''
-        let plan = ''
+        let options: string[] = []
         try {
           const a = typeof args === 'string' && args ? JSON.parse(args) : {}
           question = a.question || ''
-          plan = a.plan || ''
+          if (Array.isArray(a.options)) options = a.options.filter((o: unknown) => typeof o === 'string')
         } catch {
           /* 非法 JSON 忽略 */
         }
-        const dtype: DecisionData['dtype'] =
-          ev.type === 'approve.request' ? 'approve' : ev.type === 'askuser.request' ? 'ask' : 'plan'
+        const dtype: DecisionData['dtype'] = ev.type === 'approve.request' ? 'approve' : 'ask'
         const card: Block = {
           kind: 'decision',
           uid: this.nuid(),
@@ -735,7 +723,7 @@ class AppStore {
           name: d.name || '',
           args: typeof args === 'string' ? args : '',
           question,
-          plan,
+          options,
           forkId: ev.forkId || '',
           resolved: false,
           resolution: '',
@@ -751,7 +739,7 @@ class AppStore {
           source: ev.forkId || 'agent',
           forkId: ev.forkId || '',
           title: d.name || '',
-          detail: question || plan || '',
+          detail: question || '',
           time: nowHM(),
           status: 'pending',
           resolution: '',

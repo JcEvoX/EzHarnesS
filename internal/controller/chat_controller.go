@@ -121,18 +121,3 @@ func (c *ChatController) DecideAnswer(g *gin.Context) {
 	c.Svc.DecideAnswer(body.CallID, body.Input)
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
-
-/* DecidePlan POST /api/sessions/:id/decisions/plan。 */
-func (c *ChatController) DecidePlan(g *gin.Context) {
-	var body struct {
-		CallID string `json:"callId" binding:"required"`
-		Kind   string `json:"kind"`
-		Input  string `json:"input"`
-	}
-	if err := g.ShouldBindJSON(&body); err != nil {
-		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.Svc.DecidePlan(body.CallID, body.Kind, body.Input)
-	g.JSON(http.StatusOK, gin.H{"ok": true})
-}

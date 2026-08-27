@@ -43,9 +43,13 @@ func NewSkillTool(fsys fs.FileSystem, dir string) *SkillToolHook {
 
 func (h *SkillToolHook) Name() string { return "skilltool" }
 
-/* OnStart 注册 load_skill 工具。 */
+/* OnStart 注册 load_skill 工具并注入使用说明（sys 首位重写 base 后追加，每轮重拼幂等）。 */
 func (h *SkillToolHook) OnStart(_ context.Context, state *types.LoopState) error {
 	state.Tools.Register(skillToolShell{})
+	if len(state.Messages) > 0 && state.Messages[0].Role == types.RoleSystem {
+		state.Messages[0].Content += "\n\n<tool-guide>\nload_skill：接任务先扫技能清单，命中就加载后按其指引执行，" +
+			"不要绕过现成技能自己造流程。\n</tool-guide>"
+	}
 	return nil
 }
 

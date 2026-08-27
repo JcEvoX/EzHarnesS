@@ -99,7 +99,7 @@ ezharness 是基于 [ezloop](https://github.com/xuanlv2002/ezloop) 内核的产�
 - **内联完成**：批准/拒绝、输入回答、执行/否决。
 - **跳转定位**：`target` 指向时间线位置（含 fork 卡内的审批块），点击滚动定位。
 - pending 高亮（左侧蓝条+微蓝底）与 done（打勾置灰）；头部待处理计数。
-- 数据源：SSE 决策请求帧（approve/askuser/taskplan request）。
+- 数据源：SSE 决策请求帧（approve/askuser request）。
 
 **输入框（`InputBar`）**：
 - 静息态浅灰底细边框；聚焦白底黑边+轻阴影浮起，上方渐隐遮罩（聊天记录优雅淡出），下方快捷键提示浮现。
