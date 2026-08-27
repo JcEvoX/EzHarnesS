@@ -185,6 +185,7 @@ func (c *Compact) finishPending(ctx context.Context, state *types.LoopState) {
 	})
 
 	c.sys.Set(p.newBase, p.newSummaryBlock) // 翻页：新 system 两段此刻生效
+	state.Metadata["compacted"] = true     // endnote 据此在本轮 <end_reason> 里附话题压缩说明
 	newID := p.newID
 	c.trace.SetTrace(newID)
 	c.sess.SetID(newID)

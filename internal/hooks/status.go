@@ -164,19 +164,21 @@ func diffNames(oldS, newS []string, kind string) []string {
 	return out
 }
 
-/* FriendlyStop 把轮停止原因映射为终止说明（end_reason 记录用；completed 返回空）。 */
+/* FriendlyStop 把轮停止原因映射为终止分类（end_reason 记录用）。 */
 func FriendlyStop(reason string) string {
 	switch reason {
+	case "completed":
+		return "正常结束"
 	case "cancelled":
-		return "用户手动停止本轮"
+		return "手动停止"
 	case "max_iterations":
-		return "达到最大迭代次数上限，本轮结束"
+		return "达到迭代上限"
 	case "aborted":
-		return "被策略中止"
+		return "策略中止"
 	case "error":
-		return "执行出错中止"
+		return "执行出错"
 	case "":
-		return ""
+		return "正常结束"
 	}
 	return "本轮结束（" + reason + "）"
 }

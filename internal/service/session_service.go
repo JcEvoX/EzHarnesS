@@ -64,7 +64,8 @@ type Status struct {
 	SessionMsgs      int      `json:"sessionMsgs"`
 	Busy             bool     `json:"busy"`
 	ContextTokens    int      `json:"contextTokens"`
-	ContextWindow    int      `json:"contextWindow"` // 主模型窗口（水位条分母）
+	ContextWindow    int      `json:"contextWindow"`  // 主模型窗口（水位条分母）
+	CompactPercent   int      `json:"compactPercent"` // 自动压缩阈值（窗口百分比，水位条阈值线；0=禁用）
 	CacheHitRate     float64  `json:"cacheHitRate"`
 	PromptTokens     int      `json:"promptTokens"`     // 本会话累计输入
 	CompletionTokens int      `json:"completionTokens"` // 本会话累计输出
@@ -117,6 +118,7 @@ func (s *SessionService) Snapshot() Status {
 		Busy:             sess.Busy(),
 		ContextTokens:    ctxTokens,
 		ContextWindow:    ctxWindow,
+		CompactPercent:   s.Hub.SettingsSnapshot().CompactPercent,
 		CacheHitRate:     hit,
 		PromptTokens:     u.PromptTokens,
 		CompletionTokens: u.CompletionTokens,
@@ -171,7 +173,7 @@ type PrevData struct {
 	Title       string              `json:"title,omitempty"`
 	Summary     string              `json:"summary,omitempty"`
 	Messages    []types.Message     `json:"messages"`
-	Forks       []hooks.ForkSummary `json:"forks,omitempty"`      // 旧库的分身摘要（入口卡重建）
+	Forks       []hooks.ForkSummary `json:"forks,omitempty"`       // 旧库的分身摘要（入口卡重建）
 	PrevSession string              `json:"prevSession,omitempty"` // 再上一级 ID（非空可继续上翻）
 }
 

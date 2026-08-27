@@ -129,6 +129,7 @@ export interface Status {
   busy: boolean
   contextTokens: number
   contextWindow: number
+  compactPercent: number
   cacheHitRate: number
   promptTokens: number
   completionTokens: number

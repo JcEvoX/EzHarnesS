@@ -112,7 +112,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			compactHook, // OnEnd 在 trace/store 之前：截断+换库先发生
 			traceHook,
-			hooks.NewEndNote(), // 非正常终止补 <end_reason>，须在 sessionstore 落盘前
+			hooks.NewEndNote(), // 每轮收尾补 <end_reason>（轮次/时长/结束时间/原因），须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
 		),
 		core.WithLoopParams(core.LoopParams{MaxIterations: 12}),

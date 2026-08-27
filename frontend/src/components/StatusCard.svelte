@@ -31,6 +31,15 @@
   const win = $derived(live?.ctxWindow || s?.contextWindow || 0)
   const hot = $derived(live?.suggestCompact ?? false)
   const pct = $derived(win > 0 ? Math.min(100, (ctx / win) * 100) : 0)
+  const cp = $derived(s?.compactPercent ?? 0)
+  const remain = $derived(cp > 0 ? cp - pct : 0)
+  const barTitle = $derived(
+    win > 0 && cp > 0
+      ? remain > 0
+        ? `自动压缩阈值 ${cp}% · 当前 ${pct.toFixed(0)}% · 还差 ${remain.toFixed(0)}%`
+        : `自动压缩阈值 ${cp}% · 当前 ${pct.toFixed(0)}%，已达阈值，轮末自动压缩`
+      : '自动压缩已禁用（0%）',
+  )
   const context = $derived(ctx > 0 ? (win > 0 ? `${fmtK(ctx)}/${fmtK(win)}` : fmtK(ctx)) : '-')
   const hit = $derived(s && s.promptTokens > 0 ? `${(s.cacheHitRate * 100).toFixed(0)}%` : '-')
   const tools = $derived(s?.tools ?? [])
@@ -61,8 +70,11 @@
       <span class="value" class:hot>{context}</span>
     </div>
     {#if win > 0}
-      <div class="bar">
+      <div class="bar" title={barTitle}>
         <div class="fill" class:hot style="width:{pct}%"></div>
+        {#if cp > 0}
+          <div class="mark" style="left:{cp}%"></div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -217,10 +229,10 @@
     font-weight: 600;
   }
   .bar {
+    position: relative;
     height: 4px;
     border-radius: 2px;
     background: var(--line);
-    overflow: hidden;
   }
   .fill {
     height: 100%;
@@ -230,6 +242,16 @@
   }
   .fill.hot {
     background: #d29922;
+  }
+  /* 自动压缩阈值线：上下出头 2px，红线与蓝色水位、琥珀热色区分 */
+  .mark {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 1px;
+    background: #f85149;
   }
   .caps {
     display: flex;
