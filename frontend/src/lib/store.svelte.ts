@@ -489,7 +489,7 @@ class AppStore {
     block.resolution = approve ? '已批准' : reason ? `已拒绝：${reason}` : '已拒绝'
     this.resolveNotice(block.id, block.resolution)
     this.settleNotice(block.id)
-    this.removeResolvedApprovals(block.id)
+    this.removeResolvedDecisions(block.id)
     await api.decideApprove(this.activeId, block.id, approve, reason).catch(() => {})
   }
 
@@ -499,6 +499,7 @@ class AppStore {
     block.resolution = input || '(未回答)'
     this.resolveNotice(block.id, block.resolution)
     this.settleNotice(block.id)
+    this.removeResolvedDecisions(block.id)
     await api.decideAnswer(this.activeId, block.id, input).catch(() => {})
   }
 
@@ -507,11 +508,11 @@ class AppStore {
     this.notices = this.notices.filter((x) => x.id !== id)
   }
 
-  /* removeResolvedApprovals 已决审批卡整体移除：批准/拒绝结果以工具卡徽标呈现，
-     时间线不留一行重复摘要（询问/规划卡保留，折叠可展开回看）。 */
-  private removeResolvedApprovals(id: string) {
+  /* removeResolvedDecisions 已决决策卡整体移除：审批结果以工具卡徽标呈现，
+     询问的回答即工具卡结果，时间线不留独立的决策卡副本。 */
+  private removeResolvedDecisions(id: string) {
     const strip = (bs: Block[]) => {
-      const i = bs.findIndex((b) => b.kind === 'decision' && b.id === id && b.dtype === 'approve')
+      const i = bs.findIndex((b) => b.kind === 'decision' && b.id === id)
       if (i >= 0) bs.splice(i, 1)
     }
     strip(this.blocks)
@@ -542,19 +543,11 @@ class AppStore {
         break
       }
       case 'decision.resolved': {
-        // 回放纠正：已决审批的决策卡与工具卡徽标（实时路径本地已处理，幂等）
+        // 回放纠正：已决决策卡直接移除（结果在工具卡上可见），通知与徽标同步
         const d = ev.data || {}
-        const all = [this.blocks, ...Object.values(this.forks).map((f) => f.blocks)]
-        for (const bs of all) {
-          const b = bs.find((x) => x.kind === 'decision' && x.id === d.id)
-          if (b && b.kind === 'decision' && !b.resolved) {
-            b.resolved = true
-            b.resolution = d.resolution || ''
-          }
-        }
         if (d.id) {
           this.resolveNotice(d.id, d.resolution || '')
-          this.removeResolvedApprovals(d.id)
+          this.removeResolvedDecisions(d.id)
         }
         break
       }
