@@ -32,6 +32,10 @@
     return out
   })
 
+  /* 空状态判定：note/status 是系统自动记录（压缩翻页后的新会话仅含
+     一条 <end_reason> 收尾），不算对话内容——只剩系统记录时仍展示欢迎页 */
+  const empty = $derived(!store.blocks.some((b) => b.kind !== 'note' && b.kind !== 'status'))
+
   let openGroups = $state<Set<number>>(new Set())
 
   function toggleGroup(key: number) {
@@ -173,7 +177,8 @@
         </span>
       </div>
     {/if}
-    {#each segs as seg}
+    {#if !empty}
+      {#each segs as seg}
       {#if seg.type === 'tools'}
         {@const key = seg.blocks[0].uid}
         {#if seg.blocks.length >= TOOL_GROUP_MIN}
@@ -212,11 +217,12 @@
           <span class="line"></span>
         </div>
       {/if}
-    {/each}
+      {/each}
+    {/if}
     {#if thinking || store.lastTool}
       <div class="thinking"><span class="tdot"></span>{store.lastTool ? `⚙ ${store.lastTool} 执行中…` : '模型输出中…'}</div>
     {/if}
-    {#if store.blocks.length === 0}
+    {#if empty}
       <div class="empty">
         <div class="mark"><Logo size={56} /></div>
         <p>向 ezharness 发出第一条指令——它可全权操作本机。</p>
