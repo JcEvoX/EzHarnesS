@@ -65,6 +65,9 @@ func main() {
 /* buildRouter 装配一代完整的 controller/service/domain 栈（重启换代时重建）。 */
 func (a *app) buildRouter() *gin.Engine {
 	hub := domain.NewHub()
+	a.mu.Lock()
+	a.hub = hub
+	a.mu.Unlock()
 
 	agents := &service.AgentService{Hub: hub}
 	agents.Assemble(hub.Active, hub.SettingsSnapshot())

@@ -15,8 +15,11 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"log"
 	"math"
+	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -76,24 +79,32 @@ func openWindow(a *app) {
 	// Run 之前 Show() 是静默 no-op（窗口 impl 尚未创建），必须在应用
 	// 启动后的事件里显示：页面加载完成 → 按屏幕工作区钳制尺寸 → Show
 	// （Hidden 起步防超大窗口闪现；仅首次导航生效，刷新不重触发）
-	shown := false
-	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) {
-		if shown {
+	var shown atomic.Bool
+	show := func() {
+		if !shown.CompareAndSwap(false, true) {
 			return
 		}
-		shown = true
 		if w, h := clampToScreen(win, a.cfg.WindowW, a.cfg.WindowH); w != a.cfg.WindowW || h != a.cfg.WindowH {
 			win.SetSize(w, h)
 		}
 		win.Show()
-	})
+		log.Print("ezharness 窗口已显示")
+	}
+	win.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) { show() })
+	// NavigationCompleted 偶发丢失（WebView2 时序）会让 Hidden 窗口永远
+	// 不显示：超时兜底，与事件路径经 CAS 幂等合流
+	time.AfterFunc(3*time.Second, show)
 
-	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）
+	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）。
+	// quitting 是托盘退出意图：Quit() 会触发关窗流程，若仍走 CloseToTray
+	// 拦截会把退出取消掉（这是"托盘退出退不出"的另一半根因）
+	var quitting atomic.Bool
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if domain.LoadSettings(osfs.OS{}).CloseToTray {
-			win.Hide()
-			e.Cancel()
+		if quitting.Load() || !domain.LoadSettings(osfs.OS{}).CloseToTray {
+			return
 		}
+		win.Hide()
+		e.Cancel()
 	})
 	a.winCtl.Set(wailsWindow{wailsApp: wailsApp, win: win, port: func() int { return a.snapshot().Port }})
 
@@ -113,7 +124,17 @@ func openWindow(a *app) {
 		win.Show()
 		win.Focus()
 	})
-	menu.Add("退出").OnClick(func(*application.Context) { wailsApp.Quit() })
+	// 退出：置 quitting 让关窗放行 → 同步收尾（取消运行轮并落盘；无轮时
+	// 毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底（数据已在盘上）
+	menu.Add("退出").OnClick(func(*application.Context) {
+		go func() {
+			quitting.Store(true)
+			a.stop()
+			wailsApp.Quit()
+			time.Sleep(5 * time.Second)
+			os.Exit(0)
+		}()
+	})
 	tray.SetMenu(menu)
 
 	_ = wailsApp.Run() // 阻塞主线程；退出（关窗/托盘退出）后返回

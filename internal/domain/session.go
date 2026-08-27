@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/xuanlv2002/ezloop/core"
 	"github.com/xuanlv2002/ezloop/event"
@@ -195,6 +196,16 @@ func (s *Session) Cancel() {
 		s.cur.cancel()
 	}
 	s.mu.Unlock()
+}
+
+/* Shutdown 收尾运行中的轮：取消并等待轮结束落盘（带超时，进程退出/
+换代用——轮内历史只在 OnEnd 落盘，不等待直接退出会丢整轮）。 */
+func (s *Session) Shutdown(wait time.Duration) {
+	s.Cancel()
+	deadline := time.Now().Add(wait)
+	for s.Busy() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 /* sendDecision 异步回传决策：hook 阻塞在 channel 上，同步发送会死锁。 */

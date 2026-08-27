@@ -112,7 +112,11 @@
           const h = await api.appHealth(res.url)
           if (h.boot === res.boot) {
             if (res.url === location.origin) location.reload()
-            else location.assign(res.url)
+            else {
+              // 换端口跳转：桌面窗口的标题栏靠 ?desktop=1 渲染，跳转目标需补上
+              const desktop = new URLSearchParams(location.search).has('desktop')
+              location.assign(desktop ? `${res.url}/?desktop=1` : res.url)
+            }
             return
           }
         } catch {
@@ -133,7 +137,7 @@
 
   <section>
     <h2>服务端配置</h2>
-    <p class="hint">端口与数据目录变更需换代重启（进程内完成，数据目录变更自动迁移）。</p>
+    <p class="hint">端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。</p>
     <div class="grid2">
       <label class="field">
         <span>端口</span>
