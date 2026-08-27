@@ -77,7 +77,7 @@ func newCompactForTest(fsys memFS, reply string) (*Compact, *Store, *SysPrompt, 
 	topics := NewTopics(fsys)
 	trace := NewTrace(fsys, store, nil)
 	store.BindSys(sys, "fake")
-	c := NewCompact(fakeProvider{reply}, fsys, store, sys, topics, trace, 0,
+	c := NewCompact(fakeProvider{reply}, fsys, store, sys, topics, trace, 0, 0,
 		func() string { return "rebuilt base" }, nil)
 	return c, store, sys, topics
 }

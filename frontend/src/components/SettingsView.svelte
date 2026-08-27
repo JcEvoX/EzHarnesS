@@ -163,7 +163,7 @@
     <div class="grid2">
       <label class="field">
         <span>压缩水位（窗口百分比）</span>
-        <input type="number" bind:value={percent} min="0" max="100" step="5" />
+        <input type="number" bind:value={percent} min="0" max="100" />
       </label>
     </div>
     <button

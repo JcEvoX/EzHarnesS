@@ -59,6 +59,7 @@ type Compact struct {
 	topics      *Topics
 	trace       *Trace
 	threshold   int // 水位阈值（prompt tokens），<=0 禁用自动压缩
+	window      int // 模型窗口（tokens，压缩提示展示水位比例用）
 	rebuildBase func() string
 	onCompact   func(CompactInfo) // 压缩成功回调（宿主同步 session 标识）
 	pending     *pendingCompact   // 挂起的压缩（轮末 OnEnd 收尾）
@@ -79,10 +80,10 @@ type pendingCompact struct {
 
 /* NewCompact 创建压缩 hook。rebuildBase/onCompact 可为 nil。 */
 func NewCompact(p provider.ModelProvider, fsys fs.FileSystem, sess *Store, sys *SysPrompt,
-	topics *Topics, trace *Trace, threshold int, rebuildBase func() string,
+	topics *Topics, trace *Trace, threshold, window int, rebuildBase func() string,
 	onCompact func(CompactInfo)) *Compact {
 	return &Compact{provider: p, fsys: fsys, sess: sess, sys: sys, topics: topics,
-		trace: trace, threshold: threshold, rebuildBase: rebuildBase, onCompact: onCompact}
+		trace: trace, threshold: threshold, window: window, rebuildBase: rebuildBase, onCompact: onCompact}
 }
 
 func (c *Compact) Name() string { return "compact" }
@@ -135,11 +136,17 @@ func (c *Compact) OnEnd(ctx context.Context, state *types.LoopState) error {
 	if c.threshold <= 0 || state.LastResponse == nil {
 		return nil
 	}
-	if state.LastResponse.Usage.PromptTokens <= c.threshold {
+	tokens := state.LastResponse.Usage.PromptTokens
+	if tokens <= c.threshold {
 		return nil
 	}
 	// 自动路径无工具卡可见：先发压缩中提示（摘要最多 2 分钟，静默会被当成卡死）
-	state.EmitEvent(EventCompacting, "上下文水位达到阈值，正在压缩归档…")
+	msg := fmt.Sprintf("上下文水位 %d tokens，达到阈值，正在压缩归档…", tokens)
+	if c.window > 0 {
+		msg = fmt.Sprintf("上下文水位 %d / %d tokens（%d%%），达到阈值，正在压缩归档…",
+			tokens, c.window, tokens*100/c.window)
+	}
+	state.EmitEvent(EventCompacting, msg)
 	var err error
 	if state.ForkID != "" {
 		err = c.compactFork(ctx, state, true, "fork 上下文水位达到阈值")
