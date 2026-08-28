@@ -5,10 +5,8 @@
   绿点 = 当前所处分支；转圈 = 有轮运行中（含后台分支）；⚠ = 有未决审批。
   操作：点击切换（状态/审批随之切换）、新建开线、删除整线。
   */
-  import { api, type BranchView } from '../lib/api'
+  import { type BranchView } from '../lib/api'
   import { store } from '../lib/store.svelte'
-
-  let confirmId = $state('') // 待确认删除的分支
 
   /* 收起为小方块：localStorage 记忆（有分支在跑/等审批时红点提示） */
   const collapsedKey = 'ezh.branchPanel.collapsed'
@@ -33,24 +31,6 @@
   function switchTo(b: BranchView) {
     if (b.active || b.id === store.activeId) return
     void store.switchBranch(b.id)
-  }
-
-  async function remove(b: BranchView) {
-    if (confirmId !== b.id) {
-      confirmId = b.id
-      setTimeout(() => {
-        if (confirmId === b.id) confirmId = ''
-      }, 3000)
-      return
-    }
-    confirmId = ''
-    try {
-      await api.deleteTopic(b.id)
-      await store.refreshBranches()
-      if (b.active) await store.newBranch() // 活动线被删：后端已切新线，前端跟随
-    } catch (e) {
-      store.lastStatus = `删除分支失败：${(e as Error).message}`
-    }
   }
 
   function fmtTime(ts?: number): string {
@@ -102,14 +82,6 @@
               {#if b.waiting}<em class="wait">待审批</em>{/if}
             </span>
           </div>
-          <button class="del" class:confirm={confirmId === b.id}
-            onclick={(e) => {
-              e.stopPropagation()
-              void remove(b)
-            }}
-            title={confirmId === b.id ? '再点一次确认删除整条线' : '删除该分支（全部世代）'}>
-            {confirmId === b.id ? '确认?' : '✕'}
-          </button>
         </div>
       {/each}
       {#if store.branches.length === 0}
@@ -295,28 +267,6 @@
     margin-left: 6px;
     font-style: normal;
     color: #f0883e;
-  }
-  .del {
-    flex: none;
-    border: none;
-    background: transparent;
-    color: var(--faint);
-    font-size: 11px;
-    padding: 3px 6px;
-    border-radius: 6px;
-    opacity: 0;
-    transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-  }
-  .branch:hover .del {
-    opacity: 1;
-  }
-  .del:hover {
-    color: #c0392b;
-    background: color-mix(in srgb, #c0392b 8%, transparent);
-  }
-  .del.confirm {
-    opacity: 1;
-    color: #c0392b;
   }
   .empty {
     padding: 18px 12px;

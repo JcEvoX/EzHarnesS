@@ -334,7 +334,9 @@ export const api = {
   listTopics: () => fetch('/api/topics').then(json<BranchView[]>),
 
   getTopic: (id: string) =>
-    fetch(`/api/topics/${id}`).then(json<{ entry: TopicEntry; messages: HistoryMessage[] }>),
+    fetch(`/api/topics/${id}`).then(
+      json<{ entry: TopicEntry; messages: HistoryMessage[]; summary?: string }>,
+    ),
 
   resumeTopic: (id: string) => post<{ id: string }>(`/api/topics/${id}/resume`),
 

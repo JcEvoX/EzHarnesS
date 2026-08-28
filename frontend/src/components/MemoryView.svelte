@@ -14,9 +14,12 @@
   let cfg = $state<MemoryConfig | null>(null)
   let tree = $state<SessionNode[] | null>(null)
   let message = $state('')
-  let openTopic = $state('') // 展开回顾的 session id
-  let topicMsgs = $state<HistoryMessage[]>([])
-  let confirmId = $state('') // 待确认删线的节点
+
+  /* 回顾侧边抽屉：目标节点 + 只读内容（消息 + 压缩摘要） */
+  let reviewNode = $state<SessionNode | null>(null)
+  let reviewMsgs = $state<HistoryMessage[]>([])
+  let reviewSummary = $state('')
+  let reviewLoading = $state(false)
 
   async function loadTree() {
     try {
@@ -38,19 +41,25 @@
     await loadTree()
   })
 
-  /* 回顾：展开只读全文（再点收起）；任意 session 节点都可回顾 */
+  /* 回顾：侧边抽屉只读全文；压缩新叶几乎无消息，摘要段给上下文 */
   async function reviewTopic(n: SessionNode) {
-    if (openTopic === n.id) {
-      openTopic = ''
-      return
-    }
+    reviewNode = n
+    reviewLoading = true
     try {
       const d = await api.getTopic(n.id)
-      topicMsgs = d.messages || []
-      openTopic = n.id
+      reviewMsgs = d.messages || []
+      reviewSummary = (d.summary || '').replace(/<\/?compact-summary>/g, '').trim()
     } catch (e) {
       message = `回顾失败：${(e as Error).message}`
+    } finally {
+      reviewLoading = false
     }
+  }
+
+  function closeReview() {
+    reviewNode = null
+    reviewMsgs = []
+    reviewSummary = ''
   }
 
   /* 切到分支：该节点所属线的当前叶恢复为活动会话并跳对话页 */
@@ -64,46 +73,24 @@
     }
   }
 
-  /* 手动归档开关（活动/运行中的当前叶后端拒绝） */
-  async function archiveNode(n: SessionNode) {
-    try {
-      await api.archiveSession(n.id, !n.archived)
-      await loadTree()
-    } catch (e) {
-      message = `归档失败：${(e as Error).message}`
-    }
-  }
-
-  /* 删整条线（二次确认；线身份 = 节点的 lineRoot） */
-  async function removeLine(n: SessionNode) {
-    if (!n.lineRoot) return
-    if (confirmId !== n.id) {
-      confirmId = n.id
-      setTimeout(() => {
-        if (confirmId === n.id) confirmId = ''
-      }, 3000)
-      return
-    }
-    confirmId = ''
-    try {
-      await api.deleteTopic(n.lineRoot)
-      if (n.isActiveLine && n.isLeaf) await store.newBranch()
-      await loadTree()
-      await store.refreshBranches()
-    } catch (e) {
-      message = `删除失败：${(e as Error).message}`
-    }
-  }
-
   function fmtSize(n: number): string {
     if (n < 1024) return `${n} B`
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
     return `${(n / 1024 / 1024).toFixed(1)} MB`
   }
 
-  /* 会话树：按 targetId 组树（fork 子孙也是子节点），根按时间倒序、
-     子节点按时间正序（世代从上往下长）；展开集控制折叠 */
-  type Row = { n: SessionNode; depth: number; kids: number; open: boolean }
+  /* 会话树（目录式）：
+     虚拟 null 根（设计文档的空根哨兵）→ 一级 = 每条线（new 根与 fork
+     根平级，fork 不嵌在源下面——它是新线，靠 ⑂ 徽标标出处）→ 线内
+     compress 世代沿链向下。guides 是各级祖先的竖向导轨列。 */
+  type Row = {
+    n: SessionNode | null // null = 虚拟根
+    depth: number
+    kids: number
+    open: boolean
+    guides: number
+    parentTitle?: string
+  }
   let expanded = $state<Set<string>>(new Set())
 
   function toggle(id: string) {
@@ -116,26 +103,27 @@
   const treeRows = $derived.by(() => {
     if (!tree) return [] as Row[]
     const byId = new Set(tree.map((n) => n.id))
-    const kids = new Map<string, SessionNode[]>()
-    const roots: SessionNode[] = []
+    const compressKid = new Map<string, SessionNode>() // 线内世代：targetId → 压缩后继
+    const lineRoots: SessionNode[] = []
     for (const n of tree) {
-      if (n.targetId && byId.has(n.targetId)) {
-        const arr = kids.get(n.targetId) || []
-        arr.push(n)
-        kids.set(n.targetId, arr)
+      if (n.seedKind === 'compress' && n.targetId && byId.has(n.targetId)) {
+        compressKid.set(n.targetId, n)
       } else {
-        roots.push(n)
+        lineRoots.push(n) // new 根 / fork 根（自成一线）
       }
     }
-    roots.sort((a, b) => b.createdAt - a.createdAt)
+    lineRoots.sort((a, b) => b.createdAt - a.createdAt)
     const out: Row[] = []
-    const walk = (n: SessionNode, depth: number) => {
-      const ch = (kids.get(n.id) || []).sort((a, b) => a.createdAt - b.createdAt)
+    const nullOpen = expanded.has('null')
+    out.push({ n: null, depth: 0, kids: lineRoots.length, open: nullOpen, guides: 0 })
+    if (!nullOpen) return out
+    const walk = (n: SessionNode, depth: number, parentTitle: string) => {
+      const ch = compressKid.get(n.id)
       const open = expanded.has(n.id)
-      out.push({ n, depth, kids: ch.length, open })
-      if (open) for (const c of ch) walk(c, depth + 1)
+      out.push({ n, depth, kids: ch ? 1 : 0, open, guides: depth - 1, parentTitle })
+      if (open && ch) walk(ch, depth + 1, n.title)
     }
-    for (const r of roots) walk(r, 0)
+    for (const r of lineRoots) walk(r, 1, '')
     return out
   })
 
@@ -238,23 +226,34 @@
     </div>
   </section>
 
-  <!-- ── 话题记忆：完整会话树 ── -->
+  <!-- ── 话题记忆：完整会话树（目录式）── -->
   <section>
     <header>
       <div>
         <h2>话题记忆</h2>
-        <p class="hint">完整会话树：每条分支从根到当前叶，压缩旧世代标"已归档"，⑂ 为分叉。</p>
+        <p class="hint">完整会话树：一级 = 分支（⑂ 为分叉新线），线内向下是压缩世代；已归档不再参与恢复。</p>
       </div>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.topics.dir : '—'}</p>
     <div class="treelist">
       {#if treeRows.length > 0}
-        {#each treeRows as row, i (`${row.n.id}-${i}`)}
-          {@const n = row.n}
-          <div class="branch">
-            <div class="topic" class:cur={n.isActiveLine && n.isLeaf} style="padding-left:{14 + row.depth * 20}px">
+        {#each treeRows as row, i (`${row.n?.id ?? 'null'}-${i}`)}
+          {#if row.n === null}
+            <div class="trow root">
+              <button class="tw" onclick={() => toggle('null')} title={row.open ? '收起全部分支' : '展开全部分支'}>
+                <span class="farrow" class:open={row.open}>{row.open ? '▾' : '▸'}</span>
+              </button>
+              <span class="name mono">null</span>
+              <span class="desc">空根 · {row.kids} 条分支</span>
+            </div>
+          {:else}
+            {@const n = row.n}
+            <div class="trow" class:cur={n.isActiveLine && n.isLeaf}>
+              {#each Array(row.guides) as _, g (g)}
+                <span class="guide"></span>
+              {/each}
               {#if row.kids > 0}
-                <button class="tw" onclick={() => toggle(n.id)} title={row.open ? '收起子节点' : '展开子节点'}>
+                <button class="tw" onclick={() => toggle(n.id)} title={row.open ? '收起世代' : '展开世代'}>
                   <span class="farrow" class:open={row.open}>{row.open ? '▾' : '▸'}</span>
                 </button>
               {:else}
@@ -265,43 +264,20 @@
                   {n.title || '未命名会话'}
                   {#if n.archived}<span class="kbadge arc">已归档</span>{/if}
                   {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `分叉自：${n.forkedFrom.title}` : '分叉产生的分支'}>⑂</span>{/if}
-                  {#if n.isActiveLine && n.isLeaf}<span class="kbadge live">进行中</span>{/if}
+                  {#if n.seedKind === 'compress'}<span class="kbadge" title={row.parentTitle ? `来自「${row.parentTitle}」压缩生成` : '压缩生成'}>⇪ 压缩生成</span>{/if}
                   {#if n.msgs === 0}<span class="kbadge mut">空</span>{/if}
                 </span>
                 <span class="desc">{fmtDate(n.createdAt)} · {n.msgs} 条消息</span>
               </div>
               <div class="ops">
-                <button class="op" onclick={() => reviewTopic(n)}>
-                  {openTopic === n.id ? '收起' : '回顾'}
-                </button>
+                <button class="op" onclick={() => reviewTopic(n)}>回顾</button>
                 {#if n.isLeaf && n.lineRoot && !(n.isActiveLine)}
                   <button class="op" onclick={() => switchLine(n)} title="切到该分支的当前叶继续">切到分支</button>
                 {/if}
-                <button class="op" onclick={() => archiveNode(n)} title={n.archived ? '取消手动归档' : '手动归档（不再作为恢复候选）'}>
-                  {n.archived ? '取消归档' : '归档'}
-                </button>
-                {#if n.isLeaf && n.lineRoot}
-                  <button class="del" class:confirm={confirmId === n.id} onclick={() => removeLine(n)}
-                    title={confirmId === n.id ? '再点一次确认删除整条线' : '删除整条线（全部世代）'}>
-                    {confirmId === n.id ? '确认?' : '删除'}
-                  </button>
-                {/if}
+                <button class="op" disabled title="手动归档：后续版本开放">归档</button>
               </div>
             </div>
-            {#if openTopic === n.id}
-              <div class="review" style="margin-left:{14 + row.depth * 20}px">
-                {#each topicMsgs as m, j (j)}
-                  <div class="rv" class:me={m.role === 'user'}>
-                    <span class="rrole">{m.role === 'assistant' ? 'agent' : m.role === 'tool' ? 'tool' : m.role}</span>
-                    <span class="rtext">{(m.content || (m.tool_calls ? JSON.stringify(m.tool_calls) : '')).slice(0, 300)}</span>
-                  </div>
-                {/each}
-                {#if topicMsgs.length === 0}
-                  <div class="rv">（无消息）</div>
-                {/if}
-              </div>
-            {/if}
-          </div>
+          {/if}
         {/each}
       {:else if tree}
         <div class="empty">暂无会话——在对话页开聊后会沉淀到这里。</div>
@@ -311,6 +287,43 @@
     </div>
   </section>
 </div>
+
+<!-- 回顾侧边抽屉：完整消息 + 压缩摘要 -->
+{#if reviewNode}
+  <div class="drawer-mask" onclick={closeReview}></div>
+  <aside class="drawer">
+    <header>
+      <div class="dtitle">
+        <span class="name">{reviewNode.title || '未命名会话'}</span>
+        {#if reviewNode.archived}<span class="kbadge arc">已归档</span>{/if}
+        {#if reviewNode.seedKind === 'fork'}<span class="kbadge">⑂</span>{/if}
+        {#if reviewNode.seedKind === 'compress'}<span class="kbadge">⇪ 压缩生成</span>{/if}
+      </div>
+      <button class="dclose" onclick={closeReview} title="关闭">✕</button>
+    </header>
+    {#if reviewSummary}
+      <div class="dsum">
+        <div class="dsum-tag">⇪ 压缩摘要（本会话开始前的上下文）</div>
+        <div class="dsum-text">{reviewSummary}</div>
+      </div>
+    {/if}
+    <div class="dmsgs">
+      {#if reviewLoading}
+        <div class="rv">加载中…</div>
+      {:else}
+        {#each reviewMsgs as m, j (j)}
+          <div class="rv" class:me={m.role === 'user'}>
+            <span class="rrole">{m.role === 'assistant' ? 'agent' : m.role === 'tool' ? 'tool' : m.role}</span>
+            <span class="rtext">{m.content || (m.tool_calls ? JSON.stringify(m.tool_calls) : '')}</span>
+          </div>
+        {/each}
+        {#if reviewMsgs.length === 0 && !reviewSummary}
+          <div class="rv">（无消息）</div>
+        {/if}
+      {/if}
+    </div>
+  </aside>
+{/if}
 
 <style>
   .page {
@@ -560,35 +573,40 @@
     overflow-wrap: anywhere;
   }
 
-  /* 话题记忆：会话树 */
+  /* 话题记忆：目录式会话树。导轨列(guide)按祖先层级等宽排列，
+     竖线贯穿同级节点——折叠的子树不渲染行，导轨天然连续不错位 */
   .treelist {
     display: flex;
     flex-direction: column;
     border: 1px solid var(--line);
     border-radius: 12px;
+    padding: 4px 0;
     overflow: hidden;
   }
-  .branch {
-    display: flex;
-    flex-direction: column;
-    border-left: 1px solid var(--line);
-    margin-left: 14px;
-  }
-  .branch:first-child {
-    border-left: none;
-    margin-left: 0;
-  }
-  .topic {
+  .trow {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding-top: 9px;
-    padding-bottom: 9px;
-    padding-right: 14px;
-    flex-wrap: wrap; /* 回顾展开区占满整行 */
+    gap: 6px;
+    padding: 6px 12px 6px 8px;
     transition: background var(--dur-fast) var(--ease-out);
   }
-  /* 展开钮 / 叶点 */
+  .trow:hover {
+    background: var(--bg-soft);
+  }
+  .trow.cur {
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  }
+  .trow.root {
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    margin-bottom: 2px;
+  }
+  .guide {
+    flex: none;
+    width: 18px;
+    align-self: stretch;
+    border-left: 1px solid var(--line);
+  }
   .tw {
     flex: none;
     display: grid;
@@ -614,36 +632,19 @@
     display: inline-block;
     transition: transform var(--dur-fast) var(--ease-out);
   }
-  .topic + .topic {
-    border-top: 1px solid var(--line);
+  .mono {
+    font-family: var(--font-mono);
   }
-  .topic:hover {
-    background: var(--bg-soft);
+  .trow.root .name {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
   }
-  .topic .name {
+  .trow .name {
     font-size: 12.5px;
     color: var(--fg);
     font-weight: 550;
     overflow-wrap: anywhere;
-  }
-  .forkbtn {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--muted);
-    font-size: 10px;
-    font-family: var(--font-mono);
-    padding: 1px 8px;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: all var(--dur-fast) var(--ease-out);
-  }
-  .forkbtn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .kbadge {
     flex: none;
@@ -666,31 +667,6 @@
     background: transparent;
     border: 1px dashed var(--line);
   }
-  .kbadge.live {
-    color: #3fb950;
-    background: rgb(63 185 80 / 12%);
-  }
-  .topic.cur {
-    background: var(--bg-soft);
-  }
-  .summary {
-    font-size: 11.5px;
-    line-height: 1.55;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    margin-top: 2px;
-  }
-  .path {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--faint);
-    overflow-wrap: anywhere;
-    margin-top: 2px;
-  }
   .ops {
     display: flex;
     gap: 4px;
@@ -708,25 +684,118 @@
     cursor: pointer;
     transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
-  .op:hover {
+  .trow:hover .op {
+    opacity: 1;
+  }
+  .op:hover:not(:disabled) {
     background: var(--bg-soft);
     color: var(--fg);
   }
-  .topic:hover .op {
-    opacity: 1;
+  .op:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
-  .review {
+
+  /* ── 回顾侧边抽屉 ── */
+  .drawer-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 58;
+    background: rgb(0 0 0 / 18%);
+  }
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 59;
+    width: min(460px, 92vw);
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    width: 100%;
-    margin-top: 8px;
-    padding: 10px 12px;
+    background: var(--bg);
+    border-left: 1px solid var(--line-strong);
+    box-shadow: -8px 0 24px rgb(0 0 0 / 12%);
+    animation: drawer-in 0.22s var(--ease-out) both;
+  }
+  @keyframes drawer-in {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  .drawer header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .dtitle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+  .dtitle .name {
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .dclose {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
     border: 1px solid var(--line);
     border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .dclose:hover {
+    color: var(--fg);
+    border-color: var(--line-strong);
+  }
+  .dsum {
+    flex: none;
+    margin: 12px 16px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
     background: var(--bg-soft);
-    max-height: 320px;
+  }
+  .dsum-tag {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .dsum-text {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 180px;
     overflow-y: auto;
+  }
+  .dmsgs {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
   .rv {
     display: flex;
@@ -749,26 +818,5 @@
   .rtext {
     white-space: pre-wrap;
     word-break: break-word;
-  }
-  .del {
-    flex: none;
-    border: none;
-    background: transparent;
-    color: var(--faint);
-    font-size: 11.5px;
-    padding: 4px 8px;
-    border-radius: 6px;
-    opacity: 0;
-    transition:
-      opacity var(--dur-fast) var(--ease-out),
-      color var(--dur-fast) var(--ease-out),
-      background var(--dur-fast) var(--ease-out);
-  }
-  .topic:hover .del {
-    opacity: 1;
-  }
-  .del:hover {
-    color: #c0392b;
-    background: color-mix(in srgb, #c0392b 8%, transparent);
   }
 </style>

@@ -88,11 +88,12 @@ func (t *TopicService) List() []BranchView { return buildBranchViews(t.Hub) }
 type TopicDetail struct {
 	Entry    hooks.TopicEntry `json:"entry"`
 	Messages []types.Message  `json:"messages"`
+	Summary  string           `json:"summary,omitempty"` // compact 摘要段（压缩新叶几乎无消息，回顾靠它给上下文）
 }
 
 /*
 Get 读取分支完整存档（读 LeafID 快照；id 也允许是任意 session ID，
-供分叉源会话的只读回顾）。
+供分叉源会话/归档世代的只读回顾）。
 */
 func (t *TopicService) Get(ctx context.Context, id string) (TopicDetail, error) {
 	if entry, ok := t.Hub.Topics.Get(id); ok {
@@ -101,13 +102,14 @@ func (t *TopicService) Get(ctx context.Context, id string) (TopicDetail, error) 
 			leaf = id
 		}
 		if snap, err := hooks.LoadSnap(ctx, t.Hub.Fsys, leaf); err == nil {
-			return TopicDetail{Entry: entry, Messages: snap.Messages}, nil
+			return TopicDetail{Entry: entry, Messages: snap.Messages, Summary: snap.SummaryBlock}, nil
 		}
 	}
 	if snap, err := hooks.LoadSnap(ctx, t.Hub.Fsys, id); err == nil {
 		return TopicDetail{
 			Entry:    hooks.TopicEntry{ID: id, Title: hooks.FirstUserTitle(snap.Messages), Msgs: len(snap.Messages)},
 			Messages: snap.Messages,
+			Summary:  snap.SummaryBlock,
 		}, nil
 	}
 	return TopicDetail{}, ErrTopicNotFound
