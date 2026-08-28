@@ -291,10 +291,19 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 	}
 	dataDir, _ := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
 	workDir := resolveWorkDir(st.WorkDir)
+	p := func(rel string) string { return filepath.ToSlash(filepath.Join(dataDir, rel)) }
 	b.WriteString("\n\n<workspace>\n" +
-		"# 工作目录：" + workDir + "（terminal 命令默认在此执行；每条命令是独立进程，cd 不会跨命令保留）\n" +
-		"# 数据目录：" + dataDir + "（settings.json/mcp.json 等配置与 memory/、sessions/ 存档所在）\n" +
-		"# 路径规则：所有文件读写与命令一律使用绝对路径，不要依赖当前目录。\n" +
+		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
+		"# " + p("workspace") + "          工作目录，草稿/脚本/命令产物放这里，自由读写（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）\n" +
+		"# " + p("memory/longterm") + "    长期记忆，可写：harness.md 是索引（已注入上下文），主题文件按需新建，沉淀用户偏好与重要事实\n" +
+		"# " + p("memory/skills") + "      技能库，可写：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
+		"# " + p("apps") + "               快应用目录，由 save_app 工具写入，一般不手动改\n" +
+		"# " + p("mcp.json") + "           MCP 服务配置，可写：新增/修改 server 后经 mcp_router 调用（资源变更会出现在状态栏）\n" +
+		"# " + p("sessions") + "           历史会话存档，只读：上下文与回忆来源（compact 摘要引用其路径），改写会破坏会话链\n" +
+		"# " + p(".ezloop/offload") + "    大工具结果的卸载区，按需读取，不手动管理\n" +
+		"# " + p("settings.json") + " / " + p("models.json") + " / " + p("stats.json") + " / " + p("topics.json") + "：应用配置与索引，由设置页和应用自身管理，不要直接改写\n" +
+		"# 规则：terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，不要依赖当前目录；\n" +
+		"# 工作目录之外的临时文件不要随手乱放。\n" +
 		"</workspace>")
 	memRoot := filepath.ToSlash(filepath.Join(dataDir, "memory"))
 	b.WriteString("\n\n<memory>\n" +
