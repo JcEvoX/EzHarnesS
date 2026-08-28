@@ -26,7 +26,9 @@ type SessionService struct {
 
 /* BootstrapData 是前端启动所需的全量数据。 */
 type BootstrapData struct {
-	SessionID    string       `json:"sessionId"`
+	SessionID    string       `json:"sessionId"` // = 分支根 ID（前端路由/SSE 订阅键，稳定不随 compact 换代）
+	LeafID       string       `json:"leafId"`    // 当前叶 session ID
+	Branches     []BranchView `json:"branches"`
 	Settings     SettingsView `json:"settings"`
 	Status       Status       `json:"status"`
 	MemoryExists bool         `json:"memoryExists"`
@@ -39,7 +41,9 @@ func (s *SessionService) Bootstrap() BootstrapData {
 	p := st.CompactPercent
 	w := st.WorkDir
 	return BootstrapData{
-		SessionID:    sess.ID,
+		SessionID:    sess.RootID,
+		LeafID:       sess.ID,
+		Branches:     buildBranchViews(s.Hub),
 		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: &w},
 		Status:       s.Snapshot(),
 		MemoryExists: memoryExists(s.Hub.Fsys),
@@ -48,19 +52,23 @@ func (s *SessionService) Bootstrap() BootstrapData {
 
 /* HistoryData 是历史响应。 */
 type HistoryData struct {
-	ID          string                 `json:"id"`
+	ID          string                 `json:"id"` // 叶 session ID
+	RootID      string                 `json:"rootId"`
 	Busy        bool                   `json:"busy"`
 	Messages    []types.Message        `json:"messages"`
-	PrevSession string                 `json:"prevSession,omitempty"` // compact 链上一会话（懒加载用）
-	PrevTitle   string                 `json:"prevTitle,omitempty"`   // 上一话题标题（压缩标记用）
-	Decisions   []hooks.DecisionRecord `json:"decisions,omitempty"`   // 人机决策记录（工具卡徽标用）
-	Forks       []hooks.ForkSummary    `json:"forks,omitempty"`       // fork 分身摘要（入口卡重建，详情懒加载）
+	TargetID    string                 `json:"targetId,omitempty"`  // 向上边目标（compress 链上翻游标）
+	SeedKind    string                 `json:"seedKind,omitempty"` // new | fork | compress
+	ForkedFrom  *hooks.ForkOrigin      `json:"forkedFrom,omitempty"`
+	PrevTitle   string                 `json:"prevTitle,omitempty"` // 上一话题标题（压缩标记用）
+	Decisions   []hooks.DecisionRecord `json:"decisions,omitempty"` // 人机决策记录（工具卡徽标用）
+	Forks       []hooks.ForkSummary    `json:"forks,omitempty"`     // fork 分身摘要（入口卡重建，详情懒加载）
 }
 
 /* Status 是右栏状态卡数据（命中率与用量为本会话口径，切会话/重启清零）。 */
 type Status struct {
 	Model            string   `json:"model"`
 	SessionID        string   `json:"sessionId"`
+	RootID           string   `json:"rootId"`
 	SessionMsgs      int      `json:"sessionMsgs"`
 	Busy             bool     `json:"busy"`
 	ContextTokens    int      `json:"contextTokens"`
@@ -114,6 +122,7 @@ func (s *SessionService) Snapshot() Status {
 	return Status{
 		Model:            mainModelName(s.Hub),
 		SessionID:        sess.ID,
+		RootID:           sess.RootID,
 		SessionMsgs:      len(sess.History()),
 		Busy:             sess.Busy(),
 		ContextTokens:    ctxTokens,
@@ -130,20 +139,26 @@ func (s *SessionService) Snapshot() Status {
 	}
 }
 
-/* History 返回活动会话历史。 */
-func (s *SessionService) History() HistoryData {
-	sess := s.Hub.Active
-	h := HistoryData{ID: sess.ID, Busy: sess.Busy(), Messages: sess.History(), PrevSession: sess.Sess.PrevID()}
-	if h.PrevSession != "" {
-		for _, e := range s.Hub.Topics.Load() {
-			if e.ID == h.PrevSession {
-				h.PrevTitle = e.Title
-				break
-			}
-		}
+/* History 返回指定分支的当前历史（rootID 路由；未知回落活动分支）。 */
+func (s *SessionService) History(rootID string) HistoryData {
+	var sess *domain.Session
+	if v := s.Hub.SessionOf(rootID); v != nil {
+		sess = v
+	} else {
+		sess = s.Hub.Active
 	}
-	h.Decisions = hooks.LoadDecisions(context.Background(), s.Hub.Active.Fsys, h.ID)
-	h.Forks = hooks.ListForks(context.Background(), s.Hub.Active.Fsys, h.ID)
+	edge := sess.Sess.Edge()
+	h := HistoryData{
+		ID:      sess.ID,
+		RootID:  sess.RootID,
+		Busy:    sess.Busy(),
+		Messages: sess.History(),
+		TargetID: edge.TargetID,
+		SeedKind: edge.SeedKind,
+		ForkedFrom: edge.ForkedFrom,
+	}
+	h.Decisions = hooks.LoadDecisions(context.Background(), sess.Fsys, h.ID)
+	h.Forks = hooks.ListForks(context.Background(), sess.Fsys, h.ID)
 	return h
 }
 
@@ -174,43 +189,43 @@ type PrevData struct {
 	Summary     string              `json:"summary,omitempty"`
 	Messages    []types.Message     `json:"messages"`
 	Forks       []hooks.ForkSummary `json:"forks,omitempty"`       // 旧库的分身摘要（入口卡重建）
-	PrevSession string              `json:"prevSession,omitempty"` // 再上一级 ID（非空可继续上翻）
+	PrevSession string              `json:"prevSession,omitempty"` // 再上一级 ID（compress 链游标，非空可继续上翻）
 }
 
 /*
-Prev 沿 compact 链取 id 的上一会话内容（向上滚动懒加载）。id 允许
-链上任一会话（读归档只读安全）；无上一级返回 ok=false。
+Prev 沿向上边取 id 的上一会话内容（向上滚动懒加载）。id 允许
+链上任一会话（读归档只读安全）；fork 会话自包含（体内副本即前缀，
+分叉点终止）无上级，返回 ok=false——前端据此渲染"分叉自 X"分隔线。
 */
 func (s *SessionService) Prev(ctx context.Context, id string) (*PrevData, bool, error) {
 	cur, err := hooks.LoadSnap(ctx, s.Hub.Fsys, id)
 	if err != nil {
 		return nil, false, err
 	}
-	if cur.PrevSession == "" {
+	if cur.TargetID == "" || cur.SeedKind == "fork" {
 		return nil, false, nil
 	}
-	prev, err := hooks.LoadSnap(ctx, s.Hub.Fsys, cur.PrevSession)
+	prev, err := hooks.LoadSnap(ctx, s.Hub.Fsys, cur.TargetID)
 	if err != nil {
 		return nil, false, err
 	}
-	title, summary := "", prev.CompactSummary
-	for _, e := range s.Hub.Topics.Load() {
-		if e.ID == cur.PrevSession {
-			title, summary = e.Title, e.Summary
-			break
-		}
-	}
-	return &PrevData{ID: prev.ID, Title: title, Summary: summary,
+	title := hooks.FirstUserTitle(prev.Messages)
+	return &PrevData{ID: prev.ID, Title: title, Summary: prev.CompactSummary,
 		Messages: prev.Messages, Forks: hooks.ListForks(ctx, s.Hub.Fsys, prev.ID),
-		PrevSession: prev.PrevSession}, true, nil
+		PrevSession: prev.TargetID}, true, nil
 }
 
-/* Summarize 生成当前会话摘要（模型调用）。 */
-func (s *SessionService) Summarize(ctx context.Context) (string, error) {
+/* Summarize 生成指定分支当前会话摘要（模型调用）。 */
+func (s *SessionService) Summarize(ctx context.Context, rootID string) (string, error) {
 	if main := s.Hub.ModelsSnapshot().ActiveMain(); main == nil || main.APIKey == "" {
 		return "", domain.ErrNoAPIKey
 	}
-	sess := s.Hub.Active
+	var sess *domain.Session
+	if v := s.Hub.SessionOf(rootID); v != nil {
+		sess = v
+	} else {
+		sess = s.Hub.Active
+	}
 	hist := sess.History()
 	if len(hist) == 0 {
 		return "", ErrEmptySession

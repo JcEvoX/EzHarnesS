@@ -59,10 +59,14 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		Model:   main.Name,
 	})
 
-	// system 两段式：恢复的会话从快照还原（记忆/skill/mcp 变更等下个
-	// session），新会话组装一次后固定，直到 compact 创建新 session。
+	// system 两段式：每 session 固定——已有 SysPrompt 直接复用（Resume/
+	// compact 热更过的状态是本 session 的真相，重建不得回退到旧快照）；
+	// 恢复的会话从快照还原（记忆/skill/mcp 变更等下个 session），新会话
+	// 组装一次后固定，直到 compact 创建新 session。
 	var sys *hooks.SysPrompt
-	if snap := s.Snapshot(); snap != nil {
+	if sp := s.SysPromptRef(); sp != nil {
+		sys = sp
+	} else if snap := s.Snapshot(); snap != nil {
 		sys = hooks.NewSysPrompt(snap.SystemBase, snap.SummaryBlock)
 	} else {
 		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys), "")
@@ -77,9 +81,9 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	if window <= 0 {
 		window = 128000 // 旧 models.json 无 contextWindow 字段的兜底
 	}
-	s.Sess.BindCtx(func() (int, int) { return a.Hub.Active.CtxTokens(), window })
+	s.Sess.BindCtx(func() (int, int) { return s.CtxTokens(), window })
 	statusHook := hooks.NewStatus(s.Fsys, s.Sess,
-		func() int { return a.Hub.Active.CtxTokens() },
+		func() int { return s.CtxTokens() },
 		window,
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
 	)
@@ -88,7 +92,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		window*st.CompactPercent/100, // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
 		window, // 模型窗口（压缩提示展示水位比例用）
 		func() string { return buildSystemBase(ctx, st, s.Fsys) }, // compact 即新 session：全量重载
-		func(info hooks.CompactInfo) { a.Hub.Active.SetIdentity(info.NewID) },
+		func(info hooks.CompactInfo) { s.SetIdentity(info.NewID) }, // 绑定本会话：后台分支压缩不串线
 	)
 
 	agent := core.NewAgent(provider,
@@ -130,13 +134,19 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	})
 }
 
-/* Reassemble 重建活动会话的 agent（配置变更后，需空闲）。 */
+/* Reassemble 重建全部存活分支的 agent（配置变更后；运行中的分支
+跳过——保留旧 wiring 到其轮结束，下次变更追平）。活动分支 busy
+仍返回 ErrBusy 保持前端提示语义。 */
 func (a *AgentService) Reassemble(st domain.Settings) error {
-	s := a.Hub.Active
-	if s.Busy() {
+	if a.Hub.Active.Busy() {
 		return domain.ErrBusy
 	}
-	a.Assemble(s, st)
+	for _, s := range a.Hub.Sessions() {
+		if s.Busy() {
+			continue
+		}
+		a.Assemble(s, st)
+	}
 	return nil
 }
 

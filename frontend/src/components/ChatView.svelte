@@ -5,6 +5,7 @@
   import NoticePanel from './NoticePanel.svelte'
   import MagicBoard from './MagicBoard.svelte'
   import ForkPanel from './ForkPanel.svelte'
+  import BranchPanel from './BranchPanel.svelte'
   import { store } from '../lib/store.svelte'
   import type { Notice } from './NoticePanel.svelte'
 
@@ -107,6 +108,9 @@
       onOpenBoard={() => openBoard(null)}
     />
   </div>
+  <aside class="side-left">
+    <BranchPanel />
+  </aside>
   <aside class="side">
     <StatusCard />
     <NoticePanel notices={store.notices} onResolve={resolveNotice} onJump={jumpToNotice} onDismiss={(id) => store.dismissNotice(id)} />
@@ -147,6 +151,29 @@
     margin: 0 auto;
     display: flex;
     flex-direction: column;
+  }
+  /* 左侧悬浮列：分支面板浮在内容之上（与右侧状态/通知列对称）。
+  容器点击穿透，卡片自身可交互 */
+  .side-left {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    bottom: 30px;
+    width: 240px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    pointer-events: none;
+  }
+  .chat > .side-left > :global(*) {
+    pointer-events: auto;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+  }
+  .side-left > :global(.panel) {
+    min-height: 0;
+    width: 100%;
   }
   /* 右侧悬浮列：状态卡 + 通知栏浮在内容之上。容器点击穿透，
   卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */

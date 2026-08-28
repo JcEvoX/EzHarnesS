@@ -26,13 +26,9 @@ func (c *SessionController) Status(g *gin.Context) {
 	g.JSON(http.StatusOK, c.Svc.Snapshot())
 }
 
-/* History GET /api/sessions/:id（仅活动会话）。 */
+/* History GET /api/sessions/:id（:id=分支根 ID，返回该线当前叶历史）。 */
 func (c *SessionController) History(g *gin.Context) {
-	if g.Param("id") != c.Svc.Hub.Active.ID {
-		g.JSON(http.StatusNotFound, gin.H{"error": "session not active"})
-		return
-	}
-	g.JSON(http.StatusOK, c.Svc.History())
+	g.JSON(http.StatusOK, c.Svc.History(g.Param("id")))
 }
 
 /* Prev GET /api/sessions/:id/prev（compact 链上一会话，无上级 204）。 */
@@ -59,9 +55,9 @@ func (c *SessionController) Fork(g *gin.Context) {
 	g.JSON(http.StatusOK, d)
 }
 
-/* Summary POST /api/sessions/:id/summary。 */
+/* Summary POST /api/sessions/:id/summary（:id=分支根 ID）。 */
 func (c *SessionController) Summary(g *gin.Context) {
-	text, err := c.Svc.Summarize(g.Request.Context())
+	text, err := c.Svc.Summarize(g.Request.Context(), g.Param("id"))
 	if err != nil {
 		if errors.Is(err, service.ErrEmptySession) || errors.Is(err, domain.ErrNoAPIKey) {
 			g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

@@ -3,6 +3,7 @@
 import {
   api,
   subscribe,
+  type BranchView,
   type DecisionRecord,
   type ForkSummary,
   type HistoryMessage,
@@ -61,9 +62,11 @@ export interface NoticeData {
   target: string // 时间线跳转锚点（decision-<id>）
 }
 
+/* 消息锚点（分叉定位）：owner=消息所属 session ID（leaf 或上翻出的旧世代），
+   msgIdx=该会话 messages 数组下标；分叉复制 [0, msgIdx]（含选中消息） */
 export type Block = { uid: number } & (
-  | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean }
+  | { kind: 'user'; text: string; owner?: string; msgIdx?: number }
+  | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean; owner?: string; msgIdx?: number }
   | { kind: 'tool' } & ToolBlockData
   | { kind: 'fork'; forkId: string }
   | { kind: 'decision' } & DecisionData
@@ -125,7 +128,11 @@ function fmtDur(totalSecs: number): string {
 }
 
 class AppStore {
+  /* activeId = 分支根 ID（稳定：compact 换代不变，SSE 订阅/路由键）；
+     leafId = 当前叶 session ID（分身存档 owner、上翻游标起点） */
   activeId = $state('')
+  leafId = $state('')
+  branches = $state<BranchView[]>([])
   blocks = $state<Block[]>([])
   forks = $state<Record<string, ForkState>>({})
   notices = $state<NoticeData[]>([])
@@ -164,6 +171,7 @@ class AppStore {
   async bootstrap() {
     const b = await api.bootstrap()
     this.activeId = b.sessionId
+    this.branches = b.branches ?? []
     this.settings = b.settings
     this.status = b.status
     await this.loadHistory()
@@ -174,6 +182,15 @@ class AppStore {
   async refreshStatus() {
     try {
       this.status = await api.status()
+    } catch {
+      /* 静默 */
+    }
+  }
+
+  /* 刷新分支列表（运行/等待指示：后台分支的事件不经当前 SSE，靠拉取） */
+  async refreshBranches() {
+    try {
+      this.branches = await api.listTopics()
     } catch {
       /* 静默 */
     }
@@ -193,11 +210,12 @@ class AppStore {
     this.lastStatus = ''
     try {
       const s = await api.getHistory(this.activeId)
-      // 分身摘要重建（骨架，过程详情打开抽屉时懒加载）
+      this.leafId = s.id
+      // 分身摘要重建（骨架，过程详情打开抽屉时懒加载）；存档挂在所属 session 目录下
       for (const f of s.forks ?? []) {
         this.forks[f.id] = {
           id: f.id,
-          owner: this.activeId,
+          owner: s.id,
           task: f.task,
           status: 'done',
           blocks: [],
@@ -206,10 +224,20 @@ class AppStore {
           loaded: false,
         }
       }
-      this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [])
+      this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [], s.id)
       this.busy = s.busy
-      this.prevCursor = this.activeId
-      this.hasPrev = !!s.prevSession
+      this.prevCursor = s.id
+      // fork 线自包含（体内副本即前缀）：无上级可翻，顶部渲染分叉分隔线
+      if (s.seedKind === 'fork' && s.forkedFrom) {
+        this.hasPrev = false
+        this.blocks.unshift({
+          kind: 'note',
+          uid: this.nuid(),
+          text: `⑂ 分叉自「${s.forkedFrom.title || '源会话'}」`,
+        })
+      } else {
+        this.hasPrev = !!s.targetId
+      }
     } catch {
       /* 网络异常时保底空时间线 */
     }
@@ -239,7 +267,7 @@ class AppStore {
             }
           }
         }
-        const prevBlocks = this.buildBlocks(res.messages, undefined, res.forks ?? [])
+        const prevBlocks = this.buildBlocks(res.messages, undefined, res.forks ?? [], res.id)
         const sep: Block = {
           kind: 'note',
           uid: this.nuid(),
@@ -258,12 +286,14 @@ class AppStore {
   }
 
   /* 历史重建：user/assistant/tool 消息序列，tool_calls 展开为工具块；决策记录映射为徽标。
-     forks 摘要按 task 调用顺序插分身入口卡（forkID 升序与调用序一致）。 */
-  private buildBlocks(messages: HistoryMessage[], decisions?: DecisionRecord[], forks?: ForkSummary[]): Block[] {
+     forks 摘要按 task 调用顺序插分身入口卡（forkID 升序与调用序一致）。
+     owner=消息所属 session ID，与各消息下标配对供分叉定位。 */
+  private buildBlocks(messages: HistoryMessage[], decisions?: DecisionRecord[], forks?: ForkSummary[], owner?: string): Block[] {
     const dmap = new Map((decisions || []).map((d) => [d.callId, d.resolution]))
     const forkQueue = [...(forks || [])]
     const out: Block[] = []
-    for (const m of messages) {
+    for (let mi = 0; mi < messages.length; mi++) {
+      const m = messages[mi]
       if (m.role === 'user') {
         const d = parseStatus(m.content) // 旧格式：JSON 载荷
         if (d) {
@@ -279,7 +309,7 @@ class AppStore {
         } else if (m.content.includes('<end_reason>')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `⏹ ${endReasonText(m.content)}` })
         } else {
-          out.push({ kind: 'user', uid: this.nuid(), text: m.content })
+          out.push({ kind: 'user', uid: this.nuid(), text: m.content, owner, msgIdx: mi })
         }
       } else if (m.role === 'assistant') {
         if (m.content || m.reasoning) {
@@ -289,6 +319,8 @@ class AppStore {
             text: m.content,
             reasoning: m.reasoning || '',
             streaming: false,
+            owner,
+            msgIdx: mi,
           })
         }
         // 展开工具调用：名称与参数来自 tool_calls（Args 序列化后是嵌套对象，非字符串）
@@ -340,7 +372,7 @@ class AppStore {
     if (!this.forks[fid]) {
       this.forks[fid] = {
         id: fid,
-        owner: this.activeId,
+        owner: this.leafId || this.activeId,
         task: '',
         status: 'running',
         blocks: [],
@@ -397,6 +429,7 @@ class AppStore {
     this.lastStatus = ''
     try {
       await api.send(this.activeId, text)
+      void this.refreshBranches() // 首次发言落线索引 + 运行指示
     } catch (e) {
       this.busy = false
       this.lastStatus = `发送失败：${(e as Error).message}`
@@ -450,10 +483,57 @@ class AppStore {
       this.activeId = r.id
       await this.loadHistory()
       this.resubscribe()
-      this.blocks.push({ kind: 'note', uid: this.nuid(), text: '⟲ 已回到该话题继续' })
+      this.blocks.push({ kind: 'note', uid: this.nuid(), text: '⟲ 已切换到该分支' })
       await this.refreshStatus()
+      await this.refreshBranches()
     } catch (e) {
-      this.lastStatus = `回到话题失败：${(e as Error).message}`
+      this.lastStatus = `切换分支失败：${(e as Error).message}`
+    }
+  }
+
+  /* ── 分支三操作 ── */
+
+  /* 切换分支：状态/审批/水位随切换（SSE 重订阅时 ReplayFrames 重建
+     时间线与未决审批；后台分支的轮不因切换取消） */
+  async switchBranch(rootId: string) {
+    if (rootId === this.activeId) return
+    try {
+      const r = await api.activateBranch(rootId)
+      this.activeId = r.id
+      await this.loadHistory()
+      this.resubscribe()
+      await this.refreshStatus()
+      await this.refreshBranches()
+    } catch (e) {
+      this.lastStatus = `切换分支失败：${(e as Error).message}`
+    }
+  }
+
+  /* 开新线（New） */
+  async newBranch() {
+    try {
+      const r = await api.newBranch()
+      this.activeId = r.id
+      await this.loadHistory()
+      this.resubscribe()
+      await this.refreshStatus()
+      await this.refreshBranches()
+    } catch (e) {
+      this.lastStatus = `新建分支失败：${(e as Error).message}`
+    }
+  }
+
+  /* 从任意消息分叉（Copy）：复制源会话 [0, msgIdx]（含选中消息）开新线 */
+  async forkFrom(owner: string, msgIdx: number) {
+    try {
+      const r = await api.forkSession(owner, msgIdx + 1)
+      this.activeId = r.id
+      await this.loadHistory()
+      this.resubscribe()
+      await this.refreshStatus()
+      await this.refreshBranches()
+    } catch (e) {
+      this.lastStatus = `分叉失败：${(e as Error).message}`
     }
   }
 
@@ -775,8 +855,8 @@ class AppStore {
         break
       }
       case 'session.compact': {
-        // 压缩分隔线 + activeId 更新（SSE 绑 Session 对象无需重订阅，
-        // 但 GET /api/sessions/:id 校验活动 ID，必须本地换新）
+        // 压缩延长线：根 ID 不变（SSE/路由稳定），只换叶与上翻游标；
+        // 分支列表刷新（LeafID 更新，条目数不变）
         this.live = null // 旧会话水位快照作废，状态卡按刷新后的 status 渲染
         const d = ev.data || {}
         this.blocks.push({
@@ -784,11 +864,13 @@ class AppStore {
           uid: this.nuid(),
           text: `⇪ 上下文已压缩归档：${d.title || ''}${d.auto ? '（自动）' : ''}`,
         })
-        if (d.newId && d.newId !== this.activeId) {
-          this.activeId = d.newId
-          this.hasPrev = !!d.prevPath // 新会话可继续向上翻旧会话
+        if (d.newId) {
+          this.leafId = d.newId
+          this.prevCursor = d.newId
+          this.hasPrev = !!d.prevPath // 新叶可继续向上翻旧世代
         }
         void this.refreshStatus()
+        void this.refreshBranches()
         break
       }
       case 'turn_end': {
@@ -822,6 +904,7 @@ class AppStore {
         this.lastStatus =
           `${d.stopReason || 'end'} · ${d.iterations ?? 0} 迭代` +
           (u ? ` · 本轮 ${u.PromptTokens}→${u.CompletionTokens} tokens（缓存 ${u.CachedTokens}）` : '')
+        void this.refreshBranches() // 运行指示熄灭（后台分支靠拉取）
         // 非正常终止：时间线补一条结束原因（持久化正文已由后端写入历史）
         if (d.stopReason && d.stopReason !== 'completed') {
           const secs = d.elapsedMs ? Math.round(d.elapsedMs / 1000) : 0

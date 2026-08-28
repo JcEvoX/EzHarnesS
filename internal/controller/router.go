@@ -46,6 +46,7 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.POST("/sessions/:id/messages", c.Chat.SendMessage)
 		api.POST("/sessions/:id/cancel", c.Chat.CancelTurn)
 		api.POST("/sessions/:id/summary", c.Session.Summary)
+		api.POST("/sessions/:id/fork", c.Topics.ForkBranch) // :id=源会话，body{anchor}复制前缀开新线
 
 		api.GET("/settings", c.Settings.GetSettings)
 		api.POST("/settings", c.Settings.UpdateSettings)
@@ -61,6 +62,9 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.GET("/topics/:id", c.Topics.Get)
 		api.DELETE("/topics/:id", c.Topics.Delete)
 		api.POST("/topics/:id/resume", c.Topics.Resume)
+
+		api.POST("/branches/new", c.Topics.NewBranch)
+		api.POST("/branches/:id/activate", c.Topics.Activate)
 
 		api.GET("/mcp", c.Mcp.List)
 		api.POST("/mcp", c.Mcp.Update)

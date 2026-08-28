@@ -65,44 +65,12 @@
     return `${(n / 1024 / 1024).toFixed(1)} MB`
   }
 
-  /* 话题树：parent 建树；嵌套关系完全用展开钮表达（无缩进/tab）——
-     每个有孩子的节点（含单孩子）都可展开，子节点平级排在下方 */
-  let expanded = $state<Set<string>>(new Set())
-
-  function toggleFork(id: string) {
-    const next = new Set(expanded)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    expanded = next
-  }
-
-  const treeRows = $derived.by(() => {
-    if (!cfg) return [] as { item: MemoryTopicEntry; forks: number; open: boolean }[]
-    const items = cfg.topics.items
-    const byId = new Set(items.map((x) => x.id))
-    const kids = new Map<string, MemoryTopicEntry[]>()
-    const roots: MemoryTopicEntry[] = []
-    for (const it of items) {
-      if (it.parent && byId.has(it.parent)) {
-        const arr = kids.get(it.parent) || []
-        arr.push(it)
-        kids.set(it.parent, arr)
-      } else {
-        roots.push(it)
-      }
-    }
-    const byTime = (a: MemoryTopicEntry, b: MemoryTopicEntry) => b.createdAt - a.createdAt
-    roots.sort(byTime)
-    const out: { item: MemoryTopicEntry; forks: number; open: boolean }[] = []
-    const walk = (item: MemoryTopicEntry) => {
-      const ch = (kids.get(item.id) || []).sort(byTime)
-      const open = expanded.has(item.id)
-      out.push({ item, forks: ch.length, open })
-      if (!open) return
-      for (const c of ch) walk(c)
-    }
-    for (const r of roots) walk(r)
-    return out
+  /* 分支列表：条目=线（根→叶），按最近活动排序；fork 线带分叉徽标 */
+  const branchRows = $derived.by(() => {
+    if (!cfg) return [] as MemoryTopicEntry[]
+    return [...cfg.topics.items].sort(
+      (a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt),
+    )
   })
 
   function fmtDate(ts: number): string {
@@ -215,35 +183,24 @@
     <p class="dir"><span>📁</span>{cfg ? cfg.topics.dir : '—'}</p>
     <div class="list">
       {#if cfg}
-        {#each treeRows as row, i (`${row.item.id}-${i}`)}
-          {@const t = row.item}
+        {#each branchRows as t, i (`${t.id}-${i}`)}
           <div class="branch">
           <div class="topic" class:cur={store.activeId === t.id}>
             <div class="info">
               <span class="name"
-                >{t.title}{#if store.activeId === t.id}<span class="kbadge live">进行中</span>{/if}</span
+                >{t.title}{#if t.kind === 'fork'}<span class="kbadge" title={t.origin?.title ? `分叉自：${t.origin.title}` : '分叉产生的分支'}>⑂ 分叉</span>{/if}{#if store.activeId === t.id}<span class="kbadge live">进行中</span>{/if}</span
               >
-              {#if row.forks > 0}
-                <button class="forkbtn" onclick={() => toggleFork(t.id)}
-                  title={row.open ? '收起子会话' : '展开子会话'}>
-                  <span class="farrow" class:open={row.open}>{row.open ? '▾' : '▸'}</span>
-                  {row.forks}
-                </button>
-              {/if}
-              <span class="desc">{fmtDate(t.createdAt)} · {t.msgs} 条消息</span>
+              <span class="desc">{fmtDate(t.updatedAt || t.createdAt)} · {t.msgs} 条消息{t.origin?.title ? ` · 分叉自「${t.origin.title}」` : ''}</span>
               {#if t.summary}
                 <span class="summary">{t.summary}</span>
-              {/if}
-              {#if t.path}
-                <span class="path">{t.path}</span>
               {/if}
             </div>
             <div class="ops">
               <button class="op" onclick={() => reviewTopic(t)}>
                 {openTopic === t.id ? '收起' : '回顾'}
               </button>
-              <button class="op" onclick={() => resumeTopic(t)} title="恢复为活动会话并继续">回到话题</button>
-              <button class="del" onclick={() => removeTopic(t)} title="删除">删除</button>
+              <button class="op" onclick={() => resumeTopic(t)} title="切换到该分支继续">切到分支</button>
+              <button class="del" onclick={() => removeTopic(t)} title="删除整条线（全部世代）">删除</button>
             </div>
           </div>
           {#if openTopic === t.id}
@@ -262,10 +219,10 @@
           </div>
         {/each}
         {#if cfg.topics.items.length === 0}
-          <div class="empty">暂无存档——话题结束后会归档到此处。</div>
+          <div class="empty">暂无分支——在对话页新建或从任意消息分叉。</div>
         {/if}
       {:else}
-        <div class="empty">暂无存档——话题结束后会归档到此处。</div>
+        <div class="empty">暂无分支——在对话页新建或从任意消息分叉。</div>
       {/if}
     </div>
   </section>

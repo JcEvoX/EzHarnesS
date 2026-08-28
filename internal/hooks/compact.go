@@ -178,15 +178,12 @@ func (c *Compact) finishPending(ctx context.Context, state *types.LoopState) {
 	if err := c.archiveOld(ctx, p, state); err != nil {
 		state.EmitEvent(event.EventError, "compact archive failed: "+err.Error())
 	}
-	_ = c.topics.Add(TopicEntry{
-		ID:        p.oldID,
-		Title:     p.title,
-		Summary:   p.summary,
-		CreatedAt: time.Now().UnixMilli(),
-		Msgs:      len(state.Messages),
-		Path:      SessionsDir + "/" + p.oldID,
-		Kind:      "compact",
-	})
+	// 延长线：换代只更新 LeafID，不新增侧栏条目
+	root := c.sess.LineRoot()
+	if root == "" {
+		root = p.oldID // 未索引线的兜底（迁移后不达）
+	}
+	_ = c.topics.UpdateLeaf(root, p.newID, p.title, time.Now().UnixMilli(), len(state.Messages))
 
 	c.sys.Set(p.newBase, p.newSummaryBlock) // 翻页：新 system 两段此刻生效
 	state.Metadata["compacted"] = true     // endnote 据此在本轮 <end_reason> 里附话题压缩说明
@@ -237,9 +234,17 @@ func (c *Compact) archiveOld(ctx context.Context, p *pendingCompact, state *type
 		snap.Usage = old.Usage // 用量/水位承自旧库（压缩轮自身开销不计入任何会话）
 		snap.CtxTokens = old.CtxTokens
 		snap.CtxWindow = old.CtxWindow
-		if old.PrevSession != "" {
+		// 归档不改边：向上边/LineRoot/ForkedFrom 原样保留
+		snap.TargetID, snap.Anchor, snap.SeedKind = old.TargetID, old.Anchor, old.SeedKind
+		snap.ForkedFrom, snap.LineRoot = old.ForkedFrom, old.LineRoot
+		if old.SeedKind == "compress" && old.PrevSession != "" {
 			snap.PrevSession, snap.CompactSummary = old.PrevSession, old.CompactSummary
 		}
+	} else {
+		// 旧库文件缺失（理论不达）：从 Store 内存态补边，防止归档丢线归属
+		edge := c.sess.Edge()
+		snap.TargetID, snap.Anchor, snap.SeedKind, snap.ForkedFrom = edge.TargetID, edge.Anchor, edge.SeedKind, edge.ForkedFrom
+		snap.LineRoot = c.sess.LineRoot()
 	}
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {

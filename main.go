@@ -89,7 +89,7 @@ func (a *app) buildRouter() *gin.Engine {
 			Settings: &service.SettingsService{Hub: hub, Agents: agents},
 			Memory:   &service.MemoryService{Hub: hub},
 		},
-		Topics: &controller.TopicController{Svc: &service.TopicService{Hub: hub}},
+		Topics: &controller.TopicController{Svc: &service.TopicService{Hub: hub, Agents: agents}},
 		Mcp:    &controller.McpController{Svc: service.NewMcpService(hub.Fsys)},
 		Apps:   &controller.AppsController{Svc: &service.AppsService{Fsys: hub.Fsys}, Win: a.winCtl},
 		App:    &controller.AppController{Svc: appSvc},

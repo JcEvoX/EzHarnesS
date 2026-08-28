@@ -140,12 +140,31 @@ export interface Status {
   topicsCount: number
 }
 
+/* fork 线的分叉源展示元数据（后端 hooks.ForkOrigin） */
+export interface ForkOrigin {
+  sourceId?: string
+  title?: string
+  anchor?: number
+}
+
+/* 分支（线）索引条目：id=线根 session ID（稳定），leafId=当前叶 */
 export interface TopicEntry {
   id: string
+  leafId?: string
   title: string
-  summary: string
+  summary?: string
   createdAt: number
+  updatedAt?: number
   msgs: number
+  kind?: 'new' | 'fork' | string
+  origin?: ForkOrigin
+}
+
+/* 分支面板条目（GET /api/topics 响应，含运行态合成） */
+export interface BranchView extends TopicEntry {
+  running?: boolean
+  waiting?: boolean
+  active?: boolean
 }
 
 export interface Usage {
@@ -155,7 +174,9 @@ export interface Usage {
 }
 
 export interface Bootstrap {
-  sessionId: string
+  sessionId: string // = 分支根 ID（前端路由/SSE 订阅键，compact 换代不变）
+  leafId?: string
+  branches?: BranchView[]
   settings: Settings
   status: Status
   memoryExists: boolean
@@ -189,13 +210,14 @@ export interface MemorySkillEntry {
 }
 export interface MemoryTopicEntry {
   id: string
+  leafId?: string
   title: string
-  summary: string
+  summary?: string
   createdAt: number
+  updatedAt?: number
   msgs: number
-  path?: string
   kind?: string
-  parent?: string // 压缩链上一级（树形渲染用）
+  origin?: ForkOrigin
 }
 export interface MemoryConfig {
   longterm: { dir: string; harnessMd: MemoryFileInfo | null; files: MemoryFileInfo[] }
@@ -219,10 +241,12 @@ export const api = {
     fetch(`/api/sessions/${id}`).then(
       json<{
         id: string
+        rootId?: string
         busy: boolean
         messages: HistoryMessage[]
-        prevSession?: string
-        prevTitle?: string
+        targetId?: string
+        seedKind?: 'new' | 'fork' | 'compress' | string
+        forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
       }>,
@@ -296,13 +320,20 @@ export const api = {
 
   saveMemory: (content: string) => post<{ ok: boolean }>('/api/memory', { content }),
 
-  listTopics: () => fetch('/api/topics').then(json<TopicEntry[]>),
+  listTopics: () => fetch('/api/topics').then(json<BranchView[]>),
 
   getTopic: (id: string) =>
-    fetch(`/api/topics/${id}`).then(json<{ id: string; messages: HistoryMessage[] }>),
+    fetch(`/api/topics/${id}`).then(json<{ entry: TopicEntry; messages: HistoryMessage[] }>),
 
-  resumeTopic: (id: string) =>
-    post<{ id: string; messages: HistoryMessage[] }>(`/api/topics/${id}/resume`),
+  resumeTopic: (id: string) => post<{ id: string }>(`/api/topics/${id}/resume`),
+
+  /* 分支三操作：开新线 / 从源会话第 anchor 条消息（含）复制前缀分叉 / 切换分支 */
+  newBranch: () => post<{ id: string }>('/api/branches/new'),
+
+  forkSession: (sourceId: string, anchor: number) =>
+    post<{ id: string }>(`/api/sessions/${sourceId}/fork`, { anchor }),
+
+  activateBranch: (id: string) => post<{ id: string }>(`/api/branches/${id}/activate`),
 
   appConfig: () => fetch('/api/app/config').then(json<AppConfig>),
 

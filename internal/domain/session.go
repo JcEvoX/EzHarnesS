@@ -51,12 +51,15 @@ type ModelProvider interface {
 	Invoke(ctx context.Context, req *types.ModelRequest) (*types.ModelResponse, error)
 }
 
-/* Session 是会话聚合：history、当前轮、SSE 订阅、未决请求。 */
+/* Session 是会话聚合：history、当前轮、SSE 订阅、未决请求。
+ID = 当前叶 session ID（compact 换代随之更新）；RootID = 所属分支根
+（稳定，注册表键与前端路由用它）。 */
 type Session struct {
-	ID     string
-	Fsys   osfs.OS
-	Sess   *hooks.Store
-	Topics *hooks.Topics
+	ID      string
+	RootID  string
+	Fsys    osfs.OS
+	Sess    *hooks.Store
+	Topics  *hooks.Topics
 
 	mu         sync.Mutex
 	history    []types.Message
@@ -125,12 +128,19 @@ func (s *Session) SetCtxTokens(n int) {
 }
 
 /* SetIdentity 同步会话标识（话题轮换/compact 后），水位清零
-（恢复场景由调用方随后按快照重注）。 */
+（恢复场景由调用方随后按快照重注）。RootID 不变：换代不换线。 */
 func (s *Session) SetIdentity(id string) {
 	s.mu.Lock()
 	s.ID = id
 	s.ctxTokens = 0
 	s.mu.Unlock()
+}
+
+/* RootLocked 返回所属分支根 ID。 */
+func (s *Session) Root() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.RootID
 }
 
 /* SetSysP 记录 system 来源（Assemble 注入；空闲期调用）。 */
@@ -346,9 +356,10 @@ func decisionCallID(e Event) (string, bool) {
 	return "", false
 }
 
-/* ── Hub：设置、话题索引与唯一活动会话 ── */
+/* ── Hub：设置、分支注册表与当前活动分支 ── */
 
-/* Hub 管理应用级单例状态。 */
+/* Hub 管理应用级单例状态。Active 是当前分支；branches 按线根 ID 注册
+存活分支（阶段一线间并发：后台分支的轮继续跑，事件进各自 turnFrames）。 */
 type Hub struct {
 	mu       sync.Mutex
 	Models   ModelsConfig
@@ -357,18 +368,65 @@ type Hub struct {
 	Stats    *Stats
 	Topics   *hooks.Topics
 	Active   *Session
+	branches map[string]*Session
 }
 
-/* NewHub 创建领域根：加载配置记录（缺失文件自动创建默认）与累计生命体征，并恢复活动会话。 */
+/* NewHub 创建领域根：加载配置记录（缺失文件自动创建默认）与累计生命体征，
+迁移旧索引，并恢复活动会话。 */
 func NewHub() *Hub {
-	h := &Hub{Fsys: osfs.OS{}}
+	h := &Hub{Fsys: osfs.OS{}, branches: map[string]*Session{}}
 	h.Models = ensureModelsConfig(h.Fsys)
 	h.Settings = ensureSettings(h.Fsys)
 	h.Stats = NewStats(h.Fsys)
 	migrateLegacyMemory(h.Fsys)
 	h.Topics = hooks.NewTopics(h.Fsys)
+	h.Topics.MigrateIndex(context.Background())
 	h.Active = h.bootstrap()
 	return h
+}
+
+/* SessionOf 按线根 ID 取存活分支（nil = 未加载）。 */
+func (h *Hub) SessionOf(rootID string) *Session {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.branches[rootID]
+}
+
+/* Register 注册一个分支（按键 RootID）。 */
+func (h *Hub) Register(s *Session) {
+	if s == nil || s.RootID == "" {
+		return
+	}
+	h.mu.Lock()
+	h.branches[s.RootID] = s
+	h.mu.Unlock()
+}
+
+/* Unregister 注销分支，返回是否活动分支被移除。 */
+func (h *Hub) Unregister(rootID string) bool {
+	h.mu.Lock()
+	delete(h.branches, rootID)
+	active := h.Active
+	h.mu.Unlock()
+	return active != nil && active.RootID == rootID
+}
+
+/* SetActive 切换当前分支（不取消旧分支运行中的轮）。 */
+func (h *Hub) SetActive(s *Session) {
+	h.mu.Lock()
+	h.Active = s
+	h.mu.Unlock()
+}
+
+/* Sessions 返回全部存活分支（Reassemble/Shutdown 遍历用）。 */
+func (h *Hub) Sessions() []*Session {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]*Session, 0, len(h.branches))
+	for _, s := range h.branches {
+		out = append(out, s)
+	}
+	return out
 }
 
 /* ensureModelsConfig 加载 models.json（含旧扁平迁移），文件不存在则写盘默认（零配置首启自动创建）。 */
@@ -426,28 +484,72 @@ func (h *Hub) bootstrap() *Session {
 		if err != nil || snap.Archived {
 			continue
 		}
-		s := h.newSession(c.id, snap)
-		s.setHistory(snap.Messages)
-		s.Sess.SetResSnap(snap.Snapshot)
-		s.Sess.SetLastOutputAt(snap.LastOutputAt)
-		s.Sess.SeedUsage(snap.Usage)
-		// 恢复水位（旧快照无字段时从历史最后一条 agent_status 兜底）
-		if snap.CtxTokens > 0 {
-			s.SetCtxTokens(snap.CtxTokens)
-		} else {
-			s.SetCtxTokens(hooks.LastCtxTokens(snap.Messages))
+		root := snap.LineRoot
+		if root == "" {
+			root = hooks.RootOf(ctx, h.Fsys, c.id) // 沿边上溯兜底（不依赖被回填的 LineRoot）
 		}
-		if snap.PrevSession != "" {
-			s.Sess.SetPrev(snap.PrevSession, snap.CompactSummary) // compact 链（上翻懒加载用）
-		}
+		s := h.newSession(c.id, root, snap)
+		s.restoreFrom(snap)
+		h.Register(s)
 		return s
 	}
-	return h.newSession(hooks.NewSessionID(), nil)
+	s := h.newSession(hooks.NewSessionID(), "", nil)
+	h.Register(s)
+	return s
 }
 
-func (h *Hub) newSession(id string, snap *hooks.SessionSnap) *Session {
+/* restoreFrom 按快照恢复会话内存态（历史/水位/资源基线/向上边）。 */
+func (s *Session) restoreFrom(snap *hooks.SessionSnap) {
+	s.setHistory(snap.Messages)
+	s.Sess.SetResSnap(snap.Snapshot)
+	s.Sess.SetLastOutputAt(snap.LastOutputAt)
+	s.Sess.SeedUsage(snap.Usage)
+	// 恢复水位（旧快照无字段时从历史最后一条 agent_status 兜底）
+	if snap.CtxTokens > 0 {
+		s.SetCtxTokens(snap.CtxTokens)
+	} else {
+		s.SetCtxTokens(hooks.LastCtxTokens(snap.Messages))
+	}
+	s.Sess.SetLineRoot(s.RootID)
+	s.Sess.SetEdge(hooks.SnapEdge{
+		TargetID: snap.TargetID, Anchor: snap.Anchor,
+		SeedKind: snap.SeedKind, ForkedFrom: snap.ForkedFrom,
+	})
+	if snap.TargetID != "" && snap.SeedKind == "compress" {
+		// 只有 compress 边进 prevID（fork 的 TargetID 是源会话，不是上翻链）
+		s.Sess.SetPrev(snap.TargetID, snap.CompactSummary)
+	}
+}
+
+/* PendingCount 返回未决人机请求数（分支面板"等待审批"指示用）。 */
+func (s *Session) PendingCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pending)
+}
+
+/* CreateBranch 创建全新分支（空历史，自成一根）并注册。 */
+func (h *Hub) CreateBranch() *Session {
+	s := h.newSession(hooks.NewSessionID(), "", nil)
+	h.Register(s)
+	return s
+}
+
+/* LoadBranch 按快照恢复分支会话（rootID 显式指定，防快照 LineRoot 缺失）并注册。 */
+func (h *Hub) LoadBranch(rootID string, snap *hooks.SessionSnap) *Session {
+	s := h.newSession(snap.ID, rootID, snap)
+	s.restoreFrom(snap)
+	h.Register(s)
+	return s
+}
+
+func (h *Hub) newSession(id string, rootID string, snap *hooks.SessionSnap) *Session {
+	if rootID == "" {
+		rootID = id // 新线：自成一根
+	}
 	s := &Session{
 		ID:     id,
+		RootID: rootID,
 		Fsys:   h.Fsys,
 		Sess:   hooks.NewStore(h.Fsys, id),
 		Topics: h.Topics,
@@ -455,6 +557,7 @@ func (h *Hub) newSession(id string, snap *hooks.SessionSnap) *Session {
 		subs:   map[chan []byte]struct{}{},
 		pending: map[string]Event{},
 	}
+	s.Sess.SetLineRoot(rootID)
 	return s
 }
 
@@ -497,13 +600,6 @@ func (h *Hub) SettingsSnapshot() Settings {
 func (h *Hub) ApplySettings(s Settings) {
 	h.mu.Lock()
 	h.Settings = s
-	h.mu.Unlock()
-}
-
-/* ReplaceActive 重建活动会话对象（当前仅新建场景）。 */
-func (h *Hub) ReplaceActive(s *Session) {
-	h.mu.Lock()
-	h.Active = s
 	h.mu.Unlock()
 }
 

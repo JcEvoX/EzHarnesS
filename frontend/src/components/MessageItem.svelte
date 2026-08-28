@@ -7,11 +7,13 @@
     reasoning = '',
     streaming = false,
     role,
+    onFork,
   }: {
     text: string
     reasoning?: string
     streaming?: boolean
     role: 'user' | 'assistant'
+    onFork?: () => void
   } = $props()
 
   marked.setOptions({ breaks: true, gfm: true })
@@ -66,6 +68,9 @@
   <div class="user enter-rise">
     <span class="tag">你</span>
     <div class="bubble">{text}</div>
+    {#if onFork}
+      <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
+    {/if}
   </div>
 {:else}
   <div class="assistant">
@@ -83,6 +88,9 @@
         </div>
         <div class="foot">
           {#if streaming}<span class="caret"></span>{/if}
+          {#if onFork}
+            <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
+          {/if}
           <button class="copy" onclick={copyText} title="复制原文">
             {copied ? '已复制 ✓' : '复制'}
           </button>
@@ -100,6 +108,28 @@
     display: flex;
     gap: 14px;
     align-items: flex-start;
+  }
+  /* 分叉按钮：与复制按钮同款弱化样式，hover 显形 */
+  .forkbtn {
+    flex: none;
+    align-self: flex-end;
+    font-size: 11px;
+    color: var(--faint);
+    padding: 2px 8px;
+    border-radius: 6px;
+    opacity: 0;
+    transition:
+      opacity var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .user:hover .forkbtn,
+  .assistant:hover .forkbtn,
+  .forkbtn:focus-visible {
+    opacity: 1;
+  }
+  .forkbtn:hover {
+    color: var(--accent);
+    background: var(--bg-soft);
   }
   .tag {
     flex: none;

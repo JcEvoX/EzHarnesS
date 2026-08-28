@@ -21,9 +21,13 @@
       console.error('bootstrap 失败', e)
       store.lastStatus = `启动失败：${(e as Error).message}`
     })
-    // 窗口重新聚焦时刷新（skill/MCP 可能在别的窗口或本机文件系统被改）
+    // 窗口重新聚焦时刷新（skill/MCP 可能在别的窗口或本机文件系统被改；
+    // 后台分支的运行/审批状态不经当前 SSE，聚焦时拉取）
     const onFocus = () => {
-      if (view === 'chat') void store.refreshStatus()
+      if (view === 'chat') {
+        void store.refreshStatus()
+        void store.refreshBranches()
+      }
     }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)

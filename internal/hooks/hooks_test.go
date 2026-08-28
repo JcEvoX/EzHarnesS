@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -165,6 +166,9 @@ func TestCompactTruncationKeepsProtocol(t *testing.T) {
 	if newSnap.PrevSession != "old-session" || newSnap.Archived {
 		t.Fatalf("new snapshot prev chain wrong: %+v", newSnap)
 	}
+	if newSnap.TargetID != "old-session" || newSnap.SeedKind != "compress" {
+		t.Fatalf("new snapshot edge wrong: %+v", newSnap)
+	}
 
 	// 旧库补写完整历史（含触发输入与过程消息）并封存
 	snap, err := LoadSnap(context.Background(), fsys, "old-session")
@@ -190,13 +194,13 @@ func TestCompactTruncationKeepsProtocol(t *testing.T) {
 		t.Fatalf("old archive must pin pre-compact system, got %q", snap.SystemPrompt)
 	}
 
-	// 索引落盘：旧话题入档（含 Path/Kind）
+	// 索引落盘：线换代——条目身份=线根（未设 lineRoot 时兜底旧库 ID），LeafID 指向新库
 	list := topics.Load()
 	if len(list) != 1 || list[0].ID != "old-session" || list[0].Title != "聊聊 Go 并发" {
 		t.Fatalf("topic index wrong: %+v", list)
 	}
-	if list[0].Path != "sessions/old-session" || list[0].Kind != "compact" {
-		t.Fatalf("topic path/kind wrong: %+v", list[0])
+	if list[0].LeafID != store.ID() || list[0].Kind != "new" {
+		t.Fatalf("line leaf/kind wrong: %+v", list[0])
 	}
 }
 
@@ -269,6 +273,60 @@ func TestTopicsMatch(t *testing.T) {
 	}
 	if got := len(tp.Match("数据库")); got != 1 {
 		t.Fatalf("match title = %d", got)
+	}
+}
+
+/* 旧扁平索引 → 分支索引一次性重建：compress 链归组为一条线，
+LeafID=最新世代，各快照回填 LineRoot；已是新格式时幂等跳过。 */
+func TestMigrateIndex(t *testing.T) {
+	ctx := context.Background()
+	fsys := memFS{}
+	writeSnap := func(s *SessionSnap) {
+		data, _ := json.Marshal(s)
+		_ = fsys.Write(ctx, SessionsDir+"/"+s.ID+"/session.json", data)
+	}
+	// 线 1：gen1 → gen2(compress)，gen1 已归档；线 2：独立根
+	writeSnap(&SessionSnap{ID: "gen1", CreatedAt: 100, Messages: []types.Message{{Role: types.RoleUser, Content: "话题一"}},
+		Archived: true})
+	writeSnap(&SessionSnap{ID: "gen2", CreatedAt: 200, PrevSession: "gen1", CompactSummary: "摘要"})
+	writeSnap(&SessionSnap{ID: "root2", CreatedAt: 300, Messages: []types.Message{{Role: types.RoleUser, Content: "话题二"}}})
+	// 旧格式索引：每世代一条、Kind=compact
+	_ = fsys.Write(ctx, "topics.json", []byte(`[{"id":"gen1","title":"旧标题","kind":"compact"}]`))
+
+	tp := NewTopics(fsys)
+	tp.MigrateIndex(ctx)
+
+	list := tp.Load()
+	if len(list) != 2 {
+		t.Fatalf("expect 2 lines, got %+v", list)
+	}
+	var l1, l2 TopicEntry
+	for _, e := range list {
+		switch e.ID {
+		case "gen1":
+			l1 = e
+		case "root2":
+			l2 = e
+		}
+	}
+	if l1.LeafID != "gen2" || l1.Kind != "new" || l1.Title != "旧标题" {
+		t.Fatalf("line1 wrong: %+v", l1)
+	}
+	if l2.LeafID != "root2" || l2.Kind != "new" {
+		t.Fatalf("line2 wrong: %+v", l2)
+	}
+	// LineRoot 回填
+	for id, want := range map[string]string{"gen1": "gen1", "gen2": "gen1", "root2": "root2"} {
+		s, err := LoadSnap(ctx, fsys, id)
+		if err != nil || s.LineRoot != want {
+			t.Fatalf("lineRoot of %s = %v (want %s), err=%v", id, s.LineRoot, want, err)
+		}
+	}
+	// 幂等：新格式重跑不再触发
+	tp2 := NewTopics(fsys)
+	tp2.MigrateIndex(ctx)
+	if got := len(tp2.Load()); got != 2 {
+		t.Fatalf("remigrate should be no-op, got %d", got)
 	}
 }
 

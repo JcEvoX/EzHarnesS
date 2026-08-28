@@ -191,12 +191,24 @@
           {/each}
         {/if}
       {:else if seg.b.kind === 'user'}
-        <div class:reveal={store.batchIds.has(seg.b.uid)}>
-          <MessageItem text={seg.b.text} role="user" />
+        {@const ub = seg.b}
+        <div class:reveal={store.batchIds.has(ub.uid)}>
+          <MessageItem
+            text={ub.text}
+            role="user"
+            onFork={ub.owner && ub.msgIdx !== undefined ? () => void store.forkFrom(ub.owner!, ub.msgIdx!) : undefined}
+          />
         </div>
       {:else if seg.b.kind === 'assistant'}
-        <div class:reveal={store.batchIds.has(seg.b.uid)}>
-          <MessageItem text={seg.b.text} reasoning={seg.b.reasoning} streaming={seg.b.streaming} role="assistant" />
+        {@const ab = seg.b}
+        <div class:reveal={store.batchIds.has(ab.uid)}>
+          <MessageItem
+            text={ab.text}
+            reasoning={ab.reasoning}
+            streaming={ab.streaming}
+            role="assistant"
+            onFork={ab.owner && ab.msgIdx !== undefined && !ab.streaming ? () => void store.forkFrom(ab.owner!, ab.msgIdx!) : undefined}
+          />
         </div>
       {:else if seg.b.kind === 'fork'}
         <div class:reveal={store.batchIds.has(seg.b.uid)}>

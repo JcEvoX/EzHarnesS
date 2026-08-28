@@ -145,6 +145,12 @@ func (a *app) shutdownGeneration() {
 	a.mu.Unlock()
 	if hub != nil {
 		hub.Active.Shutdown(5 * time.Second)
+		// 后台分支的运行轮同样只在 OnEnd 落盘：逐个收尾，不等待直接退出会丢轮
+		for _, s := range hub.Sessions() {
+			if s != hub.Active {
+				s.Shutdown(5 * time.Second)
+			}
+		}
 	}
 	if srv != nil {
 		_ = srv.Close() // 立即断开全部连接（含 SSE），handler 随连接退出

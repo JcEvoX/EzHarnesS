@@ -33,6 +33,21 @@ type ResSnapshot struct {
 	Mcps   []string `json:"mcps,omitempty"`
 }
 
+/* ForkOrigin 是 fork 线的展示元数据（时间线渲染"分叉自 X"，非结构依赖）。 */
+type ForkOrigin struct {
+	SourceID string `json:"sourceId,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Anchor   int    `json:"anchor,omitempty"`
+}
+
+/* SnapEdge 是会话的向上引用边（创建时写死，不可变）。 */
+type SnapEdge struct {
+	TargetID   string      // 引用目标（""=空根）
+	Anchor     int         // fork：复制的消息前缀长度（含选中消息）
+	SeedKind   string      // new | fork | compress
+	ForkedFrom *ForkOrigin // fork 线的出处标签
+}
+
 /* SessionSnap 是一次会话的可持久化快照。 */
 type SessionSnap struct {
 	ID             string          `json:"id"`
@@ -44,8 +59,13 @@ type SessionSnap struct {
 	SummaryBlock   string          `json:"summaryBlock,omitempty"` // compact 摘要段
 	Tools          []string        `json:"tools,omitempty"`
 	Model          string          `json:"model,omitempty"`
-	PrevSession    string          `json:"prevSession,omitempty"`    // compact 链：上一 session ID
+	PrevSession    string          `json:"prevSession,omitempty"`    // 兼容别名：compress 边目标（旧读者用，新代码读 TargetID）
 	CompactSummary string          `json:"compactSummary,omitempty"` // 上一 session 的摘要
+	TargetID       string          `json:"targetId,omitempty"`   // 向上边目标（""=空根）
+	Anchor         int             `json:"anchor,omitempty"`     // fork：复制的消息前缀长度
+	SeedKind       string          `json:"seedKind,omitempty"`   // new | fork | compress
+	LineRoot       string          `json:"lineRoot,omitempty"`   // 所属分支根 ID（冗余，链操作 O(1)）
+	ForkedFrom     *ForkOrigin     `json:"forkedFrom,omitempty"` // 分叉出处（展示元数据）
 	LastOutputAt   int64           `json:"lastOutputAt,omitempty"`   // agent_status 距上次输出用
 	Snapshot       *ResSnapshot    `json:"snapshot,omitempty"`       // 资源清单快照（nil = 基线未建）
 	Usage          types.Usage     `json:"usage"`                    // 本会话累计用量（状态卡展示）
@@ -67,8 +87,10 @@ type Store struct {
 	tool string     // 主模型名（宿主注入）
 	snap *ResSnapshot
 	last int64 // lastOutputAt（status hook 维护）
-	prevID string // compact 链：上一 session ID
+	prevID string // compact 链：上一 session ID（SetPrev 设置）
 	prevSum string // compact 链：上一 session 摘要
+	edge     SnapEdge // 当前会话向上边（恢复/fork 时注入，OnEnd 落盘）
+	lineRoot string   // 所属分支根 ID（SetID 不清：compact 换代不换线）
 	usage types.Usage // 本会话累计用量（OnEnd 累计并随快照落盘）
 	runID string // 本轮开始时的会话 ID（compact 轮内切库时拒绝把用量记入新库）
 	ctx   func() (tokens, window int) // 上下文水位与窗口（宿主注入，快照落盘用）
@@ -96,7 +118,7 @@ func (h *Store) ID() string {
 	return h.id
 }
 
-/* SetID 切换会话（后续轮次写入新 ID 的文件夹）。 */
+/* SetID 切换会话（后续轮次写入新 ID 的文件夹）。lineRoot 不清：compact 换代不换线。 */
 func (h *Store) SetID(id string) {
 	if id == "" {
 		return
@@ -107,9 +129,40 @@ func (h *Store) SetID(id string) {
 		h.snap = nil // 新会话资源基线由 status hook 重建
 		h.last = 0
 		h.prevID, h.prevSum = "", ""
+		h.edge = SnapEdge{}
 		h.usage = types.Usage{} // 新会话用量重新累计
 	}
 	h.mu.Unlock()
+}
+
+/* SetLineRoot 记录所属分支根 ID（会话创建/恢复时注入）。 */
+func (h *Store) SetLineRoot(root string) {
+	h.mu.Lock()
+	if root != "" {
+		h.lineRoot = root
+	}
+	h.mu.Unlock()
+}
+
+/* LineRoot 返回所属分支根 ID（空 = 未知，调用方兜底）。 */
+func (h *Store) LineRoot() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lineRoot
+}
+
+/* SetEdge 注入当前会话的向上边（恢复/fork 会话时；SetID 后调用）。 */
+func (h *Store) SetEdge(e SnapEdge) {
+	h.mu.Lock()
+	h.edge = e
+	h.mu.Unlock()
+}
+
+/* Edge 返回当前会话的向上边。 */
+func (h *Store) Edge() SnapEdge {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.edge
 }
 
 /* BindCtx 注入上下文水位与窗口（Assemble 时调用）。 */
@@ -206,6 +259,7 @@ func (h *Store) OnEnd(_ context.Context, state *types.LoopState) error {
 	id := h.id
 	snap, sys, tool := h.snap, h.sys, h.tool
 	last, prevID, prevSum := h.last, h.prevID, h.prevSum
+	edge, lineRoot := h.edge, h.lineRoot
 	h.mu.Unlock()
 
 	fork := state.ForkID != ""
@@ -228,6 +282,7 @@ func (h *Store) OnEnd(_ context.Context, state *types.LoopState) error {
 		EndedAt:      state.EndedAt,
 		LastOutputAt: last,
 		Snapshot:     snap,
+		LineRoot:     lineRoot,
 	}
 	if !fork && h.runID == id { // 主循环且本轮未切库：累计用量与水位（fork 只存增量；compact 切库轮的用量不计入新库）
 		h.mu.Lock()
@@ -244,8 +299,20 @@ func (h *Store) OnEnd(_ context.Context, state *types.LoopState) error {
 	if tool != "" {
 		out.Model = tool
 	}
-	if prevID != "" {
-		out.PrevSession, out.CompactSummary = prevID, prevSum
+	if !fork {
+		// 向上边：compact 的 SetPrev 是一种边（目标=旧库，seed=compress），
+		// 优先于恢复时注入的 edge（两者在 compress 恢复场景下同值）。
+		if prevID != "" {
+			edge = SnapEdge{TargetID: prevID, SeedKind: "compress"}
+		}
+		if edge.SeedKind == "" {
+			edge.SeedKind = "new"
+		}
+		out.TargetID, out.Anchor, out.SeedKind, out.ForkedFrom = edge.TargetID, edge.Anchor, edge.SeedKind, edge.ForkedFrom
+		if edge.SeedKind == "compress" && edge.TargetID != "" {
+			// 兼容别名：compress 边同时写 prevSession（旧读者/前端过渡期）
+			out.PrevSession, out.CompactSummary = edge.TargetID, prevSum
+		}
 	}
 	if fork {
 		out.ID = state.ForkID
@@ -331,7 +398,7 @@ func LoadDecisions(ctx context.Context, fsys fs.FileSystem, id string) []Decisio
 	return out
 }
 
-/* LoadSnap 读取指定会话快照（sessions/<id>/session.json）。 */
+/* LoadSnap 读取指定会话快照（sessions/<id>/session.json），旧格式自动归一化。 */
 func LoadSnap(ctx context.Context, fsys fs.FileSystem, id string) (*SessionSnap, error) {
 	data, err := fsys.Read(ctx, SessionsDir+"/"+id+"/session.json")
 	if err != nil {
@@ -341,7 +408,40 @@ func LoadSnap(ctx context.Context, fsys fs.FileSystem, id string) (*SessionSnap,
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("sessionstore: decode %s: %w", id, err)
 	}
+	NormalizeSnap(&s)
 	return &s, nil
+}
+
+/* NormalizeSnap 归一化旧快照：PrevSession 线性链映射为 compress 边。 */
+func NormalizeSnap(s *SessionSnap) {
+	if s.TargetID == "" && s.PrevSession != "" {
+		s.TargetID = s.PrevSession
+		s.SeedKind = "compress"
+	}
+}
+
+/* RootOf 沿向上边走到线根（compress 链头；fork/空根自成根）。
+兜底路径：迁移回填会重写 session.json 破坏 mtime，bootstrap 依赖
+此函数而非 LineRoot 字段选线。带上限防意外环。 */
+func RootOf(ctx context.Context, fsys fs.FileSystem, id string) string {
+	cur := id
+	for i := 0; i < 64; i++ {
+		s, err := LoadSnap(ctx, fsys, cur)
+		if err != nil || s.TargetID == "" || s.SeedKind == "fork" || s.SeedKind == "new" {
+			break
+		}
+		cur = s.TargetID
+	}
+	return cur
+}
+
+/* SaveSnap 写回会话快照（sessions/<snap.ID>/session.json，失败返回 error）。 */
+func SaveSnap(ctx context.Context, fsys fs.FileSystem, s *SessionSnap) error {
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsys.Write(ctx, SessionsDir+"/"+s.ID+"/session.json", data)
 }
 
 /* ForkSummary 是 fork 分身的列表摘要（历史重建 fork 卡片用）。 */

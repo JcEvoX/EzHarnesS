@@ -184,10 +184,9 @@ type MemoryConfigView struct {
 	} `json:"topics"`
 }
 
-/* TopicItemView 是话题条目 + 树形父子信息（parent=压缩链上一级，读存档补全）。 */
+/* TopicItemView 是分支索引条目（透传 LeafID/Kind/Origin 供前端渲染）。 */
 type TopicItemView struct {
 	hooks.TopicEntry
-	Parent string `json:"parent,omitempty"`
 }
 
 /* Config 汇总记忆页数据（目录缺失容错为空列表）。 */
@@ -220,33 +219,11 @@ func (m *MemoryService) Config() MemoryConfigView {
 			})
 		}
 	}
-	// 话题页=session 管理：扫描 sessions/ 目录组装全部会话（含活动中的），
-	// parent=压缩链上一级；摘要/标题兜底从 topics 压缩索引补
-	summaries := map[string]hooks.TopicEntry{}
+	// 话题页=分支列表：读分支索引（条目=线，ID=根、LeafID=当前叶）
 	for _, e := range m.Hub.Topics.Load() {
-		summaries[e.ID] = e
-	}
-	active := m.Hub.Active.ID
-	ids, _ := hooks.ListMain(context.Background(), m.Hub.Fsys)
-	for _, id := range ids {
-		snap, err := hooks.LoadSnap(context.Background(), m.Hub.Fsys, id)
-		if err != nil {
-			continue
-		}
-		if len(snap.Messages) == 0 && id != active {
-			continue // 空壳（压缩后的新库未开聊）非活动不展示
-		}
-		it := TopicItemView{TopicEntry: hooks.TopicEntry{
-			ID:        id,
-			CreatedAt: snap.CreatedAt,
-			Msgs:      len(snap.Messages),
-			Path:      hooks.SessionsDir + "/" + id,
-		}, Parent: snap.PrevSession}
-		if e, ok := summaries[id]; ok {
-			it.Title, it.Summary = e.Title, e.Summary
-		}
+		it := TopicItemView{TopicEntry: e}
 		if it.Title == "" {
-			it.Title = hooks.FirstUserTitle(snap.Messages)
+			it.Title = "未命名分支"
 		}
 		v.Topics.Items = append(v.Topics.Items, it)
 	}

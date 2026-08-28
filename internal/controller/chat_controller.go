@@ -19,7 +19,7 @@ type ChatController struct {
 	Svc *service.ChatService
 }
 
-/* SendMessage POST /api/sessions/:id/messages。 */
+/* SendMessage POST /api/sessions/:id/messages（:id=分支根 ID）。 */
 func (c *ChatController) SendMessage(g *gin.Context) {
 	var body struct {
 		Text string `json:"text" binding:"required"`
@@ -28,7 +28,7 @@ func (c *ChatController) SendMessage(g *gin.Context) {
 		g.JSON(http.StatusBadRequest, gin.H{"error": "text required"})
 		return
 	}
-	if err := c.Svc.Send(body.Text); err != nil {
+	if err := c.Svc.Send(g.Param("id"), body.Text); err != nil {
 		if errors.Is(err, domain.ErrBusy) {
 			g.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
@@ -43,15 +43,19 @@ func (c *ChatController) SendMessage(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-/* CancelTurn POST /api/sessions/:id/cancel。 */
+/* CancelTurn POST /api/sessions/:id/cancel（:id=分支根 ID）。 */
 func (c *ChatController) CancelTurn(g *gin.Context) {
-	c.Svc.Cancel()
+	c.Svc.Cancel(g.Param("id"))
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-/* Events GET /api/sessions/:id/events（SSE，连接时重放未决人机请求）。 */
+/* Events GET /api/sessions/:id/events（SSE，:id=分支根 ID——按分支路由，
+连接时重放该分支的回放帧与未决人机请求；compact 换代对象不变不断线）。 */
 func (c *ChatController) Events(g *gin.Context) {
-	sess := c.Svc.Hub.Active
+	sess := c.Svc.Hub.SessionOf(g.Param("id"))
+	if sess == nil {
+		sess = c.Svc.Hub.Active
+	}
 	fl, ok := g.Writer.(interface{ Flush() })
 	if !ok {
 		g.JSON(http.StatusInternalServerError, gin.H{"error": "streaming unsupported"})
@@ -93,7 +97,7 @@ func (c *ChatController) Events(g *gin.Context) {
 	}
 }
 
-/* DecideApprove POST /api/sessions/:id/decisions/approve。 */
+/* DecideApprove POST /api/sessions/:id/decisions/approve（:id=分支根 ID）。 */
 func (c *ChatController) DecideApprove(g *gin.Context) {
 	var body struct {
 		CallID  string `json:"callId" binding:"required"`
@@ -104,11 +108,11 @@ func (c *ChatController) DecideApprove(g *gin.Context) {
 		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.Svc.DecideApprove(body.CallID, body.Approve, body.Reason)
+	c.Svc.DecideApprove(g.Param("id"), body.CallID, body.Approve, body.Reason)
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-/* DecideAnswer POST /api/sessions/:id/decisions/answer。 */
+/* DecideAnswer POST /api/sessions/:id/decisions/answer（:id=分支根 ID）。 */
 func (c *ChatController) DecideAnswer(g *gin.Context) {
 	var body struct {
 		CallID string `json:"callId" binding:"required"`
@@ -118,6 +122,6 @@ func (c *ChatController) DecideAnswer(g *gin.Context) {
 		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.Svc.DecideAnswer(body.CallID, body.Input)
+	c.Svc.DecideAnswer(g.Param("id"), body.CallID, body.Input)
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
