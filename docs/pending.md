@@ -24,3 +24,20 @@
 10. 设置处理, 模型的 上下文上限 处理[done]
 11. 多模态支持
 1. 我不想可拖拽缩放 bug太多了  这个我指的是 不知道为啥 有时候我松开了按键 但是窗口还在跟着缩放 2. 关闭后没有到托盘 3. 设置页面没有托盘常驻还是关闭的选项 [done]      
+                                                                                                                            
+  1. 分叉来源错乱 — 两层修复：[done]                                                                                          
+  - Fork 标题改取源线在索引里的标题(不再扫源会话全量消息首条 user),fork-of-fork 不会再显示成 A 的内容                       
+  - 空叉链折叠：你问的“空 fork 再 fork 归属谁”——现在无新消息的 fork 再分叉时，边直接上溯到真实内容来源(A→B(空)→C,C 的边指回 
+  A,不产生空壳链)。已 E2E 验证                                                                                              
+                                                                                                                            
+  2. 标题变 <end_reason>… — 根因：endnote/agent_status 都是 role=user 的系统注入消息，FirstUserTitle
+  只跳过后者。已修(含单测)，压缩翻页后新会话首条消息是 endnote 的场景也覆盖。 [done]                                              
+                                                                                                                            
+  3. compact 后切回无法上翻 — 根因：compact 换库时 SetID 清了 Store 的 edge,compress 边只活在 prevID 里，History() 读 edge  
+  拿到空 targetId → hasPrev=false。已补 prevID 回退。 [done]                                                                      
+                                                                               
+  4. 记忆页重构 — 话题记忆现在是完整会话树(GET /api/memory/tree):每条分支根→叶、归档世代带“已归档”徽标、⑂
+  分叉可见、当前线高亮；CSS 缩进树、默认全展开可折叠，操作=回顾/切到分支/归档/删线。对话页面板仍是分支列表，职责分开。      
+                                                                                                                            
+  5. 手动归档已预留 — POST /api/sessions/:id/archive(活动/运行中的当前叶 409 拒绝，E2E                                      
+  验证)。“不建新会话的原地压缩”是后续功能，归档开关就是它的落点。

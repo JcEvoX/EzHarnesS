@@ -26,6 +26,9 @@ var ErrTopicNotFound = errors.New("topic not found")
 /* ErrBadAnchor fork 锚点越界（不在目标会话消息范围内）。 */
 var ErrBadAnchor = errors.New("fork anchor out of range")
 
+/* ErrCantArchive 活动/运行中的会话不可归档（会继续写入，标记会被覆盖）。 */
+var ErrCantArchive = errors.New("活动或运行中的分支不可归档")
+
 /* TopicService 分支用例。 */
 type TopicService struct {
 	Hub    *domain.Hub
@@ -125,6 +128,11 @@ func (t *TopicService) NewBranch() *domain.Session {
 Fork 从任意消息位置复制前缀开新分支（copy 语义，快照隔离）：
 新 session 体内携带目标 [0, anchor] 的完整副本（含选中消息），
 system/水位承源；分叉出处仅存展示元数据，删源不伤内容。
+
+空叉链折叠：源是"未产生新消息的 fork"（体量仍等于复制前缀）时，
+选中消息的真实出处是更上游——沿 fork 边上溯到实际内容来源再建边，
+避免 A→B(空)→C 显示成"来自 B"的空壳链。
+标题取源线在索引里的标题（区分 fork-of-fork），退化首条 user。
 */
 func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*domain.Session, error) {
 	src, err := hooks.LoadSnap(ctx, t.Hub.Fsys, sourceID)
@@ -134,7 +142,22 @@ func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*
 	if anchor <= 0 || anchor > len(src.Messages) {
 		return nil, ErrBadAnchor
 	}
-	title := hooks.FirstUserTitle(src.Messages)
+	for src.SeedKind == "fork" && len(src.Messages) == src.Anchor && src.TargetID != "" {
+		parent, perr := hooks.LoadSnap(ctx, t.Hub.Fsys, src.TargetID)
+		if perr != nil {
+			break
+		}
+		src = parent // 副本 [0, src.Anchor) 与 parent 同源，anchor 索引不变
+	}
+	title := ""
+	if src.LineRoot != "" {
+		if e, ok := t.Hub.Topics.Get(src.LineRoot); ok && e.Title != "" {
+			title = e.Title
+		}
+	}
+	if title == "" {
+		title = hooks.FirstUserTitle(src.Messages)
+	}
 	newID := hooks.NewSessionID()
 	now := time.Now().UnixMilli()
 	snap := &hooks.SessionSnap{
@@ -145,11 +168,11 @@ func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*
 		SystemBase:   src.SystemBase,
 		SummaryBlock: src.SummaryBlock,
 		Model:        src.Model,
-		TargetID:     sourceID,
+		TargetID:     src.ID,
 		Anchor:       anchor,
 		SeedKind:     "fork",
 		LineRoot:     newID,
-		ForkedFrom:   &hooks.ForkOrigin{SourceID: sourceID, Title: title, Anchor: anchor},
+		ForkedFrom:   &hooks.ForkOrigin{SourceID: src.ID, Title: title, Anchor: anchor},
 		CtxTokens:    src.CtxTokens,
 		CtxWindow:    src.CtxWindow,
 	}
@@ -224,4 +247,73 @@ func (t *TopicService) Delete(ctx context.Context, rootID string) error {
 	_ = os.RemoveAll(filepath.Join(hooks.SessionsDir, rootID))
 	t.Hub.Topics.Remove(rootID)
 	return nil
+}
+
+/* SessionNode 是会话树节点（记忆页整树渲染：全部世代与分叉）。 */
+type SessionNode struct {
+	ID           string            `json:"id"`
+	Title        string            `json:"title"`
+	SeedKind     string            `json:"seedKind,omitempty"` // new | fork | compress
+	Archived     bool              `json:"archived"`           // 已归档（compact 旧世代/手动）
+	Msgs         int               `json:"msgs"`
+	CreatedAt    int64             `json:"createdAt"`
+	TargetID     string            `json:"targetId,omitempty"` // 向上边（前端组树用）
+	ForkedFrom   *hooks.ForkOrigin `json:"forkedFrom,omitempty"`
+	LineRoot     string            `json:"lineRoot,omitempty"`
+	IsLeaf       bool              `json:"isLeaf"`       // 所属线的当前叶（可切换进入）
+	IsActiveLine bool              `json:"isActiveLine"` // 所属线是当前分支
+}
+
+/*
+Tree 返回全部 session 节点（扁平，前端按 targetId 组树）。
+记忆页 = 完整会话树：归档世代带主题与"已归档"标识，fork 分叉可见。
+*/
+func (t *TopicService) Tree(ctx context.Context) []SessionNode {
+	entries := map[string]hooks.TopicEntry{}
+	for _, e := range t.Hub.Topics.Load() {
+		entries[e.ID] = e
+	}
+	active := t.Hub.Active
+	ids, _ := hooks.ListMain(ctx, t.Hub.Fsys)
+	out := make([]SessionNode, 0, len(ids))
+	for _, id := range ids {
+		snap, err := hooks.LoadSnap(ctx, t.Hub.Fsys, id)
+		if err != nil {
+			continue
+		}
+		n := SessionNode{
+			ID: id, Title: hooks.FirstUserTitle(snap.Messages),
+			SeedKind: snap.SeedKind, Archived: snap.Archived,
+			Msgs: len(snap.Messages), CreatedAt: snap.CreatedAt,
+			TargetID: snap.TargetID, ForkedFrom: snap.ForkedFrom, LineRoot: snap.LineRoot,
+		}
+		if e, ok := entries[snap.LineRoot]; ok {
+			if id == e.LeafID {
+				n.Title, n.IsLeaf = e.Title, true
+			}
+			if active != nil && e.ID == active.RootID {
+				n.IsActiveLine = true
+			}
+		}
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	return out
+}
+
+/*
+Archive 手动归档开关（预留：标记会话不再作为恢复候选，树上显示已归档）。
+活动分支的当前叶拒绝——它还会被继续写入，标记会被下次落盘覆盖；
+归档一条线的当前叶前先切到别的分支。
+*/
+func (t *TopicService) Archive(ctx context.Context, id string, archived bool) error {
+	snap, err := hooks.LoadSnap(ctx, t.Hub.Fsys, id)
+	if err != nil {
+		return ErrTopicNotFound
+	}
+	if s := t.Hub.SessionOf(snap.LineRoot); s != nil && s.ID == id && (s == t.Hub.Active || s.Busy()) {
+		return ErrCantArchive
+	}
+	snap.Archived = archived
+	return hooks.SaveSnap(ctx, t.Hub.Fsys, snap)
 }

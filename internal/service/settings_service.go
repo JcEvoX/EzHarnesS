@@ -167,7 +167,8 @@ type SkillEntryView struct {
 	Enabled bool   `json:"enabled"`
 }
 
-/* MemoryConfigView 是记忆页数据：三文件夹（长期记忆/能力记忆/话题记忆）。 */
+/* MemoryConfigView 是记忆页数据：长期记忆/能力记忆两个文件夹的清单。
+话题记忆（完整会话树）走独立端点 GET /api/memory/tree。 */
 type MemoryConfigView struct {
 	Longterm struct {
 		Dir       string         `json:"dir"`
@@ -179,14 +180,8 @@ type MemoryConfigView struct {
 		Items []SkillEntryView `json:"items"`
 	} `json:"skills"`
 	Topics struct {
-		Dir   string          `json:"dir"`
-		Items []TopicItemView `json:"items"`
+		Dir string `json:"dir"`
 	} `json:"topics"`
-}
-
-/* TopicItemView 是分支索引条目（透传 LeafID/Kind/Origin 供前端渲染）。 */
-type TopicItemView struct {
-	hooks.TopicEntry
 }
 
 /* Config 汇总记忆页数据（目录缺失容错为空列表）。 */
@@ -219,22 +214,11 @@ func (m *MemoryService) Config() MemoryConfigView {
 			})
 		}
 	}
-	// 话题页=分支列表：读分支索引（条目=线，ID=根、LeafID=当前叶）
-	for _, e := range m.Hub.Topics.Load() {
-		it := TopicItemView{TopicEntry: e}
-		if it.Title == "" {
-			it.Title = "未命名分支"
-		}
-		v.Topics.Items = append(v.Topics.Items, it)
-	}
 	if v.Longterm.Files == nil {
 		v.Longterm.Files = []FileInfoView{}
 	}
 	if v.Skills.Items == nil {
 		v.Skills.Items = []SkillEntryView{}
-	}
-	if v.Topics.Items == nil {
-		v.Topics.Items = []TopicItemView{}
 	}
 	return v
 }

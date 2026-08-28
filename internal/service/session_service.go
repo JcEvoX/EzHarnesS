@@ -148,6 +148,13 @@ func (s *SessionService) History(rootID string) HistoryData {
 		sess = s.Hub.Active
 	}
 	edge := sess.Sess.Edge()
+	if edge.TargetID == "" {
+		// compact 换库后 SetID 清空了 edge，compress 边只在 prevID 里
+		//（重启/下次落盘才回填 edge）——上翻游标以 prevID 兜底
+		if prev := sess.Sess.PrevID(); prev != "" {
+			edge.TargetID, edge.SeedKind = prev, "compress"
+		}
+	}
 	h := HistoryData{
 		ID:      sess.ID,
 		RootID:  sess.RootID,

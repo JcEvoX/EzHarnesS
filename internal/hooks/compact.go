@@ -364,13 +364,19 @@ func (c *Compact) summarize(ctx context.Context, msgs []types.Message) (string, 
 	return resp.Content, nil
 }
 
-/* FirstUserTitle 从消息里取首条真实 user 文本作话题标题（跳过 agent_status 状态栏注入）。 */
+/* FirstUserTitle 从消息里取首条真实 user 文本作话题标题（跳过 agent_status
+状态栏与 end_reason 轮次收尾等系统记录——它们是 role=user 的注入消息）。 */
 func FirstUserTitle(msgs []types.Message) string {
 	for _, m := range msgs {
-		if m.Role != types.RoleUser || strings.HasPrefix(strings.TrimSpace(m.Content), "<agent_status>") {
+		if m.Role != types.RoleUser {
 			continue
 		}
 		t := strings.TrimSpace(m.Content)
+		if t == "" ||
+			strings.HasPrefix(t, "<agent_status>") ||
+			strings.HasPrefix(t, "<"+EndReasonTag+">") {
+			continue
+		}
 		if len([]rune(t)) > 40 {
 			return string([]rune(t)[:40]) + "…"
 		}

@@ -108,3 +108,33 @@ func (c *TopicController) Activate(g *gin.Context) {
 	}
 	g.JSON(http.StatusOK, gin.H{"id": c.Svc.Hub.Active.RootID})
 }
+
+/* Tree GET /api/memory/tree（完整会话树：全部世代与分叉，记忆页渲染）。 */
+func (c *TopicController) Tree(g *gin.Context) {
+	g.JSON(http.StatusOK, c.Svc.Tree(g.Request.Context()))
+}
+
+/* Archive POST /api/sessions/:id/archive body {archived}（手动归档预留，
+缺省 true=归档；活动/运行中的当前叶拒绝）。 */
+func (c *TopicController) Archive(g *gin.Context) {
+	var body struct {
+		Archived *bool `json:"archived"`
+	}
+	_ = g.ShouldBindJSON(&body)
+	want := true
+	if body.Archived != nil {
+		want = *body.Archived
+	}
+	if err := c.Svc.Archive(g.Request.Context(), g.Param("id"), want); err != nil {
+		switch {
+		case errors.Is(err, service.ErrTopicNotFound):
+			g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrCantArchive):
+			g.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "archived": want})
+}

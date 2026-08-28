@@ -1,21 +1,33 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { api, type HistoryMessage, type MemoryConfig, type MemoryTopicEntry } from '../lib/api'
+  import { api, type HistoryMessage, type MemoryConfig, type SessionNode } from '../lib/api'
   import { store } from '../lib/store.svelte'
 
   /*
-  记忆 = 三个文件夹（数据由 GET /api/memory/config 下发）：
-    长期记忆——一套文件系统：harness.md 是索引文件，初始加载进上下文，
-      其余文件由 agent 按需检索（grep 等）。
-    能力记忆——沉淀的 skill，agent 按需调用。
-    话题记忆——历史 session 存档，可回顾/删除。
+  记忆 = 长期记忆/能力记忆两个文件夹（GET /api/memory/config）+ 会话树
+  （GET /api/memory/tree）：话题记忆展示完整会话树——每条分支（线）从根
+  到当前叶，compact 旧世代标"已归档"，fork 分叉可见；操作：回顾（只读
+  展开）、切到分支（跳对话页）、手动归档、删整条线。
   */
   let { onNavigate }: { onNavigate?: (v: string) => void } = $props()
 
   let cfg = $state<MemoryConfig | null>(null)
+  let tree = $state<SessionNode[] | null>(null)
   let message = $state('')
-  let openTopic = $state('') // 展开回顾的 topic id
+  let openTopic = $state('') // 展开回顾的 session id
   let topicMsgs = $state<HistoryMessage[]>([])
+  let confirmId = $state('') // 待确认删线的节点
+
+  async function loadTree() {
+    try {
+      const t = await api.getMemoryTree()
+      tree = t
+      // 默认全展开（树规模桌面尺度；有孩子才需要进集合）
+      expanded = new Set(t.filter((n) => t.some((k) => k.targetId === n.id)).map((n) => n.id))
+    } catch {
+      message = '会话树加载失败（后端不可达）'
+    }
+  }
 
   onMount(async () => {
     try {
@@ -23,39 +35,63 @@
     } catch {
       message = '记忆数据加载失败（后端不可达）'
     }
+    await loadTree()
   })
 
-  async function removeTopic(t: MemoryTopicEntry) {
-    try {
-      await api.deleteTopic(t.id)
-      if (cfg) cfg.topics.items = cfg.topics.items.filter((x) => x.id !== t.id)
-    } catch (e) {
-      message = `删除失败：${(e as Error).message}`
-    }
-  }
-
-  /* 回顾：展开只读全文（再点收起） */
-  async function reviewTopic(t: MemoryTopicEntry) {
-    if (openTopic === t.id) {
+  /* 回顾：展开只读全文（再点收起）；任意 session 节点都可回顾 */
+  async function reviewTopic(n: SessionNode) {
+    if (openTopic === n.id) {
       openTopic = ''
       return
     }
     try {
-      const d = await api.getTopic(t.id)
+      const d = await api.getTopic(n.id)
       topicMsgs = d.messages || []
-      openTopic = t.id
+      openTopic = n.id
     } catch (e) {
       message = `回顾失败：${(e as Error).message}`
     }
   }
 
-  /* 回到话题：恢复为活动会话并跳转对话页 */
-  async function resumeTopic(t: MemoryTopicEntry) {
+  /* 切到分支：该节点所属线的当前叶恢复为活动会话并跳对话页 */
+  async function switchLine(n: SessionNode) {
+    if (!n.lineRoot) return
     try {
-      await store.resumeTopic(t.id)
+      await store.resumeTopic(n.lineRoot)
       onNavigate?.('chat')
     } catch (e) {
-      message = `回到话题失败：${(e as Error).message}`
+      message = `切换分支失败：${(e as Error).message}`
+    }
+  }
+
+  /* 手动归档开关（活动/运行中的当前叶后端拒绝） */
+  async function archiveNode(n: SessionNode) {
+    try {
+      await api.archiveSession(n.id, !n.archived)
+      await loadTree()
+    } catch (e) {
+      message = `归档失败：${(e as Error).message}`
+    }
+  }
+
+  /* 删整条线（二次确认；线身份 = 节点的 lineRoot） */
+  async function removeLine(n: SessionNode) {
+    if (!n.lineRoot) return
+    if (confirmId !== n.id) {
+      confirmId = n.id
+      setTimeout(() => {
+        if (confirmId === n.id) confirmId = ''
+      }, 3000)
+      return
+    }
+    confirmId = ''
+    try {
+      await api.deleteTopic(n.lineRoot)
+      if (n.isActiveLine && n.isLeaf) await store.newBranch()
+      await loadTree()
+      await store.refreshBranches()
+    } catch (e) {
+      message = `删除失败：${(e as Error).message}`
     }
   }
 
@@ -65,12 +101,42 @@
     return `${(n / 1024 / 1024).toFixed(1)} MB`
   }
 
-  /* 分支列表：条目=线（根→叶），按最近活动排序；fork 线带分叉徽标 */
-  const branchRows = $derived.by(() => {
-    if (!cfg) return [] as MemoryTopicEntry[]
-    return [...cfg.topics.items].sort(
-      (a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt),
-    )
+  /* 会话树：按 targetId 组树（fork 子孙也是子节点），根按时间倒序、
+     子节点按时间正序（世代从上往下长）；展开集控制折叠 */
+  type Row = { n: SessionNode; depth: number; kids: number; open: boolean }
+  let expanded = $state<Set<string>>(new Set())
+
+  function toggle(id: string) {
+    const next = new Set(expanded)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    expanded = next
+  }
+
+  const treeRows = $derived.by(() => {
+    if (!tree) return [] as Row[]
+    const byId = new Set(tree.map((n) => n.id))
+    const kids = new Map<string, SessionNode[]>()
+    const roots: SessionNode[] = []
+    for (const n of tree) {
+      if (n.targetId && byId.has(n.targetId)) {
+        const arr = kids.get(n.targetId) || []
+        arr.push(n)
+        kids.set(n.targetId, arr)
+      } else {
+        roots.push(n)
+      }
+    }
+    roots.sort((a, b) => b.createdAt - a.createdAt)
+    const out: Row[] = []
+    const walk = (n: SessionNode, depth: number) => {
+      const ch = (kids.get(n.id) || []).sort((a, b) => a.createdAt - b.createdAt)
+      const open = expanded.has(n.id)
+      out.push({ n, depth, kids: ch.length, open })
+      if (open) for (const c of ch) walk(c, depth + 1)
+    }
+    for (const r of roots) walk(r, 0)
+    return out
   })
 
   function fmtDate(ts: number): string {
@@ -172,57 +238,75 @@
     </div>
   </section>
 
-  <!-- ── 话题记忆 ── -->
+  <!-- ── 话题记忆：完整会话树 ── -->
   <section>
     <header>
       <div>
         <h2>话题记忆</h2>
-        <p class="hint">历史会话存档，可回顾或删除。</p>
+        <p class="hint">完整会话树：每条分支从根到当前叶，压缩旧世代标"已归档"，⑂ 为分叉。</p>
       </div>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.topics.dir : '—'}</p>
-    <div class="list">
-      {#if cfg}
-        {#each branchRows as t, i (`${t.id}-${i}`)}
+    <div class="treelist">
+      {#if treeRows.length > 0}
+        {#each treeRows as row, i (`${row.n.id}-${i}`)}
+          {@const n = row.n}
           <div class="branch">
-          <div class="topic" class:cur={store.activeId === t.id}>
-            <div class="info">
-              <span class="name"
-                >{t.title}{#if t.kind === 'fork'}<span class="kbadge" title={t.origin?.title ? `分叉自：${t.origin.title}` : '分叉产生的分支'}>⑂ 分叉</span>{/if}{#if store.activeId === t.id}<span class="kbadge live">进行中</span>{/if}</span
-              >
-              <span class="desc">{fmtDate(t.updatedAt || t.createdAt)} · {t.msgs} 条消息{t.origin?.title ? ` · 分叉自「${t.origin.title}」` : ''}</span>
-              {#if t.summary}
-                <span class="summary">{t.summary}</span>
+            <div class="topic" class:cur={n.isActiveLine && n.isLeaf} style="padding-left:{14 + row.depth * 20}px">
+              {#if row.kids > 0}
+                <button class="tw" onclick={() => toggle(n.id)} title={row.open ? '收起子节点' : '展开子节点'}>
+                  <span class="farrow" class:open={row.open}>{row.open ? '▾' : '▸'}</span>
+                </button>
+              {:else}
+                <span class="tw dot">·</span>
               {/if}
+              <div class="info">
+                <span class="name">
+                  {n.title || '未命名会话'}
+                  {#if n.archived}<span class="kbadge arc">已归档</span>{/if}
+                  {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `分叉自：${n.forkedFrom.title}` : '分叉产生的分支'}>⑂</span>{/if}
+                  {#if n.isActiveLine && n.isLeaf}<span class="kbadge live">进行中</span>{/if}
+                  {#if n.msgs === 0}<span class="kbadge mut">空</span>{/if}
+                </span>
+                <span class="desc">{fmtDate(n.createdAt)} · {n.msgs} 条消息</span>
+              </div>
+              <div class="ops">
+                <button class="op" onclick={() => reviewTopic(n)}>
+                  {openTopic === n.id ? '收起' : '回顾'}
+                </button>
+                {#if n.isLeaf && n.lineRoot && !(n.isActiveLine)}
+                  <button class="op" onclick={() => switchLine(n)} title="切到该分支的当前叶继续">切到分支</button>
+                {/if}
+                <button class="op" onclick={() => archiveNode(n)} title={n.archived ? '取消手动归档' : '手动归档（不再作为恢复候选）'}>
+                  {n.archived ? '取消归档' : '归档'}
+                </button>
+                {#if n.isLeaf && n.lineRoot}
+                  <button class="del" class:confirm={confirmId === n.id} onclick={() => removeLine(n)}
+                    title={confirmId === n.id ? '再点一次确认删除整条线' : '删除整条线（全部世代）'}>
+                    {confirmId === n.id ? '确认?' : '删除'}
+                  </button>
+                {/if}
+              </div>
             </div>
-            <div class="ops">
-              <button class="op" onclick={() => reviewTopic(t)}>
-                {openTopic === t.id ? '收起' : '回顾'}
-              </button>
-              <button class="op" onclick={() => resumeTopic(t)} title="切换到该分支继续">切到分支</button>
-              <button class="del" onclick={() => removeTopic(t)} title="删除整条线（全部世代）">删除</button>
-            </div>
-          </div>
-          {#if openTopic === t.id}
-            <div class="review">
-              {#each topicMsgs as m, i (i)}
-                <div class="rv" class:me={m.role === 'user'}>
-                  <span class="rrole">{m.role === 'assistant' ? 'agent' : m.role === 'tool' ? 'tool' : m.role}</span>
-                  <span class="rtext">{(m.content || (m.tool_calls ? JSON.stringify(m.tool_calls) : '')).slice(0, 300)}</span>
-                </div>
-              {/each}
-              {#if topicMsgs.length === 0}
-                <div class="rv">（无消息）</div>
-              {/if}
-            </div>
-          {/if}
+            {#if openTopic === n.id}
+              <div class="review" style="margin-left:{14 + row.depth * 20}px">
+                {#each topicMsgs as m, j (j)}
+                  <div class="rv" class:me={m.role === 'user'}>
+                    <span class="rrole">{m.role === 'assistant' ? 'agent' : m.role === 'tool' ? 'tool' : m.role}</span>
+                    <span class="rtext">{(m.content || (m.tool_calls ? JSON.stringify(m.tool_calls) : '')).slice(0, 300)}</span>
+                  </div>
+                {/each}
+                {#if topicMsgs.length === 0}
+                  <div class="rv">（无消息）</div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {/each}
-        {#if cfg.topics.items.length === 0}
-          <div class="empty">暂无分支——在对话页新建或从任意消息分叉。</div>
-        {/if}
+      {:else if tree}
+        <div class="empty">暂无会话——在对话页开聊后会沉淀到这里。</div>
       {:else}
-        <div class="empty">暂无分支——在对话页新建或从任意消息分叉。</div>
+        <div class="empty">会话树加载中…</div>
       {/if}
     </div>
   </section>
@@ -476,18 +560,59 @@
     overflow-wrap: anywhere;
   }
 
-  /* 话题记忆：会话行 */
+  /* 话题记忆：会话树 */
+  .treelist {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
   .branch {
     display: flex;
     flex-direction: column;
+    border-left: 1px solid var(--line);
+    margin-left: 14px;
+  }
+  .branch:first-child {
+    border-left: none;
+    margin-left: 0;
   }
   .topic {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 11px 14px;
+    gap: 8px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+    padding-right: 14px;
     flex-wrap: wrap; /* 回顾展开区占满整行 */
     transition: background var(--dur-fast) var(--ease-out);
+  }
+  /* 展开钮 / 叶点 */
+  .tw {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: transparent;
+    color: var(--faint);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0;
+  }
+  .tw:hover {
+    color: var(--fg);
+    background: var(--bg-soft);
+  }
+  .tw.dot {
+    cursor: default;
+  }
+  .farrow {
+    display: inline-block;
+    transition: transform var(--dur-fast) var(--ease-out);
   }
   .topic + .topic {
     border-top: 1px solid var(--line);
@@ -530,6 +655,16 @@
     border-radius: 5px;
     padding: 1px 7px;
     vertical-align: 1px;
+  }
+  .kbadge.arc {
+    color: var(--muted);
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+  }
+  .kbadge.mut {
+    color: var(--faint);
+    background: transparent;
+    border: 1px dashed var(--line);
   }
   .kbadge.live {
     color: #3fb950;

@@ -208,21 +208,25 @@ export interface MemorySkillEntry {
   desc: string
   enabled: boolean
 }
-export interface MemoryTopicEntry {
-  id: string
-  leafId?: string
-  title: string
-  summary?: string
-  createdAt: number
-  updatedAt?: number
-  msgs: number
-  kind?: string
-  origin?: ForkOrigin
-}
 export interface MemoryConfig {
   longterm: { dir: string; harnessMd: MemoryFileInfo | null; files: MemoryFileInfo[] }
   skills: { dir: string; items: MemorySkillEntry[] }
-  topics: { dir: string; items: MemoryTopicEntry[] }
+  topics: { dir: string }
+}
+
+/* 会话树节点（GET /api/memory/tree）：记忆页整树渲染 */
+export interface SessionNode {
+  id: string
+  title: string
+  seedKind?: 'new' | 'fork' | 'compress' | string
+  archived: boolean
+  msgs: number
+  createdAt: number
+  targetId?: string // 向上边（组树用）
+  forkedFrom?: ForkOrigin
+  lineRoot?: string
+  isLeaf: boolean // 所属线的当前叶（可切换进入）
+  isActiveLine: boolean
 }
 
 export type ApproveLevel = 'ask' | 'black' | 'white' | 'auto'
@@ -310,6 +314,13 @@ export const api = {
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
 
   getMemoryConfig: () => fetch('/api/memory/config').then(json<MemoryConfig>),
+
+  /* 完整会话树（全部世代与分叉，记忆页渲染） */
+  getMemoryTree: () => fetch('/api/memory/tree').then(json<SessionNode[]>),
+
+  /* 手动归档开关（活动/运行中的当前叶会被后端拒绝） */
+  archiveSession: (id: string, archived: boolean) =>
+    post<{ ok: boolean; archived: boolean }>(`/api/sessions/${id}/archive`, { archived }),
 
   deleteTopic: (id: string) =>
     fetch(`/api/topics/${id}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),

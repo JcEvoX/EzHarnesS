@@ -243,6 +243,22 @@ func TestCompactForkInPlace(t *testing.T) {
 	}
 }
 
+/* 标题推导须跳过系统记录（agent_status/end_reason 都是 role=user 的注入消息） */
+func TestFirstUserTitleSkipsSystemNotes(t *testing.T) {
+	msgs := []types.Message{
+		{Role: types.RoleUser, Content: "<agent_status>\n水位 50%\n</agent_status>"},
+		{Role: types.RoleUser, Content: "<end_reason>\n（系统自动记录的轮次收尾信息，非用户发言，无需回应）\n</end_reason>"},
+		{Role: types.RoleAssistant, Content: "答"},
+		{Role: types.RoleUser, Content: "  真正的用户问题  "},
+	}
+	if got := FirstUserTitle(msgs); got != "真正的用户问题" {
+		t.Fatalf("expect real user text, got %q", got)
+	}
+	if got := FirstUserTitle(msgs[:2]); got != "未命名话题" {
+		t.Fatalf("all-system window should be untitled, got %q", got)
+	}
+}
+
 func TestKeepTail(t *testing.T) {
 	msgs := []types.Message{
 		{Role: types.RoleUser, Content: "q"},

@@ -208,6 +208,11 @@ class AppStore {
     this.activeForkId = ''
     this.busy = false
     this.lastStatus = ''
+    // 分支切换：输出/工具指示与实时水位不跨分支（原分支的 turn_end
+    // 已收不到——单 SSE 只订阅当前分支，残留标志会永远挂着）
+    this.modelActive = false
+    this.lastTool = ''
+    this.live = null
     try {
       const s = await api.getHistory(this.activeId)
       this.leafId = s.id
