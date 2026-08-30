@@ -62,22 +62,24 @@ func mkMsgs(n int) []types.Message {
 	return out
 }
 
-/* modelView：最后一个 marker（含）起，marker 前不进模型上下文；无 marker 全量。 */
+/* modelView：最后 marker 的 kept 回溯保留段 + marker + 之后；无 marker 全量。 */
 func TestModelViewFromLastMarker(t *testing.T) {
 	s := &Session{}
 	s.setHistory([]types.Message{
-		{Role: types.RoleUser, Content: "q1"},
-		{Role: types.RoleUser, Content: "<context_trim>\n摘要：早期\n</context_trim>"},
-		{Role: types.RoleUser, Content: "q2"},
-		{Role: types.RoleUser, Content: "<context_trim>\n摘要：近期\n</context_trim>"},
+		{Role: types.RoleUser, Content: "f1"},
+		{Role: types.RoleUser, Content: "f2"},
+		{Role: types.RoleUser, Content: "<context_trim kept=\"2\">\n摘要：早期\n</context_trim>"},
+		{Role: types.RoleUser, Content: "t1"},
+		{Role: types.RoleUser, Content: "<context_trim kept=\"1\">\n摘要：近期\n</context_trim>"},
 		{Role: types.RoleUser, Content: "q3"},
 	})
 	view := s.ModelView()
-	if len(view) != 2 || !hooks.IsTrimMarker(view[0]) || view[1].Content != "q3" {
-		t.Fatalf("view must start at last marker: %+v", view)
+	// 最后 marker kept=1 → [t1, marker, q3]
+	if len(view) != 3 || view[0].Content != "t1" || !hooks.IsTrimMarker(view[1]) || view[2].Content != "q3" {
+		t.Fatalf("view = kept seg + marker + after: %+v", view)
 	}
 	// 渲染视图仍全量
-	if len(s.History()) != 5 {
+	if len(s.History()) != 6 {
 		t.Fatal("history must keep full for rendering")
 	}
 

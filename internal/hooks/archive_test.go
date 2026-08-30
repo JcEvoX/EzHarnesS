@@ -106,18 +106,12 @@ func TestTrimArchiveFullOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 第二轮：重启恢复（快照全量 → modelView 取 marker 起）+ 新消息 → 再整理 → 再落盘
+	// 第二轮：重启恢复（快照全量 → ViewStart 起的视图）+ 新消息 → 再整理 → 再落盘
 	snap1, err := LoadSnap(ctx, fsys, "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	view := snap1.Messages
-	for i := len(view) - 1; i >= 0; i-- {
-		if IsTrimMarker(view[i]) {
-			view = view[i:]
-			break
-		}
-	}
+	view := snap1.Messages[ViewStart(snap1.Messages):]
 	state2 := newTestState(append([]types.Message{{Role: types.RoleSystem, Content: "base"}},
 		append(append([]types.Message{}, view...),
 			types.Message{Role: types.RoleUser, Content: "q4"},
@@ -146,7 +140,7 @@ func TestTrimArchiveFullOnDisk(t *testing.T) {
 	if !strings.HasPrefix(got, "q1,a1,") {
 		t.Fatalf("archive order wrong (early first):\n got %s", got)
 	}
-	for _, want := range []string{"q2", "a3", "q4", "q5", "<" + TrimTag + ">"} {
+	for _, want := range []string{"q2", "a3", "q4", "q5", "<" + TrimTag + " kept="} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("archive must keep %q: %s", want, got)
 		}
