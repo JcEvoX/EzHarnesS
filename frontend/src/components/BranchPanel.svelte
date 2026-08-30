@@ -78,7 +78,7 @@
               {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `分叉自：${b.origin.title}` : '分叉产生的分支'}>⑂</i>{/if}
             </span>
             <span class="meta">
-              {fmtTime(b.updatedAt || b.createdAt)} · {b.msgs} 条
+              {fmtTime(b.updatedAt || b.createdAt)}
               {#if b.waiting}<em class="wait">待审批</em>{/if}
             </span>
           </div>
