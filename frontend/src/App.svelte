@@ -104,6 +104,11 @@
     font-size: 10px;
     color: var(--faint);
     user-select: none;
+    opacity: 0.45;
+    transition: opacity var(--dur-fast) var(--ease-out);
+  }
+  .brand-foot:hover {
+    opacity: 1;
   }
   .brand-foot a {
     color: var(--faint);

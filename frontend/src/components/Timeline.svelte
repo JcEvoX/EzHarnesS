@@ -170,9 +170,9 @@
 <div class="timeline" bind:this={el} onscroll={onScroll} onwheel={onWheel}
   ontouchstart={onTouchStart} ontouchmove={onTouchMove} ontouchend={onTouchEnd}>
   <div class="inner">
-    <!-- 下拉指示器：随拉动量展开，文案三态 -->
+    <!-- 下拉指示器：随拉动量展开，文案三态（noMore 固定高度让"没有更早"可见） -->
     {#if pull > 0 || loading || noMore}
-      <div class="pullind" style="height:{Math.max(pull, loading ? 40 : 0)}px" class:armed>
+      <div class="pullind" style="height:{noMore ? 28 : Math.max(pull, loading ? 40 : 0)}px" class:armed>
         <span class="arrow" class:spin={loading}>{loading ? '⟳' : noMore ? '·' : '↓'}</span>
         <span class="ptext">
           {#if loading}加载上一话题…{:else if noMore}没有更早的会话了{:else if armed}松开加载上一话题{:else}下拉加载上一话题{/if}
@@ -232,7 +232,7 @@
         </div>
       {:else if seg.b.kind === 'endtick'}
         <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
-          <span class="dot">{seg.b.icon}</span>
+          <span class="dot" class:warn={seg.b.icon === '⚠'}>{seg.b.icon}</span>
         </div>
       {/if}
       {/each}
@@ -257,6 +257,9 @@
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+    /* 滚动条槽位常驻：显隐不再挤压文本宽度；滚动不外传 */
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
   }
   .inner {
     max-width: 780px;
@@ -378,7 +381,7 @@
     height: 1px;
     background: var(--line);
   }
-  /* 轮次收尾小图标：常态仅一枚圆点，悬浮 title 显示详情 */
+  /* 轮次收尾标记：一枚淡字符（✓/⏹/↻/⚠），悬浮 title 显示详情 */
   .endtick {
     display: flex;
     justify-content: center;
@@ -386,19 +389,17 @@
     animation: float-in var(--dur-fast) var(--ease-out) both;
   }
   .endtick .dot {
-    display: grid;
-    place-items: center;
-    width: 18px;
-    height: 18px;
-    border: 1px solid var(--line);
-    border-radius: 50%;
     font-size: 10px;
-    color: var(--faint);
+    line-height: 1;
+    color: var(--line-strong);
     cursor: default;
     user-select: none;
+    transition: color var(--dur-fast) var(--ease-out);
   }
   .endtick .dot:hover {
-    border-color: var(--line-strong);
     color: var(--muted);
+  }
+  .endtick .dot.warn {
+    color: #f0883e;
   }
 </style>
