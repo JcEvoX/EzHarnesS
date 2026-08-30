@@ -130,9 +130,10 @@ func (c *ChatService) ensureIndexed(s *domain.Session, firstText string) {
 	})
 }
 
-/* refreshLine 轮末刷新线（叶子/活动时间/规模）。命名规则：线标题为
-"未命名"（归档换代重置 / 新建未发言）时按本代首条真实 user 消息命名；
-已命名的线不随后续消息改标题（fork 线在创建时用锚点消息命名）。 */
+/* refreshLine 轮末刷新线（叶子/活动时间/规模）。命名规范：分支名是身份
+——new 线首条 chat 命名（ensureIndexed）、fork 线锚点消息命名（创建时）、
+归档不改名（未创建新分支）。此处仅兜底：未命名线（fork 锚点空等）按
+本代首条真实 user 命名，已命名的线不随后续消息改标题。 */
 func (c *ChatService) refreshLine(s *domain.Session) {
 	if s.RootID == "" {
 		return

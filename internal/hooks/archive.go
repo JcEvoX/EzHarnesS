@@ -112,9 +112,9 @@ func ArchiveSession(ctx context.Context, p provider.ModelProvider, fsys fs.FileS
 	if trace != nil {
 		trace.SetTrace(newID)
 	}
-	// 换代重置标题：新会话首条真实 user 后由 refreshLine 命名
-	topics.SetTitle(root, "未命名")
-	_ = topics.UpdateLeaf(root, newID, "未命名", now.UnixMilli(), len(full))
+	// 换代不换线名：归档未创建新分支，线标题保持身份不变（世代节点
+	// 标题各自按本代首条 user，见 Tree()）；title 仅线未索引时兜底
+	_ = topics.UpdateLeaf(root, newID, FirstUserTitle(full), now.UnixMilli(), len(full))
 
 	return CompactInfo{OldID: oldID, NewID: newID, Title: FirstUserTitle(full),
 		Summary: summaryText, PrevPath: prevPath}, nil
