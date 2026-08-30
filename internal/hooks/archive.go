@@ -146,6 +146,9 @@ func FirstUserTitle(msgs []types.Message) string {
 		if t == "" ||
 			strings.HasPrefix(t, "<agent_status>") ||
 			strings.HasPrefix(t, "<"+EndReasonTag+">") {
+			if len(m.Images) > 0 && t == "" {
+				return "[图片]"
+			}
 			continue
 		}
 		if len([]rune(t)) > 40 {

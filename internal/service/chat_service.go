@@ -33,12 +33,12 @@ func (c *ChatService) resolve(rootID string) *domain.Session {
 }
 
 /* Send 启动一轮异步运行：事件流扇出 SSE，结束更新历史并发 turn_end。 */
-func (c *ChatService) Send(rootID, text string) error {
+func (c *ChatService) Send(rootID, text string, images []types.ImagePart) error {
 	if main := c.Hub.ModelsSnapshot().ActiveMain(); main == nil || main.APIKey == "" {
 		return domain.ErrNoAPIKey
 	}
 	s := c.resolve(rootID)
-	h, cancel, err := s.StartRun(context.Background(), text)
+	h, cancel, err := s.StartRun(context.Background(), text, images)
 	if err != nil {
 		return err
 	}

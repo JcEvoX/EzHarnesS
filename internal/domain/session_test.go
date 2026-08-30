@@ -35,7 +35,7 @@ func TestStartRunNoDeadlock(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		h, _, err := s.StartRun(context.Background(), "hello")
+		h, _, err := s.StartRun(context.Background(), "hello", nil)
 		if err != nil {
 			t.Error(err)
 			return

@@ -20,8 +20,11 @@ func (c *AppsController) List(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"apps": c.Svc.List()})
 }
 
-/* Open POST /api/apps/open {name}：校验存在后交桌面壳开独立窗口。
-浏览器访问（无窗口壳）返回 503，前端回落 window.open 新标签页。 */
+/*
+	Open POST /api/apps/open {name}：校验存在后交桌面壳开独立窗口。
+
+浏览器访问（无窗口壳）返回 503，前端回落 window.open 新标签页。
+*/
 func (c *AppsController) Open(g *gin.Context) {
 	var req struct {
 		Name string `json:"name" binding:"required"`

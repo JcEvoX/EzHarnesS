@@ -9,9 +9,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/internal/domain"
 	"ezharness/internal/service"
+)
+
+/* 多模态输入限制（与前端压缩策略配合：压缩后单图远小于上限）。 */
+const (
+	maxInputImages = 8       // 单条消息图片数上限
+	maxImageBase64 = 8 << 20 // 单图 base64 字符数上限（8MB）
 )
 
 /* ChatController 对话表现层。 */
@@ -19,16 +26,44 @@ type ChatController struct {
 	Svc *service.ChatService
 }
 
-/* SendMessage POST /api/sessions/:id/messages（:id=分支根 ID）。 */
+/*
+	SendMessage POST /api/sessions/:id/messages（:id=分支根 ID）。
+
+文本与图片至少其一；图片为内嵌 base64（多模态输入，主模型直收）。
+*/
 func (c *ChatController) SendMessage(g *gin.Context) {
 	var body struct {
-		Text string `json:"text" binding:"required"`
+		Text   string `json:"text"`
+		Images []struct {
+			MimeType string `json:"mimeType"`
+			Data     string `json:"data"`
+		} `json:"images"`
 	}
-	if err := g.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Text) == "" {
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" && len(body.Images) == 0 {
 		g.JSON(http.StatusBadRequest, gin.H{"error": "text required"})
 		return
 	}
-	if err := c.Svc.Send(g.Param("id"), body.Text); err != nil {
+	if len(body.Images) > maxInputImages {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "图片过多（单条最多 8 张）"})
+		return
+	}
+	images := make([]types.ImagePart, 0, len(body.Images))
+	for _, img := range body.Images {
+		if !strings.HasPrefix(img.MimeType, "image/") {
+			g.JSON(http.StatusBadRequest, gin.H{"error": "仅支持图片附件（image/*）"})
+			return
+		}
+		if len(img.Data) > maxImageBase64 {
+			g.JSON(http.StatusBadRequest, gin.H{"error": "单张图片过大（压缩后不超过 8MB）"})
+			return
+		}
+		images = append(images, types.ImagePart{MimeType: img.MimeType, Data: img.Data})
+	}
+	if err := c.Svc.Send(g.Param("id"), body.Text, images); err != nil {
 		if errors.Is(err, domain.ErrBusy) {
 			g.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
@@ -49,8 +84,11 @@ func (c *ChatController) CancelTurn(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-/* Events GET /api/sessions/:id/events（SSE，:id=分支根 ID——按分支路由，
-连接时重放该分支的回放帧与未决人机请求；compact 换代对象不变不断线）。 */
+/*
+	Events GET /api/sessions/:id/events（SSE，:id=分支根 ID——按分支路由，
+
+连接时重放该分支的回放帧与未决人机请求；compact 换代对象不变不断线）。
+*/
 func (c *ChatController) Events(g *gin.Context) {
 	sess := c.Svc.Hub.SessionOf(g.Param("id"))
 	if sess == nil {

@@ -29,8 +29,16 @@ type ModelEntry struct {
 	Enabled       bool              `json:"enabled"`                 // 每槽至多一条启用
 	Tokens        int               `json:"tokens"`                  // 累计用量（prompt+completion）
 	Cost          float64           `json:"cost"`                    // 累计花费（单价表后续接入）
-	ContextWindow int               `json:"contextWindow,omitempty"` // 上下文窗口（tokens，水位与压缩推荐用；0 未知）
+	ContextWindow int               `json:"contextWindow,omitempty"` // 上下文窗口（tokens，水位与压缩推荐用；0 未知)
+	Protocol      string            `json:"protocol,omitempty"`      // API 协议：openai（默认）| responses | anthropic
 }
+
+/* 协议类型常量（Protocol 字段取值；空串按 openai 处理，旧档零迁移）。 */
+const (
+	ProtocolOpenAI    = "openai"    // OpenAI Chat Completions（/chat/completions）
+	ProtocolResponses = "responses" // OpenAI Responses 格式（/responses，DeepSeek/Codex 等）
+	ProtocolAnthropic = "anthropic" // Anthropic Messages（/v1/messages）
+)
 
 type ModelsConfig struct {
 	Main   []ModelEntry `json:"main"`
@@ -61,6 +69,7 @@ func LoadModelsConfig(fsys fs.FileSystem) ModelsConfig {
 	}
 	var mc ModelsConfig
 	if json.Unmarshal(data, &mc) == nil && (len(mc.Main)+len(mc.Vision)+len(mc.Image)+len(mc.Audio)) > 0 {
+		mc.normalizeProtocol()
 		if mc.normalizeEnabled() {
 			_ = SaveModelsConfig(fsys, mc) // 旧存档无启用条目：点亮首条后回写
 		}
@@ -114,6 +123,17 @@ func (m *ModelsConfig) normalizeEnabled() bool {
 		}
 	}
 	return changed
+}
+
+/* normalizeProtocol 内存态把空协议归一为 openai（旧档零迁移，不回写）。 */
+func (m *ModelsConfig) normalizeProtocol() {
+	for _, slot := range []*[]ModelEntry{&m.Main, &m.Vision, &m.Image, &m.Audio} {
+		for i := range *slot {
+			if (*slot)[i].Protocol == "" {
+				(*slot)[i].Protocol = ProtocolOpenAI
+			}
+		}
+	}
 }
 
 /* ActiveMain 返回主模型槽的生效条目（enabled 优先，否则首条；空槽 nil）。 */

@@ -26,10 +26,13 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/hook/offload"
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 	"github.com/xuanlv2002/ezloop/ext/hook/task"
+	"github.com/xuanlv2002/ezloop/ext/provider/anthropic"
 	"github.com/xuanlv2002/ezloop/ext/provider/openai"
+	"github.com/xuanlv2002/ezloop/ext/provider/openairesponses"
 	"github.com/xuanlv2002/ezloop/ext/warp/model/modelretry"
 	"github.com/xuanlv2002/ezloop/ext/warp/tool/limit"
 	"github.com/xuanlv2002/ezloop/ext/warp/tool/safetool"
+	"github.com/xuanlv2002/ezloop/provider"
 	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/internal/domain"
@@ -44,6 +47,34 @@ type AgentService struct {
 	Hub *domain.Hub
 }
 
+/*
+buildProvider 按条目协议构造模型 provider：openai（/chat/completions，
+
+默认）、responses（OpenAI Responses 格式，DeepSeek/Codex 等）、
+anthropic（Claude Messages）。三协议 Options 字段对齐（BaseURL/
+APIKey/Model/Headers），anthropic 额外下发 max_tokens 默认值。
+*/
+func buildProvider(m *domain.ModelEntry) provider.ModelProvider {
+	opts := openai.Options{
+		BaseURL: m.BaseURL,
+		APIKey:  m.APIKey,
+		Headers: m.Headers,
+		Model:   m.Name,
+	}
+	switch m.Protocol {
+	case domain.ProtocolResponses:
+		return openairesponses.New(openairesponses.Options{
+			BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers, Model: m.Name,
+		})
+	case domain.ProtocolAnthropic:
+		return anthropic.New(anthropic.Options{
+			BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers, Model: m.Name,
+		})
+	default:
+		return openai.New(opts)
+	}
+}
+
 /* Assemble 按配置装配 agent 并注入会话（主模型取 models 四槽 main 启用条目）。 */
 func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	ctx := context.Background()
@@ -52,12 +83,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	if main == nil {
 		main = &domain.ModelEntry{}
 	}
-	provider := openai.New(openai.Options{
-		BaseURL: main.BaseURL,
-		APIKey:  main.APIKey,
-		Headers: main.Headers,
-		Model:   main.Name,
-	})
+	provider := buildProvider(main)
 
 	// system 两段式：每 session 固定——已有 SysPrompt 直接复用（Resume/
 	// compact 热更过的状态是本 session 的真相，重建不得回退到旧快照）；

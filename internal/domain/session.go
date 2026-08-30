@@ -222,7 +222,7 @@ func (s *Session) Snapshot() *hooks.SessionSnap {
 }
 
 /* StartRun 占用当前轮并返回运行上下文（busy/归档中返回 ErrBusy）。 */
-func (s *Session) StartRun(ctx context.Context, text string) (*core.RunHandle, context.CancelFunc, error) {
+func (s *Session) StartRun(ctx context.Context, text string, images []types.ImagePart) (*core.RunHandle, context.CancelFunc, error) {
 	s.mu.Lock()
 	if s.cur != nil || s.archiving {
 		s.mu.Unlock()
@@ -234,7 +234,9 @@ func (s *Session) StartRun(ctx context.Context, text string) (*core.RunHandle, c
 	}
 	turnCtx, cancel := context.WithCancel(ctx)
 	// 锁内取模型视图须用无锁版本（modelView 自身抢 s.mu，重入即死锁）
-	h := s.wired.Agent.RunAsync(turnCtx, text, core.WithHistory(modelViewLocked(s.history)...))
+	h := s.wired.Agent.RunAsync(turnCtx, text,
+		core.WithHistory(modelViewLocked(s.history)...),
+		core.WithInputImages(images...))
 	s.cur = &runState{ctx: turnCtx, cancel: cancel}
 	s.turnFrames = nil
 	s.mu.Unlock()
