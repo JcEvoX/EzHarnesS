@@ -72,6 +72,7 @@ export type Block = { uid: number } & (
   | { kind: 'decision' } & DecisionData
   | { kind: 'note'; text: string }
   | { kind: 'status'; text: string; data: StatusPayload | null }
+  | { kind: 'endtick'; icon: string; title: string }
 )
 
 export interface TotalUsage {
@@ -103,6 +104,15 @@ function parseStatus(content: string): StatusPayload | null {
 function endReasonText(content: string): string {
   const m = content.match(/<end_reason>([\s\S]*?)<\/end_reason>/)
   return (m?.[1] ?? '').trim().replace(/\s+/g, ' ')
+}
+
+/* 轮次收尾小图标（按结束原因语义选形，悬浮 title 显示详情） */
+function endIcon(text: string): string {
+  if (text.includes('正常') || text.includes('completed')) return '✓'
+  if (text.includes('取消') || text.includes('手动停止') || text.includes('cancelled')) return '⏹'
+  if (text.includes('迭代') || text.includes('max_iterations')) return '↻'
+  if (text.includes('错误') || text.includes('中止') || text.includes('error')) return '⚠'
+  return '·'
 }
 
 /* 提取 <context_trim> 摘要为一行（整理分割线文案） */
@@ -320,7 +330,8 @@ class AppStore {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
           }
         } else if (m.content.includes('<end_reason>')) {
-          out.push({ kind: 'note', uid: this.nuid(), text: `⏹ ${endReasonText(m.content)}` })
+          const detail = endReasonText(m.content)
+          out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })
         } else if (m.content.includes('<context_trim')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
         } else {
@@ -958,13 +969,18 @@ class AppStore {
           `${d.stopReason || 'end'} · ${d.iterations ?? 0} 迭代` +
           (u ? ` · 本轮 ${u.PromptTokens}→${u.CompletionTokens} tokens（缓存 ${u.CachedTokens}）` : '')
         void this.refreshBranches() // 运行指示熄灭（后台分支靠拉取）
-        // 非正常终止：时间线补一条结束原因（持久化正文已由后端写入历史）
-        if (d.stopReason && d.stopReason !== 'completed') {
+        // 每轮收尾：小图标实时入时间线（悬浮显示详情；持久化正文由后端 endnote 写入历史）
+        {
           const secs = d.elapsedMs ? Math.round(d.elapsedMs / 1000) : 0
+          const reason = stopNote(d.stopReason || 'completed')
+          const title =
+            `${reason} · ${d.iterations ?? 0} 轮${secs ? ` · ${fmtDur(secs)}` : ''}` +
+            ` · ${new Date().toTimeString().slice(0, 5)}`
           this.blocks.push({
-            kind: 'note',
+            kind: 'endtick',
             uid: this.nuid(),
-            text: `⏹ ${stopNote(d.stopReason)}（${d.iterations ?? 0} 轮${secs ? ` · ${fmtDur(secs)}` : ''}）`,
+            icon: endIcon(reason),
+            title,
           })
         }
         void this.refreshStatus()

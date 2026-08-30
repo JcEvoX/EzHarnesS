@@ -34,7 +34,9 @@
 
   /* 空状态判定：note/status 是系统自动记录（压缩翻页后的新会话仅含
      一条 <end_reason> 收尾），不算对话内容——只剩系统记录时仍展示欢迎页 */
-  const empty = $derived(!store.blocks.some((b) => b.kind !== 'note' && b.kind !== 'status'))
+  const empty = $derived(
+    !store.blocks.some((b) => b.kind !== 'note' && b.kind !== 'status' && b.kind !== 'endtick'),
+  )
 
   let openGroups = $state<Set<number>>(new Set())
 
@@ -228,6 +230,10 @@
           {seg.b.text}
           <span class="line"></span>
         </div>
+      {:else if seg.b.kind === 'endtick'}
+        <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
+          <span class="dot">{seg.b.icon}</span>
+        </div>
       {/if}
       {/each}
     {/if}
@@ -371,5 +377,28 @@
     flex: 1;
     height: 1px;
     background: var(--line);
+  }
+  /* 轮次收尾小图标：常态仅一枚圆点，悬浮 title 显示详情 */
+  .endtick {
+    display: flex;
+    justify-content: center;
+    padding: 2px 0;
+    animation: float-in var(--dur-fast) var(--ease-out) both;
+  }
+  .endtick .dot {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-size: 10px;
+    color: var(--faint);
+    cursor: default;
+    user-select: none;
+  }
+  .endtick .dot:hover {
+    border-color: var(--line-strong);
+    color: var(--muted);
   }
 </style>
