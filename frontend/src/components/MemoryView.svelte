@@ -79,10 +79,11 @@
     return `${(n / 1024 / 1024).toFixed(1)} MB`
   }
 
-  /* 会话树（目录式）：
-     虚拟 null 根（设计文档的空根哨兵）→ 一级 = 每条线（new 根与 fork
-     根平级，fork 不嵌在源下面——它是新线，靠 ⑂ 徽标标出处）→ 线内
-     compress 世代沿链向下。guides 是各级祖先的竖向导轨列。 */
+  /* 会话树（目录式，节点树模型）：
+     虚拟 null 根 → 顶层 = new 根（每条新线一个根节点）；归档世代沿
+     compress 边向下成链（每代是上一代的子，树的纵深）；fork 挂在
+     fork 源会话的父下（兄弟位：与源同级，⑂ 徽标标出处）。叶子节点
+     即当前可进入的分支。guides 是各级祖先的竖向导轨列。 */
   type Row = {
     n: SessionNode | null // null = 虚拟根
     depth: number
@@ -102,28 +103,36 @@
 
   const treeRows = $derived.by(() => {
     if (!tree) return [] as Row[]
-    const byId = new Set(tree.map((n) => n.id))
-    const compressKid = new Map<string, SessionNode>() // 线内世代：targetId → 压缩后继
-    const lineRoots: SessionNode[] = []
+    const byId = new Map(tree.map((n) => [n.id, n]))
+    const kids = new Map<string, SessionNode[]>() // parent id → 子节点（compress 子代 + fork 兄弟）
+    const roots: SessionNode[] = []
     for (const n of tree) {
-      if (n.seedKind === 'compress' && n.targetId && byId.has(n.targetId)) {
-        compressKid.set(n.targetId, n)
+      let parent = ''
+      if (n.seedKind === 'compress' && n.targetId) {
+        parent = n.targetId // 归档换代：挂在旧代之下（纵深链）
+      } else if (n.seedKind === 'fork' && n.targetId) {
+        // 兄弟位：fork 与源会话同父（源是根则 fork 也是顶层）
+        const src = byId.get(n.targetId)
+        parent = src?.seedKind === 'compress' && src.targetId ? src.targetId : ''
+      }
+      if (parent && byId.has(parent)) {
+        kids.set(parent, [...(kids.get(parent) || []), n])
       } else {
-        lineRoots.push(n) // new 根 / fork 根（自成一线）
+        roots.push(n)
       }
     }
-    lineRoots.sort((a, b) => b.createdAt - a.createdAt)
+    roots.sort((a, b) => b.createdAt - a.createdAt)
     const out: Row[] = []
     const nullOpen = expanded.has('null')
-    out.push({ n: null, depth: 0, kids: lineRoots.length, open: nullOpen, guides: 0 })
+    out.push({ n: null, depth: 0, kids: roots.length, open: nullOpen, guides: 0 })
     if (!nullOpen) return out
     const walk = (n: SessionNode, depth: number, parentTitle: string) => {
-      const ch = compressKid.get(n.id)
+      const ch = (kids.get(n.id) || []).sort((a, b) => b.createdAt - a.createdAt)
       const open = expanded.has(n.id)
-      out.push({ n, depth, kids: ch ? 1 : 0, open, guides: depth - 1, parentTitle })
-      if (open && ch) walk(ch, depth + 1, n.title)
+      out.push({ n, depth, kids: ch.length, open, guides: depth - 1, parentTitle })
+      if (open) for (const c of ch) walk(c, depth + 1, n.title)
     }
-    for (const r of lineRoots) walk(r, 1, '')
+    for (const r of roots) walk(r, 1, '')
     return out
   })
 
