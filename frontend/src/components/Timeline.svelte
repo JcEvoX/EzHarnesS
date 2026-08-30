@@ -308,69 +308,85 @@
     scrollbar-gutter: stable;
     overscroll-behavior: contain;
   }
-  /* 轮次导航：贴内容右缘、输入框上方，列出每轮用户输入 */
+  /* 轮次导航：默认仅一列刻度线垂直居中贴右缘，悬浮展开文字卡片 */
   .turnnav {
     position: absolute;
     right: 10px;
-    bottom: 12px;
+    top: 50%;
+    transform: translateY(-50%);
     z-index: 4;
-    max-width: 240px;
-    max-height: min(320px, 42%);
-    overflow-y: auto;
-    padding: 5px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    background: color-mix(in srgb, var(--bg) 86%, transparent);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--line);
+    gap: 5px;
+    max-height: min(440px, 62%);
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid transparent;
     border-radius: 10px;
-    box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
     scrollbar-width: none;
+    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
   }
   .turnnav::-webkit-scrollbar {
     display: none;
   }
+  .turnnav:hover {
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-color: var(--line);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
+  }
   .turnnav button {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
     border: none;
     background: transparent;
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    color: var(--faint);
-    text-align: left;
+    padding: 2px;
+    border-radius: 5px;
     cursor: pointer;
-    transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+    transition: gap var(--dur-fast) var(--ease-out), padding var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
   }
   .turnnav button:hover {
     background: var(--bg-soft);
-    color: var(--muted);
   }
-  .turnnav button.cur {
-    color: var(--fg);
-    font-weight: 550;
+  .turnnav:hover button {
+    gap: 8px;
+    padding: 3px 8px;
   }
   .turnnav .tt {
+    display: none;
     flex: 0 1 auto;
     min-width: 0;
+    max-width: 200px;
+    font-size: 11px;
+    color: var(--faint);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .turnnav:hover .tt {
+    display: inline;
+  }
+  .turnnav button:hover .tt {
+    color: var(--muted);
+  }
+  .turnnav button.cur .tt {
+    color: var(--fg);
+    font-weight: 550;
+  }
   .turnnav .tick {
     flex: none;
     margin-left: auto;
-    width: 10px;
+    width: 12px;
     height: 2px;
     border-radius: 1px;
-    background: var(--line);
+    background: var(--line-strong);
     transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
   }
   .turnnav button.cur .tick {
-    width: 16px;
+    width: 18px;
     background: var(--fg);
   }
   .inner {
