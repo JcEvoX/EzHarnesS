@@ -100,10 +100,19 @@ function parseStatus(content: string): StatusPayload | null {
   }
 }
 
-/* 提取 <end_reason> 正文为一行 */
+/* 解析 <end_reason> 字段拼一行收尾文案——与 turn_end 实时收尾同款格式
+   （历史回放与实时两条路径的 endtick 文案保持一致）；无字段的旧格式
+   剔除系统提示语后原样压行 */
 function endReasonText(content: string): string {
   const m = content.match(/<end_reason>([\s\S]*?)<\/end_reason>/)
-  return (m?.[1] ?? '').trim().replace(/\s+/g, ' ')
+  const body = m?.[1] ?? ''
+  const get = (k: string) => body.match(new RegExp(`${k}：\\s*(.+)`))?.[1]?.trim() ?? ''
+  const reason = get('结束原因')
+  if (!reason) return body.replace(/（系统自动记录[^）]*）/g, '').trim().replace(/\s+/g, ' ')
+  const iters = get('运行轮次')
+  const dur = get('运行时长')
+  const hm = get('结束时间').slice(11, 16) // YYYY-MM-DD HH:MM:SS → HH:MM
+  return `${reason} · ${iters || '?'} 轮${dur ? ` · ${dur}` : ''}${hm ? ` · ${hm}` : ''}`
 }
 
 /* 轮次收尾小图标（按结束原因语义选形，悬浮 title 显示详情） */
