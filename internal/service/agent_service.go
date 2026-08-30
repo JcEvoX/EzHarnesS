@@ -72,6 +72,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys), "")
 	}
 	s.SetSysP(sys)
+	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
 	s.Sess.BindSys(sys, main.Name)
 
 	approver, approveCh := approve.New(a.needsApprove)
