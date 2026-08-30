@@ -52,6 +52,7 @@ type SnapEdge struct {
 type SessionSnap struct {
 	ID             string          `json:"id"`
 	CreatedAt      int64           `json:"createdAt"`
+	Title          string          `json:"title,omitempty"` // session 自己的名称（本代首条 user；与线标题独立）
 	Input          string          `json:"input,omitempty"`
 	Messages       []types.Message `json:"messages"` // 剥离 system（systemPrompt 单独 pin）
 	SystemPrompt   string          `json:"systemPrompt"`           // 渲染后完整 system（恢复零逻辑）
@@ -83,6 +84,7 @@ type Store struct {
 	fsys fs.FileSystem
 	mu   sync.Mutex
 	id   string
+	title string // session 自己的名称（与线标题独立：线=分支身份，session=世代名）
 	sys  *SysPrompt // system 唯一来源，OnEnd 取值 pin 进快照
 	tool string     // 主模型名（宿主注入）
 	snap *ResSnapshot
@@ -131,6 +133,7 @@ func (h *Store) SetID(id string) {
 		h.prevID, h.prevSum = "", ""
 		h.edge = SnapEdge{}
 		h.usage = types.Usage{} // 新会话用量重新累计
+		h.title = ""            // 新代未命名起步，落盘时按本代首条 user 命名
 	}
 	h.mu.Unlock()
 }
@@ -142,6 +145,20 @@ func (h *Store) SetLineRoot(root string) {
 		h.lineRoot = root
 	}
 	h.mu.Unlock()
+}
+
+/* SetTitle 设置 session 名称（恢复快照时注入；fork 创建时锚点名）。 */
+func (h *Store) SetTitle(title string) {
+	h.mu.Lock()
+	h.title = title
+	h.mu.Unlock()
+}
+
+/* Title 返回 session 名称（空 = 未命名，落盘时按本代首条 user 命名）。 */
+func (h *Store) Title() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.title
 }
 
 /* LineRoot 返回所属分支根 ID（空 = 未知，调用方兜底）。 */
@@ -259,7 +276,7 @@ func (h *Store) OnEnd(ctx context.Context, state *types.LoopState) error {
 	id := h.id
 	snap, sys, tool := h.snap, h.sys, h.tool
 	last, prevID, prevSum := h.last, h.prevID, h.prevSum
-	edge, lineRoot := h.edge, h.lineRoot
+	edge, lineRoot, title := h.edge, h.lineRoot, h.title
 	h.mu.Unlock()
 
 	fork := state.ForkID != ""
@@ -282,9 +299,23 @@ func (h *Store) OnEnd(ctx context.Context, state *types.LoopState) error {
 		msgs = msgs[state.SeedLen-1:]
 	}
 
+	// session 名称：已命名沿用；未命名（归档新代起步）按本代首条真实
+	// user 命名（FirstUserTitle 跳过 marker/end_reason/agent_status 注入）
+	if title == "" && !fork {
+		if t := FirstUserTitle(msgs); t != "未命名话题" {
+			title = t
+		}
+	}
+	if title != "" {
+		h.mu.Lock()
+		h.title = title // 命名后固定，后续落盘沿用
+		h.mu.Unlock()
+	}
+
 	out := SessionSnap{
 		ID:           id,
 		CreatedAt:    state.StartedAt.UnixMilli(),
+		Title:        title,
 		Input:        state.Input,
 		Messages:     msgs,
 		Tools:        toolNames(state),

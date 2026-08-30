@@ -564,6 +564,7 @@ func (h *Hub) bootstrap() *Session {
 /* restoreFrom 按快照恢复会话内存态（历史/水位/资源基线/向上边）。 */
 func (s *Session) restoreFrom(snap *hooks.SessionSnap) {
 	s.setHistory(snap.Messages)
+	s.Sess.SetTitle(snap.Title)
 	s.Sess.SetResSnap(snap.Snapshot)
 	s.Sess.SetLastOutputAt(snap.LastOutputAt)
 	s.Sess.SeedUsage(snap.Usage)

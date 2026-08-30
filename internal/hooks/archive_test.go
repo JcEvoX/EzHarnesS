@@ -65,6 +65,28 @@ func TestArchiveSession(t *testing.T) {
 	if ns.LineRoot != "old-session" {
 		t.Fatalf("new snapshot keeps line root, got %q", ns.LineRoot)
 	}
+	// session 名称独立于线标题：新代未命名起步，落盘时按本代首条 user 命名
+	if ns.Title != "" {
+		t.Fatalf("new generation starts untitled, got %q", ns.Title)
+	}
+	if got := store.Title(); got != "" {
+		t.Fatalf("store title must reset on rotate, got %q", got)
+	}
+	// 模拟新代首条对话后落盘：Title=该条 user（线标题不受影响）
+	state2 := newTestState([]types.Message{
+		{Role: types.RoleSystem, Content: "rebuilt base"},
+		{Role: types.RoleUser, Content: "归档后的新问题"},
+	})
+	if err := store.OnEnd(context.Background(), state2); err != nil {
+		t.Fatal(err)
+	}
+	ns2, err := LoadSnap(ctx, fsys, info.NewID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns2.Title != "归档后的新问题" {
+		t.Fatalf("session must be named by its first real user msg, got %q", ns2.Title)
+	}
 	// 内存切换：SetID/SetPrev、sys 热更
 	if store.ID() != info.NewID {
 		t.Fatalf("store must switch to new id, got %q", store.ID())

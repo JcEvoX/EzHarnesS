@@ -159,6 +159,7 @@ func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*
 	snap := &hooks.SessionSnap{
 		ID:           newID,
 		CreatedAt:    now,
+		Title:        title,
 		Messages:     append([]types.Message(nil), src.Messages[:anchor]...),
 		SystemPrompt: src.SystemPrompt,
 		SystemBase:   src.SystemBase,
@@ -277,15 +278,21 @@ func (t *TopicService) Tree(ctx context.Context) []SessionNode {
 		if err != nil {
 			continue
 		}
+		// session 名称：优先快照 Title（本代首条 user / fork 锚点），
+		// 旧数据无字段时 FirstUserTitle 兜底；叶子不再借用线标题（分离）
+		title := snap.Title
+		if title == "" {
+			title = hooks.FirstUserTitle(snap.Messages)
+		}
 		n := SessionNode{
-			ID: id, Title: hooks.FirstUserTitle(snap.Messages),
+			ID: id, Title: title,
 			SeedKind: snap.SeedKind, Archived: snap.Archived,
 			Msgs: len(snap.Messages), CreatedAt: snap.CreatedAt,
 			TargetID: snap.TargetID, ForkedFrom: snap.ForkedFrom, LineRoot: snap.LineRoot,
 		}
 		if e, ok := entries[snap.LineRoot]; ok {
 			if id == e.LeafID {
-				n.Title, n.IsLeaf = e.Title, true
+				n.IsLeaf = true
 			}
 			if active != nil && e.ID == active.RootID {
 				n.IsActiveLine = true
