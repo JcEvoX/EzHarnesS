@@ -127,6 +127,19 @@
   .forkbtn:focus-visible {
     opacity: 1;
   }
+  /* hover 分叉按钮时高亮所属消息：user/assistant 按钮垂直相邻，
+     不高亮难以分辨"分叉到哪条"（误点即多带一条回复） */
+  .user:has(.forkbtn:hover) .bubble,
+  .user:has(.forkbtn:focus-visible) .bubble {
+    outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 2px;
+  }
+  .assistant:has(.forkbtn:hover) .body,
+  .assistant:has(.forkbtn:focus-visible) .body {
+    outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
   .forkbtn:hover {
     color: var(--accent);
     background: var(--bg-soft);
