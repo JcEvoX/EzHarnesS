@@ -309,6 +309,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 	var b strings.Builder
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
 		"能用工具就用工具，回答简洁。" +
+		"用户消息可直接携带图片，你能直接看到并理解，无需借助任何工具。" +
 		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动。" +
 		"重要的用户偏好与事实可写入长期记忆（结构见 <memory> 块）。")
 	if st.SystemExtra != "" {
