@@ -113,6 +113,7 @@
 <style>
   .mini {
     flex: none;
+    position: relative; /* 提醒红点的定位锚点，缺失会飞到悬浮列外 */
     display: grid;
     place-items: center;
     width: 36px;
