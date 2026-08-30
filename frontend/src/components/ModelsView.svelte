@@ -420,7 +420,8 @@
     gap: 8px;
     padding: 12px 14px;
   }
-  .add-form input {
+  .add-form input,
+  .add-form select {
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 8px 10px;
@@ -430,8 +431,16 @@
     background: var(--bg);
     color: var(--fg);
   }
-  .add-form input:focus {
+  .add-form input:focus,
+  .add-form select:focus {
     border-color: var(--line-strong);
+  }
+  /* select 去原生外观（Windows 白底系统控件与表单不协调），自绘下拉箭头 */
+  .add-form select {
+    appearance: none;
+    padding-right: 30px;
+    cursor: pointer;
+    background: var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 10px center;
   }
   .hdr-row {
     display: grid;
