@@ -106,6 +106,29 @@ func (s *Session) setHistory(msgs []types.Message) {
 /* ReplaceHistory 原子替换历史（service 层恢复话题用例调用）。 */
 func (s *Session) ReplaceHistory(msgs []types.Message) { s.setHistory(msgs) }
 
+/*
+modelView 返回发给模型的历史：最后一个 <context_trim> marker（含）
+之后的消息——marker 携带折叠段摘要，是新旧上下文的衔接点；marker
+之前的不进上下文。无 marker 时全量（含 fork seed 前缀语义不变）。
+*/
+func (s *Session) modelView() []types.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return modelViewLocked(s.history)
+}
+
+func modelViewLocked(history []types.Message) []types.Message {
+	for i := len(history) - 1; i >= 0; i-- {
+		if hooks.IsTrimMarker(history[i]) {
+			return history[i:]
+		}
+	}
+	return history
+}
+
+/* ModelView 返回发给模型的上下文视图（归档摘要的输入，含 marker 摘要链）。 */
+func (s *Session) ModelView() []types.Message { return s.modelView() }
+
 /* Busy 报告是否有一轮运行中。 */
 func (s *Session) Busy() bool {
 	s.mu.Lock()
@@ -133,6 +156,15 @@ func (s *Session) SetIdentity(id string) {
 	s.mu.Lock()
 	s.ID = id
 	s.ctxTokens = 0
+	s.mu.Unlock()
+}
+
+/* RotateTo 换代（归档后新库空置起步）：切标识、清历史、水位清零。 */
+func (s *Session) RotateTo(id string) {
+	s.mu.Lock()
+	s.ID = id
+	s.ctxTokens = 0
+	s.history = nil
 	s.mu.Unlock()
 }
 
@@ -176,7 +208,8 @@ func (s *Session) StartRun(ctx context.Context, text string) (*core.RunHandle, c
 		return nil, nil, errors.New("session not assembled")
 	}
 	turnCtx, cancel := context.WithCancel(ctx)
-	h := s.wired.Agent.RunAsync(turnCtx, text, core.WithHistory(s.history...))
+	// 锁内取模型视图须用无锁版本（modelView 自身抢 s.mu，重入即死锁）
+	h := s.wired.Agent.RunAsync(turnCtx, text, core.WithHistory(modelViewLocked(s.history)...))
 	s.cur = &runState{ctx: turnCtx, cancel: cancel}
 	s.turnFrames = nil
 	s.mu.Unlock()
@@ -192,7 +225,12 @@ FinishRun 结束当前轮：更新历史、清未决请求、释放占用。
 func (s *Session) FinishRun(state *types.LoopState, runErr error) {
 	s.mu.Lock()
 	if state != nil {
-		s.history = state.Messages
+		// trim 轮内截断过 state.Messages：与上轮全量 MergeFull（marker 前档案保留）
+		if len(hooks.FoldedOf(state)) > 0 {
+			s.history = hooks.MergeFull(s.history, state)
+		} else {
+			s.history = state.Messages
+		}
 	}
 	s.cur = nil
 	s.pending = map[string]Event{}

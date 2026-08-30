@@ -71,6 +71,22 @@ func (c *TopicController) NewBranch(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"id": s.RootID})
 }
 
+/* Compact POST /api/topics/compact（归档换代：活动会话总结归档开新篇）。 */
+func (c *TopicController) Compact(g *gin.Context) {
+	if err := c.Svc.Compact(g.Request.Context()); err != nil {
+		switch {
+		case errors.Is(err, service.ErrTopicNotFound):
+			g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, domain.ErrBusy):
+			g.JSON(http.StatusConflict, gin.H{"error": "会话运行中，稍后再试"})
+		default:
+			g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 /* ForkBranch POST /api/sessions/:id/fork body {anchor}。
 从 :id 源会话的第 anchor 条消息（含）复制前缀开新线。 */
 func (c *TopicController) ForkBranch(g *gin.Context) {

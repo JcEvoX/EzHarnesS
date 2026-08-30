@@ -319,3 +319,33 @@ func (t *TopicService) Archive(ctx context.Context, id string, archived bool) er
 	snap.Archived = archived
 	return hooks.SaveSnap(ctx, t.Hub.Fsys, snap)
 }
+
+/*
+Compact 归档换代（用户按键触发）：活动会话空闲时把当前话题总结归档
+并开新会话——旧库封存、新库 system 注入摘要、话题线换代（树的纵深）。
+与 trim（模型侧上下文整理，就地不换库）相对。busy 拒绝。
+*/
+func (t *TopicService) Compact(ctx context.Context) error {
+	s := t.Hub.Active
+	if s == nil {
+		return ErrTopicNotFound
+	}
+	if s.Busy() {
+		return domain.ErrBusy
+	}
+	w := s.Wired()
+	sys := s.SysPromptRef()
+	if w == nil || w.Provider == nil || sys == nil {
+		return errors.New("session not assembled")
+	}
+	st := t.Hub.SettingsSnapshot()
+	info, err := hooks.ArchiveSession(ctx, w.Provider, t.Hub.Fsys, s.Sess, sys,
+		s.Topics, w.Trace, func() string { return buildSystemBase(ctx, st, s.Fsys) },
+		s.History(), s.ModelView())
+	if err != nil {
+		return err
+	}
+	s.RotateTo(info.NewID) // 内存换代：清历史/水位，下一条输入落新库
+	s.Publish(domain.Event{Type: "session.compact", Data: domain.Raw(info)})
+	return nil
+}

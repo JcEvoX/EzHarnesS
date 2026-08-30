@@ -254,7 +254,7 @@ OnEnd 持久化快照；失败不阻断主流程（错误记入 Metadata）。
 fork 写主会话 forks/ 子目录，SeedLen 越界 clamp 全存（fork 内 compact
 就地截断后 SeedLen 语义重置，剥离逻辑不得越界崩溃）。
 */
-func (h *Store) OnEnd(_ context.Context, state *types.LoopState) error {
+func (h *Store) OnEnd(ctx context.Context, state *types.LoopState) error {
 	h.mu.Lock()
 	id := h.id
 	snap, sys, tool := h.snap, h.sys, h.tool
@@ -263,10 +263,22 @@ func (h *Store) OnEnd(_ context.Context, state *types.LoopState) error {
 	h.mu.Unlock()
 
 	fork := state.ForkID != ""
-	msgs := stripSystem(state.Messages)
+	// trim 追加式档案：全量 = 盘上已有（上轮末）MergeFull 本轮折叠段与当前消息
+	// ——跨轮覆盖不丢早期档案（marker 前的部分从未进过本轮视图）
+	full := state.Messages
+	target := id
+	if fork {
+		target = state.ForkID
+	}
+	if old, err := LoadSnap(ctx, h.fsys, target); err == nil {
+		full = MergeFull(old.Messages, state)
+	} else if folded := FoldedOf(state); len(folded) > 0 {
+		full = MergeFull(nil, state)
+	}
+	msgs := stripSystem(full)
 	if fork && state.SeedLen > 0 && state.SeedLen <= len(msgs) {
 		// SeedLen 含 system（fork.go 语义），stripSystem 后数组少 1：
-		// 起点 -1 才不会把 seed 后首条（任务 input / 压缩 handover）剥掉
+		// 起点 -1 才不会把 seed 后首条（任务 input / trim marker）剥掉
 		msgs = msgs[state.SeedLen-1:]
 	}
 

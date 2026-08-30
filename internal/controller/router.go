@@ -67,6 +67,7 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.POST("/branches/:id/activate", c.Topics.Activate)
 		api.GET("/memory/tree", c.Topics.Tree)
 		api.POST("/sessions/:id/archive", c.Topics.Archive) // 手动归档预留
+		api.POST("/topics/compact", c.Topics.Compact)       // 归档换代：活动会话总结归档开新篇
 
 		api.GET("/mcp", c.Mcp.List)
 		api.POST("/mcp", c.Mcp.Update)

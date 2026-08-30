@@ -60,6 +60,7 @@
     <div class="head">
       <h2>分支</h2>
       <button class="new" onclick={() => void store.newBranch()} title="开一条新分支（新话题）">＋ 新建</button>
+      <button class="new" onclick={() => void store.compactTopic()} title="归档当前话题：总结归档并开新会话（同线换代）">归档</button>
       <button class="fold" onclick={() => fold(true)} title="收起">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 6l-6 6 6 6" />

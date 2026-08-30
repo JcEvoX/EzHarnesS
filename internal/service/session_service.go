@@ -38,13 +38,13 @@ type BootstrapData struct {
 func (s *SessionService) Bootstrap() BootstrapData {
 	sess := s.Hub.Active
 	st := s.Hub.SettingsSnapshot()
-	p := st.CompactPercent
+	p := st.TrimPercent
 	w := st.WorkDir
 	return BootstrapData{
 		SessionID:    sess.RootID,
 		LeafID:       sess.ID,
 		Branches:     buildBranchViews(s.Hub),
-		Settings:     SettingsView{SystemExtra: st.SystemExtra, CompactPercent: &p, WorkDir: &w},
+		Settings:     SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w},
 		Status:       s.Snapshot(),
 		MemoryExists: memoryExists(s.Hub.Fsys),
 	}
@@ -72,8 +72,8 @@ type Status struct {
 	SessionMsgs      int      `json:"sessionMsgs"`
 	Busy             bool     `json:"busy"`
 	ContextTokens    int      `json:"contextTokens"`
-	ContextWindow    int      `json:"contextWindow"`  // 主模型窗口（水位条分母）
-	CompactPercent   int      `json:"compactPercent"` // 自动压缩阈值（窗口百分比，水位条阈值线；0=禁用）
+	ContextWindow    int      `json:"contextWindow"` // 主模型窗口（水位条分母）
+	TrimPercent      int      `json:"trimPercent"`   // 自动整理阈值（窗口百分比，水位条阈值线；0=禁用）
 	CacheHitRate     float64  `json:"cacheHitRate"`
 	PromptTokens     int      `json:"promptTokens"`     // 本会话累计输入
 	CompletionTokens int      `json:"completionTokens"` // 本会话累计输出
@@ -127,7 +127,7 @@ func (s *SessionService) Snapshot() Status {
 		Busy:             sess.Busy(),
 		ContextTokens:    ctxTokens,
 		ContextWindow:    ctxWindow,
-		CompactPercent:   s.Hub.SettingsSnapshot().CompactPercent,
+		TrimPercent:   s.Hub.SettingsSnapshot().TrimPercent,
 		CacheHitRate:     hit,
 		PromptTokens:     u.PromptTokens,
 		CompletionTokens: u.CompletionTokens,

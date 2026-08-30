@@ -86,7 +86,7 @@ func (h *Status) OnStart(ctx context.Context, state *types.LoopState) error {
 /*
 renderStatus 把状态数据渲染成模型可读的中文文本（裸 JSON 的键名与
 "+ mcp" 之类缩写对模型不友好）。前端历史重建按关键词识别异常行
-（建议压缩/资源变更），普通轮次不进时间线。
+（建议整理/资源变更），普通轮次不进时间线。
 */
 func renderStatus(d StatusData) string {
 	var b strings.Builder
@@ -94,7 +94,7 @@ func renderStatus(d StatusData) string {
 	if d.CtxWindow > 0 {
 		fmt.Fprintf(&b, "\n上下文水位：%d / %d tokens", d.CtxTokens, d.CtxWindow)
 		if d.SuggestCompact {
-			b.WriteString("（已超窗口 70%，建议调用 compact_context 压缩上下文）")
+			b.WriteString("（已超窗口 70%，建议调用 trim_context 整理上下文）")
 		}
 	}
 	if d.SinceLastOutputMin > 0 {

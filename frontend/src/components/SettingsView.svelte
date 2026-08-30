@@ -11,7 +11,7 @@
   let appChanged = $state(false)
   let showPaths = $state(false)
 
-  /* 上下文压缩水位（模型窗口百分比；0 = 关闭自动压缩，模型仍可主动调 compact 工具） */
+  /* 上下文整理水位（模型窗口百分比；0 = 关闭自动整理，模型仍可主动调 trim_context 工具） */
   let percent = $state<number | ''>('')
   let origPercent = $state<number | null>(null)
   let origExtra = $state('')
@@ -39,8 +39,8 @@
     }
     try {
       const st = await api.getSettings()
-      percent = st.compactPercent ?? 75
-      origPercent = st.compactPercent ?? 75
+      percent = st.trimPercent ?? 75
+      origPercent = st.trimPercent ?? 75
       workDir = st.workDir ?? ''
       origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
@@ -73,7 +73,7 @@
       // systemExtra 回传原值：保存接口是整体语义，缺省会清空
       await api.saveSettings({
         systemExtra: origExtra,
-        compactPercent: Math.min(Math.max(Number(percent) || 0, 0), 100),
+        trimPercent: Math.min(Math.max(Number(percent) || 0, 0), 100),
       })
       origPercent = Math.min(Math.max(Number(percent) || 0, 0), 100)
       thresholdMsg = '已保存（下一轮对话生效）'
@@ -159,14 +159,14 @@
   <section>
     <h2>上下文管理</h2>
     <p class="hint">
-      上下文压缩水位 = 模型上下文窗口 × 百分比：轮末 prompt tokens
-      超过即自动压缩归档并开启新会话，换模型自动适配（如 128K 窗口 × 75% =
-      96000）；0 表示关闭自动压缩（模型仍可主动调用 compact
-      工具，状态栏会提示推荐压缩时机）。
+      上下文整理水位 = 模型上下文窗口 × 百分比：模型调用的 prompt tokens
+      超过即自动整理（早期对话就地折叠为摘要，立即生效，会话不变），换模型自动适配
+      （如 128K 窗口 × 75% = 96000）；0 表示关闭自动整理（模型仍可主动调用
+      trim_context 工具）。话题归档（总结归档开新会话）请用分支面板的「归档」按钮。
     </p>
     <div class="grid2">
       <label class="field">
-        <span>压缩水位（窗口百分比）</span>
+        <span>整理水位（窗口百分比）</span>
         <input type="number" bind:value={percent} min="0" max="100" />
       </label>
     </div>

@@ -31,14 +31,14 @@
   const win = $derived(live?.ctxWindow || s?.contextWindow || 0)
   const hot = $derived(live?.suggestCompact ?? false)
   const pct = $derived(win > 0 ? Math.min(100, (ctx / win) * 100) : 0)
-  const cp = $derived(s?.compactPercent ?? 0)
+  const cp = $derived(s?.trimPercent ?? 0)
   const remain = $derived(cp > 0 ? cp - pct : 0)
   const barTitle = $derived(
     win > 0 && cp > 0
       ? remain > 0
-        ? `自动压缩阈值 ${cp}% · 当前 ${pct.toFixed(0)}% · 还差 ${remain.toFixed(0)}%`
-        : `自动压缩阈值 ${cp}% · 当前 ${pct.toFixed(0)}%，已达阈值，轮末自动压缩`
-      : '自动压缩已禁用（0%）',
+        ? `自动整理阈值 ${cp}% · 当前 ${pct.toFixed(0)}% · 还差 ${remain.toFixed(0)}%`
+        : `自动整理阈值 ${cp}% · 当前 ${pct.toFixed(0)}%，已达阈值，迭代回边自动整理`
+      : '自动整理已禁用（0%）',
   )
   const context = $derived(ctx > 0 ? (win > 0 ? `${fmtK(ctx)}/${fmtK(win)}` : fmtK(ctx)) : '-')
   const hit = $derived(s && s.promptTokens > 0 ? `${(s.cacheHitRate * 100).toFixed(0)}%` : '-')

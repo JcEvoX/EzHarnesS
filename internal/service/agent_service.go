@@ -88,11 +88,9 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
 	)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
-	compactHook := hooks.NewCompact(provider, s.Fsys, s.Sess, sys, a.Hub.Topics, traceHook,
-		window*st.CompactPercent/100, // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
-		window, // 模型窗口（压缩提示展示水位比例用）
-		func() string { return buildSystemBase(ctx, st, s.Fsys) }, // compact 即新 session：全量重载
-		func(info hooks.CompactInfo) { s.SetIdentity(info.NewID) }, // 绑定本会话：后台分支压缩不串线
+	trimHook := hooks.NewTrim(provider, traceHook,
+		window*st.TrimPercent/100, // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
+		window, // 模型窗口（整理提示展示水位比例用）
 	)
 
 	agent := core.NewAgent(provider,
@@ -111,7 +109,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			NewMcpHook(s.Fsys),
 			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
-			compactHook, // OnEnd 在 trace/store 之前：截断+换库先发生
+			trimHook, // OnLoop 回边水位整理（就地截断，立即生效），OnToolStart 拦模型主动整理
 			traceHook,
 			hooks.NewEndNote(), // 每轮收尾补 <end_reason>（轮次/时长/结束时间/原因），须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
@@ -129,7 +127,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		ToolNames: []string{
 			"read_file", "write_file", "edit_file", "bash", "save_app",
 			askuser.ToolName, task.ToolName,
-			"mcp_router", hooks.CompactTool, hooks.SkillTool,
+			"mcp_router", hooks.TrimTool, hooks.SkillTool,
 		},
 	})
 }
@@ -158,8 +156,8 @@ func (a *AgentService) Reassemble(st domain.Settings) error {
 */
 func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 	switch c.Name {
-	case askuser.ToolName, hooks.SkillTool, hooks.CompactTool:
-		return false // 交互与内部工具不属用户管控面（加载技能/压缩均为只读元操作）
+	case askuser.ToolName, hooks.SkillTool, hooks.TrimTool:
+		return false // 交互与内部工具不属用户管控面（加载技能/整理上下文均为只读元操作）
 	}
 	name := c.Name
 	if name == "mcp_router" {

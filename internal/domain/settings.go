@@ -133,7 +133,7 @@ func (m ModelsConfig) ActiveMain() *ModelEntry {
 type Settings struct {
 	SystemExtra    string     `json:"systemExtra"`
 	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
-	CompactPercent int        `json:"compactPercent"` // 上下文压缩水位（模型窗口百分比，0=禁用自动压缩）
+	TrimPercent int        `json:"trimPercent"` // 上下文整理水位（模型窗口百分比，0=禁用自动整理）
 	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
 	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（关窗时实时读取，即改即生效）
 }
@@ -178,13 +178,12 @@ func DefaultSettings() Settings {
 	return Settings{
 		SystemExtra:    "",
 		ToolRules:      DefaultToolRules(),
-		CompactPercent: 75,
+		TrimPercent: 75,
 		CloseToTray:    true,
 	}
 }
 
-/* LoadSettings 读 settings.json，缺失回落默认值。旧版绝对值水位
-（compactThreshold，tokens）按 128k 窗口折算为百分比迁移。 */
+/* LoadSettings 读 settings.json，缺失回落默认值。 */
 func LoadSettings(fsys fs.FileSystem) Settings {
 	out := DefaultSettings()
 	data, err := fsys.Read(context.Background(), "settings.json")
@@ -192,12 +191,11 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 		return out
 	}
 	var s struct {
-		SystemExtra     string     `json:"systemExtra"`
-		ToolRules       []ToolRule `json:"toolRules"`
-		CompactPercent  *int       `json:"compactPercent"` // 指针：区分未提交与显式 0（禁用）
-		WorkDir         string     `json:"workDir"`
-		CloseToTray     *bool      `json:"closeToTray"`
-		LegacyThreshold int        `json:"compactThreshold"`
+		SystemExtra string     `json:"systemExtra"`
+		ToolRules   []ToolRule `json:"toolRules"`
+		TrimPercent *int       `json:"trimPercent"` // 指针：区分未提交与显式 0（禁用）
+		WorkDir     string     `json:"workDir"`
+		CloseToTray *bool      `json:"closeToTray"`
 	}
 	if json.Unmarshal(data, &s) != nil {
 		return out
@@ -207,11 +205,8 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 	if s.CloseToTray != nil {
 		out.CloseToTray = *s.CloseToTray
 	}
-	switch {
-	case s.CompactPercent != nil:
-		out.CompactPercent = clamp(*s.CompactPercent, 0, 100)
-	case s.LegacyThreshold > 0: // 旧绝对值折算（96000 → 75）
-		out.CompactPercent = clamp(s.LegacyThreshold*100/128000, 1, 100)
+	if s.TrimPercent != nil {
+		out.TrimPercent = clamp(*s.TrimPercent, 0, 100)
 	}
 	if len(s.ToolRules) > 0 {
 		for i := range s.ToolRules {

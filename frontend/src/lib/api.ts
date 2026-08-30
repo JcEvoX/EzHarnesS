@@ -99,7 +99,7 @@ export interface AppConfig {
 
 export interface Settings {
   systemExtra: string
-  compactPercent?: number | null
+  trimPercent?: number | null
   workDir?: string
   closeToTray?: boolean
 }
@@ -129,7 +129,7 @@ export interface Status {
   busy: boolean
   contextTokens: number
   contextWindow: number
-  compactPercent: number
+  trimPercent: number
   cacheHitRate: number
   promptTokens: number
   completionTokens: number
@@ -342,6 +342,9 @@ export const api = {
 
   /* 分支三操作：开新线 / 从源会话第 anchor 条消息（含）复制前缀分叉 / 切换分支 */
   newBranch: () => post<{ id: string }>('/api/branches/new'),
+
+  /* 归档换代：活动会话总结归档开新篇（会话树的纵深操作，空闲时可用） */
+  compactTopic: () => post<{ ok: boolean }>('/api/topics/compact'),
 
   forkSession: (sourceId: string, anchor: number) =>
     post<{ id: string }>(`/api/sessions/${sourceId}/fork`, { anchor }),

@@ -105,6 +105,13 @@ function endReasonText(content: string): string {
   return (m?.[1] ?? '').trim().replace(/\s+/g, ' ')
 }
 
+/* 提取 <context_trim> 摘要为一行（整理分割线文案） */
+function trimText(content: string): string {
+  const m = content.match(/摘要：\s*([\s\S]*?)<\/context_trim>/)
+  const summary = (m?.[1] ?? '').trim().replace(/\s+/g, ' ')
+  return `上下文已整理：此前的对话折叠为摘要。${summary}`
+}
+
 /* 终止原因文案（completed 由调用方排除，不产生提示） */
 function stopNote(reason: string): string {
   switch (reason) {
@@ -308,11 +315,13 @@ class AppStore {
           }
         } else if (m.content.includes('<agent_status>')) {
           // 新格式：中文语义化文本；同样仅异常行进时间线
-          if (m.content.includes('建议压缩') || m.content.includes('资源变更')) {
+          if (m.content.includes('建议整理') || m.content.includes('资源变更')) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
           }
         } else if (m.content.includes('<end_reason>')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `⏹ ${endReasonText(m.content)}` })
+        } else if (m.content.includes('<context_trim>')) {
+          out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
         } else {
           out.push({ kind: 'user', uid: this.nuid(), text: m.content, owner, msgIdx: mi })
         }
@@ -525,6 +534,24 @@ class AppStore {
       await this.refreshBranches()
     } catch (e) {
       this.lastStatus = `新建分支失败：${(e as Error).message}`
+    }
+  }
+
+  /* 归档换代（用户显式触发）：当前话题总结归档开新篇，线不变叶子换代 */
+  async compactTopic() {
+    if (this.busy) {
+      this.lastStatus = '会话运行中，稍后再归档'
+      return
+    }
+    this.lastStatus = '正在归档话题…'
+    try {
+      await api.compactTopic()
+      await this.loadHistory()
+      await this.refreshStatus()
+      await this.refreshBranches()
+      this.lastStatus = ''
+    } catch (e) {
+      this.lastStatus = `归档失败：${(e as Error).message}`
     }
   }
 
@@ -859,15 +886,31 @@ class AppStore {
         this.blocks.push({ kind: 'note', uid: this.nuid(), text: `⇳ ${msg}` })
         break
       }
+      case 'session.trimming': {
+        // 水位自动整理开始：时间线提示整理进行中
+        const msg = typeof ev.data === 'string' ? ev.data : '上下文正在整理…'
+        this.blocks.push({ kind: 'note', uid: this.nuid(), text: `⇳ ${msg}` })
+        break
+      }
+      case 'session.trim': {
+        // 整理完成：上下文已就地折叠（marker 已入历史，重建时间线时渲染分割线）
+        this.blocks.push({
+          kind: 'note',
+          uid: this.nuid(),
+          text: `✂️ 上下文已整理：早期对话折叠为摘要（${ev.data?.folded ?? '?'} 条 → 保留最近 ${ev.data?.kept ?? '?'} 条）`,
+        })
+        void this.refreshStatus()
+        break
+      }
       case 'session.compact': {
-        // 压缩延长线：根 ID 不变（SSE/路由稳定），只换叶与上翻游标；
+        // 归档换代：根 ID 不变（SSE/路由稳定），只换叶与上翻游标；
         // 分支列表刷新（LeafID 更新，条目数不变）
         this.live = null // 旧会话水位快照作废，状态卡按刷新后的 status 渲染
         const d = ev.data || {}
         this.blocks.push({
           kind: 'note',
           uid: this.nuid(),
-          text: `⇪ 上下文已压缩归档：${d.title || ''}${d.auto ? '（自动）' : ''}`,
+          text: `⇪ 话题已归档：${d.title || ''}`,
         })
         if (d.newId) {
           this.leafId = d.newId

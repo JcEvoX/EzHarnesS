@@ -110,8 +110,8 @@ func MapEvent(e event.Event) Event {
 		}
 	case hooks.EventCompact:
 		out.Data = raw(e.Data) // CompactInfo 原样透传
-	case hooks.EventCompacting:
-		out.Data = raw(e.Data) // 提示文本原样透传
+	case hooks.EventTrim, hooks.EventTrimming:
+		out.Data = raw(e.Data) // TrimInfo / 提示文本原样透传
 	case hooks.EventStatus:
 		out.Data = raw(e.Data) // StatusData 原样透传
 	case "task.start", "task.end":
