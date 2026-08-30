@@ -25,8 +25,8 @@
     try {
       const t = await api.getMemoryTree()
       tree = t
-      // 默认全展开（树规模桌面尺度；有孩子才需要进集合）
-      expanded = new Set(t.filter((n) => t.some((k) => k.targetId === n.id)).map((n) => n.id))
+      // 默认全展开（树规模桌面尺度；有孩子才需要进集合；虚拟根默认张开）
+      expanded = new Set(['null', ...t.filter((n) => t.some((k) => k.targetId === n.id)).map((n) => n.id)])
     } catch {
       message = '会话树加载失败（后端不可达）'
     }
@@ -135,6 +135,12 @@
     for (const r of roots) walk(r, 1, '')
     return out
   })
+
+  /* fork 徽章里的源名截断展示（全文走 title 悬浮） */
+  function shortTitle(s: string | undefined, k = 16): string {
+    if (!s) return '源会话'
+    return s.length > k ? s.slice(0, k) + '…' : s
+  }
 
   function fmtDate(ts: number): string {
     if (!ts) return ''
@@ -252,8 +258,8 @@
               <button class="tw" onclick={() => toggle('null')} title={row.open ? '收起全部分支' : '展开全部分支'}>
                 <span class="farrow" class:open={row.open}>{row.open ? '▾' : '▸'}</span>
               </button>
-              <span class="name mono">null</span>
-              <span class="desc">空根 · {row.kids} 条分支</span>
+              <span class="name mono">sessions</span>
+              <span class="desc">{row.kids} 条分支</span>
             </div>
           {:else}
             {@const n = row.n}
@@ -272,7 +278,7 @@
                 <span class="name">
                   <span class="n-text">{n.title || '未命名会话'}</span>
                   {#if n.archived}<span class="kbadge arc">已归档</span>{/if}
-                  {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `来自 session：${n.forkedFrom.title}` : 'fork 产生的 session'}>⑂ 来自「{n.forkedFrom?.title || '源会话'}」</span>{/if}
+                  {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `来自 session：${n.forkedFrom.title}` : 'fork 产生的 session'}>⑂ {shortTitle(n.forkedFrom?.title)}</span>{/if}
                   {#if n.seedKind === 'compress'}<span class="kbadge" title={row.parentTitle ? `来自「${row.parentTitle}」压缩生成` : '压缩生成'}>⇪ 压缩生成</span>{/if}
                   {#if n.msgs === 0}<span class="kbadge mut">空</span>{/if}
                 </span>
@@ -649,7 +655,7 @@
     font-family: var(--font-mono);
     font-size: 12px;
   }
-  /* 名称行 = flex：文本弹性收缩出省略号，徽章常驻不被长标题挤出视野 */
+  /* 名称行 = flex：文本自然宽度、过长收缩出省略号，徽章紧跟其后不被挤走 */
   .trow .name {
     display: flex;
     align-items: center;
@@ -659,7 +665,7 @@
     font-weight: 550;
   }
   .trow .name .n-text {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
@@ -675,6 +681,10 @@
     border-radius: 5px;
     padding: 1px 7px;
     vertical-align: 1px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .kbadge.arc {
     color: var(--muted);
