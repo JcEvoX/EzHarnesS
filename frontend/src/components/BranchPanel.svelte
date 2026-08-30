@@ -74,7 +74,7 @@
           <span class="st" class:run={b.running} class:cur={b.active || b.id === store.activeId}></span>
           <div class="info">
             <span class="title">
-              {b.title || '未命名分支'}
+              <span class="t-text">{b.title || '未命名分支'}</span>
               {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `来自 session：${b.origin.title}` : 'fork 产生的分支'}>⑂</i>{/if}
             </span>
             <span class="meta">
@@ -270,10 +270,18 @@
     flex-direction: column;
     gap: 1px;
   }
+  /* 标题行 = flex：文本弹性收缩出省略号，徽章常驻不被长标题挤出视野 */
   .title {
+    display: flex;
+    align-items: center;
+    min-width: 0;
     font-size: 12px;
     color: var(--fg);
     font-weight: 550;
+  }
+  .t-text {
+    flex: 1;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -287,7 +295,6 @@
     background: var(--accent-soft);
     border-radius: 5px;
     padding: 0 5px;
-    vertical-align: 1px;
   }
   .meta {
     font-size: 10.5px;

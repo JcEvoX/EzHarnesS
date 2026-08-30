@@ -270,7 +270,7 @@
               {/if}
               <div class="info">
                 <span class="name">
-                  {n.title || '未命名会话'}
+                  <span class="n-text">{n.title || '未命名会话'}</span>
                   {#if n.archived}<span class="kbadge arc">已归档</span>{/if}
                   {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `来自 session：${n.forkedFrom.title}` : 'fork 产生的 session'}>⑂ 来自「{n.forkedFrom?.title || '源会话'}」</span>{/if}
                   {#if n.seedKind === 'compress'}<span class="kbadge" title={row.parentTitle ? `来自「${row.parentTitle}」压缩生成` : '压缩生成'}>⇪ 压缩生成</span>{/if}
@@ -649,11 +649,21 @@
     font-family: var(--font-mono);
     font-size: 12px;
   }
+  /* 名称行 = flex：文本弹性收缩出省略号，徽章常驻不被长标题挤出视野 */
   .trow .name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
     font-size: 12.5px;
     color: var(--fg);
     font-weight: 550;
-    overflow-wrap: anywhere;
+  }
+  .trow .name .n-text {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .kbadge {
     flex: none;
