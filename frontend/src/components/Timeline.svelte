@@ -233,6 +233,8 @@
       {:else if seg.b.kind === 'endtick'}
         <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
           <span class="dot" class:warn={seg.b.icon === '⚠'}>{seg.b.icon}</span>
+          <span class="rtext">{seg.b.title}</span>
+          <span class="line"></span>
         </div>
       {/if}
       {/each}
@@ -381,25 +383,36 @@
     height: 1px;
     background: var(--line);
   }
-  /* 轮次收尾标记：一枚淡字符（✓/⏹/↻/⚠），悬浮 title 显示详情 */
+  /* 轮次收尾行：靠左「图标 + 结束原因 + 右侧细线」，异常原因橙色 */
   .endtick {
     display: flex;
-    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--faint);
     padding: 2px 0;
     animation: float-in var(--dur-fast) var(--ease-out) both;
   }
   .endtick .dot {
+    flex: none;
     font-size: 10px;
     line-height: 1;
     color: var(--line-strong);
-    cursor: default;
     user-select: none;
-    transition: color var(--dur-fast) var(--ease-out);
-  }
-  .endtick .dot:hover {
-    color: var(--muted);
   }
   .endtick .dot.warn {
     color: #f0883e;
+  }
+  .endtick .rtext {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .endtick .line {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
   }
 </style>
