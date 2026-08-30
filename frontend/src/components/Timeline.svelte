@@ -308,7 +308,8 @@
     scrollbar-gutter: stable;
     overscroll-behavior: contain;
   }
-  /* 轮次导航：默认仅一列刻度线垂直居中贴右缘，悬浮展开文字卡片 */
+  /* 轮次导航：默认仅一列刻度线垂直居中贴右缘，悬浮展开文字卡片。
+     高度封顶（约 20 条刻度），超出滚动——滚动条仅悬浮时显形 */
   .turnnav {
     position: absolute;
     right: 10px;
@@ -318,7 +319,7 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    max-height: min(440px, 62%);
+    max-height: 160px;
     overflow-y: auto;
     padding: 4px;
     border: 1px solid transparent;
@@ -329,12 +330,22 @@
   }
   .turnnav::-webkit-scrollbar {
     display: none;
+    width: 4px;
   }
   .turnnav:hover {
     background: color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(8px);
     border-color: var(--line);
     box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  .turnnav:hover::-webkit-scrollbar {
+    display: block;
+  }
+  .turnnav::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 2px;
   }
   .turnnav button {
     display: flex;
