@@ -250,17 +250,16 @@ class AppStore {
       this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [], s.id)
       this.busy = s.busy
       this.prevCursor = s.id
-      // fork 线自包含（体内副本即前缀）：无上级可翻，顶部渲染分叉分隔线
+      // fork 线体内含源 [0,anchor] 副本：顶部渲染分叉分隔线；
+      // 上翻从源的上一级继续（后端 Prev 沿源链），源是根则到底
       if (s.seedKind === 'fork' && s.forkedFrom) {
-        this.hasPrev = false
         this.blocks.unshift({
           kind: 'note',
           uid: this.nuid(),
           text: `⑂ 分叉自「${s.forkedFrom.title || '源会话'}」`,
         })
-      } else {
-        this.hasPrev = !!s.targetId
       }
+      this.hasPrev = !!s.targetId
     } catch {
       /* 网络异常时保底空时间线 */
     }

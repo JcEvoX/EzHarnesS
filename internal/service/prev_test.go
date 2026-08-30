@@ -82,16 +82,36 @@ func TestPrevChainToRoot(t *testing.T) {
 	}
 }
 
-/* fork 会话当前是上翻终点（自包含语义；源前缀支持见后续改造）。 */
-func TestPrevForkTerminal(t *testing.T) {
+/*
+fork 上翻：体内含源 [0,anchor] 副本，上翻应从源的上一级继续——
+fk1(fork→src1) + src1(compress→gen1) 时 Prev(fk1) 返回 gen1 内容；
+源是根时到底。
+*/
+func TestPrevForkContinues(t *testing.T) {
 	chdirTemp(t)
 	svc := &SessionService{Hub: domain.NewHub()}
 	ctx := context.Background()
-	snap := &hooks.SessionSnap{ID: "fk1", TargetID: "src1", SeedKind: "fork"}
-	if err := hooks.SaveSnap(ctx, osfs.OS{}, snap); err != nil {
-		t.Fatal(err)
+	fsys := osfs.OS{}
+	save := func(snap *hooks.SessionSnap) {
+		if err := hooks.SaveSnap(ctx, fsys, snap); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, ok, err := svc.Prev(ctx, "fk1"); err != nil || ok {
-		t.Fatalf("fork prev should be terminal, ok=%v err=%v", ok, err)
+	save(&hooks.SessionSnap{ID: "gen1", SeedKind: "new", Messages: []types.Message{newMsg("gen1-msg")}})
+	save(&hooks.SessionSnap{ID: "src1", TargetID: "gen1", SeedKind: "compress"})
+	save(&hooks.SessionSnap{ID: "fk1", TargetID: "src1", SeedKind: "fork"})
+
+	d, ok, err := svc.Prev(ctx, "fk1")
+	if err != nil || !ok {
+		t.Fatalf("fork prev must continue to source's parent, ok=%v err=%v", ok, err)
+	}
+	if len(d.Messages) == 0 || d.Messages[0].Content != "gen1-msg" {
+		t.Fatalf("expect gen1 content via fork, got %+v", d.Messages)
+	}
+
+	// 源是根：fork 上翻到底
+	save(&hooks.SessionSnap{ID: "fk2", TargetID: "gen1", SeedKind: "fork"})
+	if _, ok2, err2 := svc.Prev(ctx, "fk2"); err2 != nil || ok2 {
+		t.Fatalf("fork of root must be terminal, ok=%v err=%v", ok2, err2)
 	}
 }

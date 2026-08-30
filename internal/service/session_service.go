@@ -201,15 +201,23 @@ type PrevData struct {
 
 /*
 Prev 沿向上边取 id 的上一会话内容（向上滚动懒加载）。id 允许
-链上任一会话（读归档只读安全）；fork 会话自包含（体内副本即前缀，
-分叉点终止）无上级，返回 ok=false——前端据此渲染"分叉自 X"分隔线。
+链上任一会话（读归档只读安全）。fork 会话体内已含源 [0,anchor]
+前缀副本——上翻从源的上一级继续（源的更早世代对 fork 可见）；
+源无上级则到底。
 */
 func (s *SessionService) Prev(ctx context.Context, id string) (*PrevData, bool, error) {
 	cur, err := hooks.LoadSnap(ctx, s.Hub.Fsys, id)
 	if err != nil {
 		return nil, false, err
 	}
-	if cur.TargetID == "" || cur.SeedKind == "fork" {
+	if cur.SeedKind == "fork" && cur.TargetID != "" {
+		src, serr := hooks.LoadSnap(ctx, s.Hub.Fsys, cur.TargetID)
+		if serr != nil {
+			return nil, false, nil
+		}
+		cur = src // 源前缀已在 fork 体内，上翻从源的上级开始
+	}
+	if cur.TargetID == "" {
 		return nil, false, nil
 	}
 	prev, err := hooks.LoadSnap(ctx, s.Hub.Fsys, cur.TargetID)
