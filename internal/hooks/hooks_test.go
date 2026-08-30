@@ -88,6 +88,26 @@ func TestFirstUserTitleSkipsSystemNotes(t *testing.T) {
 	}
 }
 
+/* endnote 错误轮须落错误详情（换行压平、超长截断），否则用户只见分类不知原因 */
+func TestEndNoteErrorDetail(t *testing.T) {
+	h := NewEndNote()
+	long := strings.Repeat("错", 400)
+	state := &types.LoopState{StopReason: types.StopError, LastError: fmt.Errorf("boom\nline2 %s", long)}
+	if err := h.OnEnd(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	last := state.Messages[len(state.Messages)-1].Content
+	if !strings.Contains(last, "结束原因：执行出错") {
+		t.Fatalf("missing stop reason, got %q", last)
+	}
+	if !strings.Contains(last, "错误详情：boom line2") {
+		t.Fatalf("newline not flattened, got %q", last)
+	}
+	if i := strings.Index(last, "错误详情："); i >= 0 && len([]rune(last[i:])) > 300+20 {
+		t.Fatalf("detail not truncated to ~300 runes, got %d", len([]rune(last[i:])))
+	}
+}
+
 func TestTopicsMatch(t *testing.T) {
 	tp := NewTopics(memFS{})
 	_ = tp.Add(TopicEntry{ID: "a1", Title: "Go 并发", Summary: "goroutine"})

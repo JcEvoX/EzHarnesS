@@ -37,6 +37,9 @@ func (h *endNote) OnEnd(_ context.Context, state *types.LoopState) error {
 	fmt.Fprintf(&b, "\n运行时长：%s", humanDur(time.Since(state.StartedAt))) // EndedAt 在 endHooks 全部跑完后才设置
 	fmt.Fprintf(&b, "\n结束时间：%s", time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "\n结束原因：%s", FriendlyStop(string(state.StopReason)))
+	if state.LastError != nil {
+		fmt.Fprintf(&b, "\n错误详情：%s", oneLine(state.LastError.Error(), 300))
+	}
 	if state.Metadata["compacted"] == true {
 		b.WriteString("\n话题压缩：本轮结束时上下文水位达到阈值，上一会话已压缩归档并开启新会话，" +
 			"本条记录随翻页落在新会话开头，仅用于说明上一会话的收尾情况。")
@@ -44,6 +47,16 @@ func (h *endNote) OnEnd(_ context.Context, state *types.LoopState) error {
 	b.WriteString("\n</" + EndReasonTag + ">")
 	state.AppendMessage(types.Message{Role: types.RoleUser, Content: b.String()})
 	return nil
+}
+
+/* oneLine 压平换行并按 rune 截断（错误详情进 end_reason 单行展示，
+   HTTP 错误响应体可能多行或超长）。 */
+func oneLine(s string, max int) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r", ""), "\n", " ")
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
 }
 
 /* humanDur 把轮耗时渲染成中文短语（"45 秒"、"3 分 12 秒"）。 */

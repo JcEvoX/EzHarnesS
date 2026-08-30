@@ -113,7 +113,8 @@ function endReasonText(content: string): string {
   const iters = get('运行轮次')
   const dur = get('运行时长')
   const hm = get('结束时间').slice(11, 16) // YYYY-MM-DD HH:MM:SS → HH:MM
-  return `${reason} · ${iters || '?'} 轮${dur ? ` · ${dur}` : ''}${hm ? ` · ${hm}` : ''}`
+  const errd = get('错误详情')
+  return `${reason}${errd ? `：${errd}` : ''} · ${iters || '?'} 轮${dur ? ` · ${dur}` : ''}${hm ? ` · ${hm}` : ''}`
 }
 
 /* 轮次收尾小图标（按结束原因语义选形，悬浮 title 显示详情） */
@@ -982,8 +983,14 @@ class AppStore {
         {
           const secs = d.elapsedMs ? Math.round(d.elapsedMs / 1000) : 0
           const reason = stopNote(d.stopReason || 'completed')
+          // 错误详情跟在原因后（endtick 超宽截断、悬浮看全文）；取消路径
+          // 的 err 是 context.Canceled，无信息量不拼
+          const errTxt =
+            d.err && (d.stopReason || 'error') === 'error'
+              ? `：${String(d.err).replace(/\s+/g, ' ').slice(0, 300)}`
+              : ''
           const title =
-            `${reason} · ${d.iterations ?? 0} 轮${secs ? ` · ${fmtDur(secs)}` : ''}` +
+            `${reason}${errTxt} · ${d.iterations ?? 0} 轮${secs ? ` · ${fmtDur(secs)}` : ''}` +
             ` · ${new Date().toTimeString().slice(0, 5)}`
           this.blocks.push({
             kind: 'endtick',
