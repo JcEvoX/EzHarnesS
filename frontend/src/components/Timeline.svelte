@@ -231,10 +231,9 @@
           <span class="line"></span>
         </div>
       {:else if seg.b.kind === 'endtick'}
-        <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
+        <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)}>
           <span class="dot" class:warn={seg.b.icon === '⚠'}>{seg.b.icon}</span>
           <span class="rtext">{seg.b.title}</span>
-          <span class="line"></span>
         </div>
       {/if}
       {/each}
@@ -383,14 +382,14 @@
     height: 1px;
     background: var(--line);
   }
-  /* 轮次收尾行：靠左「图标 + 结束原因 + 右侧细线」，异常原因橙色 */
+  /* 轮次收尾行：靠左紧凑「图标 + 结束原因」，异常原因橙色 */
   .endtick {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
+    padding-left: 48px; /* 与消息文本起点对齐（头像 26 + gap 14 + 内边距 8） */
     font-size: 11px;
     color: var(--faint);
-    padding: 2px 0;
     animation: float-in var(--dur-fast) var(--ease-out) both;
   }
   .endtick .dot {
@@ -404,15 +403,8 @@
     color: #f0883e;
   }
   .endtick .rtext {
-    flex: 0 1 auto;
-    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .endtick .line {
-    flex: 1;
-    height: 1px;
-    background: var(--line);
   }
 </style>
