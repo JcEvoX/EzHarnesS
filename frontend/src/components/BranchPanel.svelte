@@ -1,9 +1,9 @@
 <script lang="ts">
   /*
-  分支面板：会话树的"线"列表（叶子到根的路线）。
+  分支面板：会话树的"线"列表（叶子到根的路线），按更新时间分组。
   条目 = 分支（根 ID 身份，compact 换代不换条目）；指示器：
-  绿点 = 当前所处分支；转圈 = 有轮运行中（含后台分支）；⚠ = 有未决审批。
-  操作：点击切换（状态/审批随之切换）、新建开线、删除整线。
+  橙点呼吸 = 有轮运行中（含后台分支）；⚠ 待审批。操作：点击切换
+  （状态/审批随之切换）、顶部开新线、行尾归档。
   */
   import { type BranchView } from '../lib/api'
   import { store } from '../lib/store.svelte'
@@ -33,14 +33,27 @@
     void store.switchBranch(b.id)
   }
 
-  function fmtTime(ts?: number): string {
-    if (!ts) return ''
-    const d = new Date(ts)
-    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    const today = new Date()
-    if (d.toDateString() === today.toDateString()) return hm
-    return `${d.getMonth() + 1}-${d.getDate()} ${hm}`
+  /* 时间分组：branches 已按 updatedAt 降序，顺序遍历切组即可 */
+  function groupLabel(ts?: number): string {
+    if (!ts) return '更早'
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const t = ts
+    if (t >= startOfToday) return '今天'
+    if (t >= startOfToday - 86400000) return '昨天'
+    if (t >= startOfToday - 7 * 86400000) return '7 天内'
+    return '更早'
   }
+  const groups = $derived.by(() => {
+    const out: { label: string; items: BranchView[] }[] = []
+    for (const b of store.branches) {
+      const label = groupLabel(b.updatedAt || b.createdAt)
+      const last = out[out.length - 1]
+      if (last && last.label === label) last.items.push(b)
+      else out.push({ label, items: [b] })
+    }
+    return out
+  })
 </script>
 
 {#if collapsed}
@@ -59,7 +72,6 @@
   <div class="panel">
     <div class="head">
       <h2>分支</h2>
-      <button class="new" onclick={() => void store.newBranch()} title="开一条新分支（新话题）">＋ 新建</button>
       <button class="fold" onclick={() => fold(true)} title="收起">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 6l-6 6 6 6" />
@@ -67,29 +79,32 @@
       </button>
     </div>
     <div class="list">
-      {#each store.branches as b (b.id)}
-        <div class="branch" class:cur={b.active || b.id === store.activeId} role="button" tabindex="0"
-          onclick={() => switchTo(b)}
-          onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && switchTo(b)}>
-          <span class="st" class:run={b.running} class:cur={b.active || b.id === store.activeId}></span>
-          <div class="info">
-            <span class="title">
-              <span class="t-text">{b.title || '未命名分支'}</span>
-              {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `来自 session：${b.origin.title}` : 'fork 产生的分支'}>⑂</i>{/if}
-            </span>
-            <span class="meta">
-              {fmtTime(b.updatedAt || b.createdAt)}
-              {#if b.archiving || b.id === store.archivingRootId}<em class="wait arc-ing">归档中</em>{/if}
-              {#if b.waiting}<em class="wait">待审批</em>{/if}
-            </span>
+      <button class="newbig" onclick={() => void store.newBranch()} title="开一条新分支（新话题）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9 12h6M12 9v6" />
+        </svg>
+        开启新分支
+      </button>
+      {#each groups as g (g.label)}
+        <div class="glabel">{g.label}</div>
+        {#each g.items as b (b.id)}
+          <div class="branch" class:cur={b.active || b.id === store.activeId} role="button" tabindex="0"
+            onclick={() => switchTo(b)}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && switchTo(b)}>
+            <span class="st" class:on={b.running || b.waiting} class:run={b.running}></span>
+            <span class="t-text">{b.title || '未命名分支'}</span>
+            {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `来自 session：${b.origin.title}` : 'fork 产生的分支'}>⑂</i>{/if}
+            {#if b.archiving || b.id === store.archivingRootId}<em class="flag arc-ing">归档中</em>{/if}
+            {#if b.waiting}<em class="flag">待审批</em>{/if}
+            <button class="arc" disabled={b.archiving || b.id === store.archivingRootId || b.running}
+              onclick={(e) => { e.stopPropagation(); void store.compactTopic(b.id) }}
+              title="归档此话题：总结归档并开新会话（同线换代，树上加一代）">⇪</button>
           </div>
-          <button class="arc" disabled={b.archiving || b.id === store.archivingRootId || b.running}
-            onclick={(e) => { e.stopPropagation(); void store.compactTopic(b.id) }}
-            title="归档此话题：总结归档并开新会话（同线换代，树上加一代）">⇪</button>
-        </div>
+        {/each}
       {/each}
       {#if store.branches.length === 0}
-        <div class="empty">暂无分支——点「新建」开一条。</div>
+        <div class="empty">暂无分支——点「开启新分支」开一条。</div>
       {/if}
     </div>
   </div>
@@ -139,30 +154,13 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 8px;
     padding: 8px 10px;
-    border-bottom: 1px solid var(--line);
   }
   .head h2 {
     font-size: 11.5px;
     font-weight: 700;
     color: var(--muted);
     flex: 1;
-  }
-  .new {
-    flex: none;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--muted);
-    font-size: 11px;
-    border-radius: 7px;
-    padding: 3px 9px;
-    cursor: pointer;
-    transition: all var(--dur-fast) var(--ease-out);
-  }
-  .new:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .fold {
     flex: none;
@@ -187,15 +185,49 @@
   .list {
     min-height: 0;
     overflow-y: auto;
-    padding: 4px;
+    padding: 0 6px 6px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+  }
+  /* 顶部全宽新建按钮 */
+  .newbig {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin: 4px 2px 8px;
+    padding: 8px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 12px;
+    font-weight: 550;
+    cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
+  }
+  .newbig:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .newbig svg {
+    width: 14px;
+    height: 14px;
+  }
+  .glabel {
+    flex: none;
+    padding: 8px 8px 3px;
+    font-size: 10.5px;
+    color: var(--faint);
+    user-select: none;
   }
   .branch {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     padding: 7px 8px;
     border-radius: 8px;
     cursor: pointer;
@@ -207,7 +239,60 @@
   .branch.cur {
     background: color-mix(in srgb, var(--accent) 7%, var(--bg));
   }
-  /* 行尾归档按钮：hover 行时浮现，点击归档该分支（stopPropagation 不触发切换） */
+  .branch .t-text {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--fg);
+    font-weight: 550;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 状态点：空闲透明占位（保持标题对齐），橙闪=运行中 橙亮=待审批 */
+  .st {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: transparent;
+  }
+  .st.on {
+    background: #f0883e;
+  }
+  .st.run {
+    animation: breath 1.4s ease-in-out infinite;
+  }
+  @keyframes breath {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+  }
+  .kbadge {
+    flex: none;
+    font-size: 10px;
+    font-style: normal;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 5px;
+    padding: 0 5px;
+  }
+  .flag {
+    flex: none;
+    font-style: normal;
+    font-size: 10px;
+    color: #f0883e;
+  }
+  .arc-ing {
+    color: #8957e5;
+  }
+  /* 行尾归档按钮：hover 行时浮现 */
   .arc {
     flex: none;
     display: grid;
@@ -236,81 +321,6 @@
   .arc:disabled {
     opacity: 0.4;
     cursor: not-allowed;
-  }
-  /* 状态点：灰=空闲 绿=当前 橙闪=运行中 */
-  .st {
-    flex: none;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--line-strong);
-  }
-  .st.cur {
-    background: #3fb950;
-  }
-  .st.run {
-    background: #f0883e;
-    animation: breath 1.4s ease-in-out infinite;
-  }
-  @keyframes breath {
-    0%,
-    100% {
-      opacity: 0.35;
-      transform: scale(0.85);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1.05);
-    }
-  }
-  .info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  /* 标题行 = flex：文本弹性收缩出省略号，徽章常驻不被长标题挤出视野 */
-  .title {
-    display: flex;
-    align-items: center;
-    min-width: 0;
-    font-size: 12px;
-    color: var(--fg);
-    font-weight: 550;
-  }
-  .t-text {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .kbadge {
-    flex: none;
-    margin-left: 5px;
-    font-size: 10px;
-    font-style: normal;
-    color: var(--accent);
-    background: var(--accent-soft);
-    border-radius: 5px;
-    padding: 0 5px;
-  }
-  .meta {
-    font-size: 10.5px;
-    font-family: var(--font-mono);
-    color: var(--faint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .wait {
-    margin-left: 6px;
-    font-style: normal;
-    color: #f0883e;
-  }
-  .arc-ing {
-    color: #8957e5;
   }
   .empty {
     padding: 18px 12px;
