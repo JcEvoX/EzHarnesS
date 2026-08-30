@@ -164,6 +164,7 @@ export interface TopicEntry {
 export interface BranchView extends TopicEntry {
   running?: boolean
   waiting?: boolean
+  archiving?: boolean
   active?: boolean
 }
 

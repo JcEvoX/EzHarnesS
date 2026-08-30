@@ -40,6 +40,7 @@ type BranchView struct {
 	hooks.TopicEntry
 	Running bool `json:"running"`           // 有轮运行中（后台分支也亮）
 	Waiting bool `json:"waiting"`           // 有未决审批/提问
+	Archiving bool `json:"archiving"`       // 归档进行中（摘要期间锁该分支对话）
 	Active  bool `json:"active"`            // 当前所处分支
 }
 
@@ -58,6 +59,7 @@ func buildBranchViews(h *domain.Hub) []BranchView {
 		if s := h.SessionOf(e.ID); s != nil {
 			v.Running = s.Busy()
 			v.Waiting = s.PendingCount() > 0
+			v.Archiving = s.Archiving()
 		}
 		out = append(out, v)
 	}
@@ -197,9 +199,6 @@ Switch 切换分支：注册表命中直接切（后台轮不取消——阶段�
 恢复。无 Busy 拒绝。
 */
 func (t *TopicService) Switch(ctx context.Context, rootID string) error {
-	if t.Hub.Active != nil && t.Hub.Active.Archiving() {
-		return domain.ErrBusy // 归档进行中：换代身份未定，锁定分支切换
-	}
 	if s := t.Hub.SessionOf(rootID); s != nil {
 		t.Hub.SetActive(s)
 		return nil

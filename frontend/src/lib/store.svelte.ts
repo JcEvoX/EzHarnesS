@@ -155,7 +155,7 @@ class AppStore {
   notices = $state<NoticeData[]>([])
   lastTool = $state('')
   busy = $state(false)
-  archiving = $state(false) // 归档进行中（摘要最长 2 分钟）：锁按钮/输入
+  archivingRootId = $state('') // 归档进行中的分支（线根 ID，空=无）：锁该分支输入与按钮
   lastStatus = $state('')
   tick = $state(0)
   /* 分身抽屉：当前打开的分身与待定位的决策卡（通知跳转用） */
@@ -549,15 +549,17 @@ class AppStore {
     }
   }
 
-  /* 归档换代（分支列表行操作）：指定分支总结归档开新篇，线不变叶子换代 */
+  /* 归档换代（分支列表行操作）：指定分支总结归档开新篇，线不变叶子换代。
+     期间可自由切换/新建分支对话——锁只作用于被归档分支自身 */
   async compactTopic(rootId?: string) {
-    if (this.archiving) return
-    const active = !rootId || rootId === this.activeId
+    const id = rootId || this.activeId
+    if (this.archivingRootId) return
+    const active = id === this.activeId
     if (active && this.busy) {
       this.lastStatus = '会话运行中，稍后再归档'
       return
     }
-    this.archiving = true
+    this.archivingRootId = id
     if (active) this.lastStatus = '正在归档话题…'
     try {
       await api.compactTopic(rootId)
@@ -570,7 +572,7 @@ class AppStore {
     } catch (e) {
       if (active) this.lastStatus = `归档失败：${(e as Error).message}`
     } finally {
-      this.archiving = false
+      this.archivingRootId = ''
     }
   }
 

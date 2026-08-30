@@ -79,10 +79,11 @@
             </span>
             <span class="meta">
               {fmtTime(b.updatedAt || b.createdAt)}
+              {#if b.archiving || b.id === store.archivingRootId}<em class="wait arc-ing">归档中</em>{/if}
               {#if b.waiting}<em class="wait">待审批</em>{/if}
             </span>
           </div>
-          <button class="arc" disabled={store.archiving || b.running}
+          <button class="arc" disabled={b.archiving || b.id === store.archivingRootId || b.running}
             onclick={(e) => { e.stopPropagation(); void store.compactTopic(b.id) }}
             title="归档此话题：总结归档并开新会话（同线换代，树上加一代）">⇪</button>
         </div>
@@ -300,6 +301,9 @@
     margin-left: 6px;
     font-style: normal;
     color: #f0883e;
+  }
+  .arc-ing {
+    color: #8957e5;
   }
   .empty {
     padding: 18px 12px;
