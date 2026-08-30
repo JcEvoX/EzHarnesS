@@ -187,13 +187,14 @@
     border-radius: 12px;
     white-space: pre-wrap;
     word-break: break-word;
-    max-width: 86%;
   }
   .bubble::selection {
     background: rgb(255 255 255 / 32%);
     color: var(--fg-invert);
   }
-  /* 多模态图片：缩略网格（点击原生放大交给浏览器，保持零依赖） */
+  /* 多模态图片：缩略网格（点击原生放大交给浏览器，保持零依赖）。
+     宽度上限挂这里（参照 .user 的确定宽度）——bubble 的百分比若参照
+     fit-content 的本容器会循环依赖，解析成极窄宽度致文字竖排 */
   .ucontent {
     display: flex;
     flex-direction: column;
