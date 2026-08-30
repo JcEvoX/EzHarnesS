@@ -298,7 +298,8 @@ class AppStore {
         }
         this.batchIds = new Set(prevBlocks.map((b) => b.uid))
         this.blocks = [...prevBlocks, sep, ...this.blocks]
-        this.prevCursor = res.prevSession || ''
+        // 游标 = 已翻到的会话（下次取它的上一级）；可否继续由其上级是否存在决定
+        this.prevCursor = res.id
         this.hasPrev = !!res.prevSession
       }
     } catch {
