@@ -154,6 +154,11 @@ func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*
 		src = parent // 副本 [0, src.Anchor) 与 parent 同源，anchor 索引不变
 	}
 	title := hooks.TitleFromMsg(src.Messages[anchor-1]) // fork 用分叉锚点消息内容命名
+	// 来源标注 = 源 session 名称（非分支名；记忆页树展示"来自 X"）
+	srcTitle := src.Title
+	if srcTitle == "" {
+		srcTitle = hooks.FirstUserTitle(src.Messages)
+	}
 	newID := hooks.NewSessionID()
 	now := time.Now().UnixMilli()
 	snap := &hooks.SessionSnap{
@@ -169,7 +174,7 @@ func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*
 		Anchor:       anchor,
 		SeedKind:     "fork",
 		LineRoot:     newID,
-		ForkedFrom:   &hooks.ForkOrigin{SourceID: src.ID, Title: title, Anchor: anchor},
+		ForkedFrom:   &hooks.ForkOrigin{SourceID: src.ID, Title: srcTitle, Anchor: anchor},
 		CtxTokens:    src.CtxTokens,
 		CtxWindow:    src.CtxWindow,
 	}

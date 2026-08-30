@@ -272,7 +272,7 @@
                 <span class="name">
                   {n.title || '未命名会话'}
                   {#if n.archived}<span class="kbadge arc">已归档</span>{/if}
-                  {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `分叉自：${n.forkedFrom.title}` : '分叉产生的分支'}>⑂</span>{/if}
+                  {#if n.seedKind === 'fork'}<span class="kbadge" title={n.forkedFrom?.title ? `来自 session：${n.forkedFrom.title}` : 'fork 产生的 session'}>⑂ 来自「{n.forkedFrom?.title || '源会话'}」</span>{/if}
                   {#if n.seedKind === 'compress'}<span class="kbadge" title={row.parentTitle ? `来自「${row.parentTitle}」压缩生成` : '压缩生成'}>⇪ 压缩生成</span>{/if}
                   {#if n.msgs === 0}<span class="kbadge mut">空</span>{/if}
                 </span>

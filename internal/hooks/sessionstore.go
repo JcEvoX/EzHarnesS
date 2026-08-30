@@ -36,7 +36,7 @@ type ResSnapshot struct {
 /* ForkOrigin 是 fork 线的展示元数据（时间线渲染"分叉自 X"，非结构依赖）。 */
 type ForkOrigin struct {
 	SourceID string `json:"sourceId,omitempty"`
-	Title    string `json:"title,omitempty"`
+	Title    string `json:"title,omitempty"` // 源 session 名称（记忆页"来自 X"展示；非分支名）
 	Anchor   int    `json:"anchor,omitempty"`
 }
 

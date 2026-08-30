@@ -75,7 +75,7 @@
           <div class="info">
             <span class="title">
               {b.title || '未命名分支'}
-              {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `分叉自：${b.origin.title}` : '分叉产生的分支'}>⑂</i>{/if}
+              {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `来自 session：${b.origin.title}` : 'fork 产生的分支'}>⑂</i>{/if}
             </span>
             <span class="meta">
               {fmtTime(b.updatedAt || b.createdAt)}

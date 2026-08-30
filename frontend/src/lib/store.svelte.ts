@@ -250,14 +250,8 @@ class AppStore {
       this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [], s.id)
       this.busy = s.busy
       this.prevCursor = s.id
-      // fork 线体内含源 [0,anchor] 副本：顶部渲染分叉分隔线
-      if (s.seedKind === 'fork' && s.forkedFrom) {
-        this.blocks.unshift({
-          kind: 'note',
-          uid: this.nuid(),
-          text: `⑂ 分叉自「${s.forkedFrom.title || '源会话'}」`,
-        })
-      }
+      // fork 就是 fork：对话内容不标注来源（体内副本自包含）；
+      // 来源信息只在记忆页的会话树上展示
       // 上翻余量由后端判定（fork 换源后算：源无上级则不可翻）
       this.hasPrev = !!s.canPrev
     } catch {
