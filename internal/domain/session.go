@@ -63,6 +63,7 @@ type Session struct {
 
 	mu         sync.Mutex
 	history    []types.Message
+	archiving  bool // 归档进行中（摘要最长 2 分钟）：锁发消息/切分支/二次归档
 	cur        *runState
 	subs       map[chan []byte]struct{}
 	pending    map[string]Event
@@ -118,12 +119,11 @@ func (s *Session) modelView() []types.Message {
 }
 
 func modelViewLocked(history []types.Message) []types.Message {
-	for i := len(history) - 1; i >= 0; i-- {
-		if hooks.IsTrimMarker(history[i]) {
-			return history[i:]
-		}
+	start := hooks.ViewStart(history)
+	if start == 0 && len(history) > 0 && history[0].Role == types.RoleSystem {
+		start = 1 // system 由 sys hook 重注，不随视图携带
 	}
-	return history
+	return history[start:]
 }
 
 /* ModelView 返回发给模型的上下文视图（归档摘要的输入，含 marker 摘要链）。 */
@@ -134,6 +134,31 @@ func (s *Session) Busy() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.cur != nil
+}
+
+/* BeginArchive 原子占归档锁（摘要期间锁对话/切分支/防二次触发），已占用返回 false。 */
+func (s *Session) BeginArchive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.archiving || s.cur != nil {
+		return false
+	}
+	s.archiving = true
+	return true
+}
+
+/* EndArchive 释放归档锁。 */
+func (s *Session) EndArchive() {
+	s.mu.Lock()
+	s.archiving = false
+	s.mu.Unlock()
+}
+
+/* Archiving 报告归档是否进行中。 */
+func (s *Session) Archiving() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.archiving
 }
 
 /* CtxTokens 返回最近一次模型调用的上下文长度。 */
@@ -196,10 +221,10 @@ func (s *Session) Snapshot() *hooks.SessionSnap {
 	return s.snap
 }
 
-/* StartRun 占用当前轮并返回运行上下文（busy 时返回 ErrBusy）。 */
+/* StartRun 占用当前轮并返回运行上下文（busy/归档中返回 ErrBusy）。 */
 func (s *Session) StartRun(ctx context.Context, text string) (*core.RunHandle, context.CancelFunc, error) {
 	s.mu.Lock()
-	if s.cur != nil {
+	if s.cur != nil || s.archiving {
 		s.mu.Unlock()
 		return nil, nil, ErrBusy
 	}

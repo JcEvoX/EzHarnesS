@@ -145,6 +145,7 @@ class AppStore {
   notices = $state<NoticeData[]>([])
   lastTool = $state('')
   busy = $state(false)
+  archiving = $state(false) // 归档进行中（摘要最长 2 分钟）：锁按钮/输入
   lastStatus = $state('')
   tick = $state(0)
   /* 分身抽屉：当前打开的分身与待定位的决策卡（通知跳转用） */
@@ -320,7 +321,7 @@ class AppStore {
           }
         } else if (m.content.includes('<end_reason>')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `⏹ ${endReasonText(m.content)}` })
-        } else if (m.content.includes('<context_trim>')) {
+        } else if (m.content.includes('<context_trim')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
         } else {
           out.push({ kind: 'user', uid: this.nuid(), text: m.content, owner, msgIdx: mi })
@@ -539,10 +540,12 @@ class AppStore {
 
   /* 归档换代（用户显式触发）：当前话题总结归档开新篇，线不变叶子换代 */
   async compactTopic() {
+    if (this.archiving) return
     if (this.busy) {
       this.lastStatus = '会话运行中，稍后再归档'
       return
     }
+    this.archiving = true
     this.lastStatus = '正在归档话题…'
     try {
       await api.compactTopic()
@@ -552,6 +555,8 @@ class AppStore {
       this.lastStatus = ''
     } catch (e) {
       this.lastStatus = `归档失败：${(e as Error).message}`
+    } finally {
+      this.archiving = false
     }
   }
 

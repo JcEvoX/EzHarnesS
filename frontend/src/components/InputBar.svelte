@@ -37,6 +37,10 @@
   function send() {
     const t = text.trim()
     if (!t) return
+    if (store.archiving) {
+      store.lastStatus = '正在归档话题，完成后即可继续对话'
+      return
+    }
     if (files.length) {
       store.lastStatus = '附件发送尚未接入（下一批），本次仅发送文本'
     }
@@ -60,7 +64,9 @@
 
 <div class="bar" class:focused>
   <div class="fade"></div>
-  {#if store.busy && store.lastTool}
+  {#if store.archiving}
+    <div class="status">⇪ 正在归档话题…（此时暂停对话与分支切换）</div>
+  {:else if store.busy && store.lastTool}
     <div class="status">⚙ {store.lastTool} 执行中…（点击 ⏹ 终止）</div>
   {:else if store.lastStatus}
     <div class="status">{store.lastStatus}</div>

@@ -78,7 +78,7 @@ func (c *TopicController) Compact(g *gin.Context) {
 		case errors.Is(err, service.ErrTopicNotFound):
 			g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, domain.ErrBusy):
-			g.JSON(http.StatusConflict, gin.H{"error": "会话运行中，稍后再试"})
+			g.JSON(http.StatusConflict, gin.H{"error": "会话运行中或归档进行中，稍后再试"})
 		default:
 			g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}

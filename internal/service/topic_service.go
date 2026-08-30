@@ -197,6 +197,9 @@ Switch 切换分支：注册表命中直接切（后台轮不取消——阶段�
 恢复。无 Busy 拒绝。
 */
 func (t *TopicService) Switch(ctx context.Context, rootID string) error {
+	if t.Hub.Active != nil && t.Hub.Active.Archiving() {
+		return domain.ErrBusy // 归档进行中：换代身份未定，锁定分支切换
+	}
 	if s := t.Hub.SessionOf(rootID); s != nil {
 		t.Hub.SetActive(s)
 		return nil
@@ -323,16 +326,18 @@ func (t *TopicService) Archive(ctx context.Context, id string, archived bool) er
 /*
 Compact 归档换代（用户按键触发）：活动会话空闲时把当前话题总结归档
 并开新会话——旧库封存、新库 system 注入摘要、话题线换代（树的纵深）。
-与 trim（模型侧上下文整理，就地不换库）相对。busy 拒绝。
+与 trim（模型侧上下文整理，就地不换库）相对。摘要期间持归档锁：
+锁发消息/切分支/防二次触发（连续点击）。
 */
 func (t *TopicService) Compact(ctx context.Context) error {
 	s := t.Hub.Active
 	if s == nil {
 		return ErrTopicNotFound
 	}
-	if s.Busy() {
+	if !s.BeginArchive() { // 原子检查 busy + 防重入
 		return domain.ErrBusy
 	}
+	defer s.EndArchive()
 	w := s.Wired()
 	sys := s.SysPromptRef()
 	if w == nil || w.Provider == nil || sys == nil {
