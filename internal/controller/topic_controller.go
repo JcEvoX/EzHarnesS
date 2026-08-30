@@ -71,9 +71,13 @@ func (c *TopicController) NewBranch(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"id": s.RootID})
 }
 
-/* Compact POST /api/topics/compact（归档换代：活动会话总结归档开新篇）。 */
+/* Compact POST /api/topics/compact body {rootId?}（归档换代：指定分支总结归档开新篇，空=活动）。 */
 func (c *TopicController) Compact(g *gin.Context) {
-	if err := c.Svc.Compact(g.Request.Context()); err != nil {
+	var body struct {
+		RootID string `json:"rootId"`
+	}
+	_ = g.ShouldBindJSON(&body)
+	if err := c.Svc.Compact(g.Request.Context(), body.RootID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrTopicNotFound):
 			g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

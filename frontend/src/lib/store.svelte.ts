@@ -549,23 +549,26 @@ class AppStore {
     }
   }
 
-  /* 归档换代（用户显式触发）：当前话题总结归档开新篇，线不变叶子换代 */
-  async compactTopic() {
+  /* 归档换代（分支列表行操作）：指定分支总结归档开新篇，线不变叶子换代 */
+  async compactTopic(rootId?: string) {
     if (this.archiving) return
-    if (this.busy) {
+    const active = !rootId || rootId === this.activeId
+    if (active && this.busy) {
       this.lastStatus = '会话运行中，稍后再归档'
       return
     }
     this.archiving = true
-    this.lastStatus = '正在归档话题…'
+    if (active) this.lastStatus = '正在归档话题…'
     try {
-      await api.compactTopic()
-      await this.loadHistory()
-      await this.refreshStatus()
+      await api.compactTopic(rootId)
+      if (active) {
+        await this.loadHistory()
+        await this.refreshStatus()
+      }
       await this.refreshBranches()
-      this.lastStatus = ''
+      if (active) this.lastStatus = ''
     } catch (e) {
-      this.lastStatus = `归档失败：${(e as Error).message}`
+      if (active) this.lastStatus = `归档失败：${(e as Error).message}`
     } finally {
       this.archiving = false
     }

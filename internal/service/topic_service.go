@@ -324,13 +324,18 @@ func (t *TopicService) Archive(ctx context.Context, id string, archived bool) er
 }
 
 /*
-Compact 归档换代（用户按键触发）：活动会话空闲时把当前话题总结归档
-并开新会话——旧库封存、新库 system 注入摘要、话题线换代（树的纵深）。
-与 trim（模型侧上下文整理，就地不换库）相对。摘要期间持归档锁：
-锁发消息/切分支/防二次触发（连续点击）。
+Compact 归档换代（用户按键触发，分支列表行操作）：把指定分支的当前
+话题总结归档并开新会话——旧库封存、新库 system 注入摘要、话题线换代
+（树的纵深）。rootID 空 = 活动分支。与 trim（模型侧上下文整理，就地
+不换库）相对。摘要期间持归档锁：锁发消息/切分支/防二次触发。
 */
-func (t *TopicService) Compact(ctx context.Context) error {
+func (t *TopicService) Compact(ctx context.Context, rootID string) error {
 	s := t.Hub.Active
+	if rootID != "" {
+		if v := t.Hub.SessionOf(rootID); v != nil {
+			s = v
+		}
+	}
 	if s == nil {
 		return ErrTopicNotFound
 	}

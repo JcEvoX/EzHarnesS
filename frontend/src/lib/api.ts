@@ -343,8 +343,8 @@ export const api = {
   /* 分支三操作：开新线 / 从源会话第 anchor 条消息（含）复制前缀分叉 / 切换分支 */
   newBranch: () => post<{ id: string }>('/api/branches/new'),
 
-  /* 归档换代：活动会话总结归档开新篇（会话树的纵深操作，空闲时可用） */
-  compactTopic: () => post<{ ok: boolean }>('/api/topics/compact'),
+  /* 归档换代：指定分支总结归档开新篇（会话树的纵深操作，空闲时可用；rootId 空=活动） */
+  compactTopic: (rootId?: string) => post<{ ok: boolean }>('/api/topics/compact', { rootId: rootId || '' }),
 
   forkSession: (sourceId: string, anchor: number) =>
     post<{ id: string }>(`/api/sessions/${sourceId}/fork`, { anchor }),

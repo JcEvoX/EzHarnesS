@@ -60,7 +60,6 @@
     <div class="head">
       <h2>分支</h2>
       <button class="new" onclick={() => void store.newBranch()} title="开一条新分支（新话题）">＋ 新建</button>
-      <button class="new" onclick={() => void store.compactTopic()} title="归档当前话题：总结归档并开新会话（同线换代）">归档</button>
       <button class="fold" onclick={() => fold(true)} title="收起">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 6l-6 6 6 6" />
@@ -83,6 +82,9 @@
               {#if b.waiting}<em class="wait">待审批</em>{/if}
             </span>
           </div>
+          <button class="arc" disabled={store.archiving || b.running}
+            onclick={(e) => { e.stopPropagation(); void store.compactTopic(b.id) }}
+            title="归档此话题：总结归档并开新会话（同线换代，树上加一代）">⇪</button>
         </div>
       {/each}
       {#if store.branches.length === 0}
@@ -203,6 +205,36 @@
   }
   .branch.cur {
     background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  }
+  /* 行尾归档按钮：hover 行时浮现，点击归档该分支（stopPropagation 不触发切换） */
+  .arc {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin-left: auto;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--faint);
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
+  }
+  .branch:hover .arc,
+  .arc:focus-visible {
+    opacity: 1;
+  }
+  .arc:hover {
+    color: var(--fg);
+    background: var(--bg);
+  }
+  .arc:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   /* 状态点：灰=空闲 绿=当前 橙闪=运行中 */
   .st {
