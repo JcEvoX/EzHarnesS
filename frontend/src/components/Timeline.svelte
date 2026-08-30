@@ -11,6 +11,30 @@
   let el: HTMLDivElement
   let stick = true
 
+  /* 右侧轮次导航：每轮用户输入一行，点击回溯、滚动跟随高亮 */
+  const turns = $derived(store.blocks.filter((b) => b.kind === 'user' && b.text.trim()))
+  let activeUid = $state('')
+
+  function updateActive() {
+    if (!el) return
+    const base = el.getBoundingClientRect().top
+    const line = base + Math.min(el.clientHeight * 0.35, 280)
+    let cur = ''
+    for (const n of el.querySelectorAll<HTMLElement>('[data-uid]')) {
+      if (n.getBoundingClientRect().top <= line) cur = n.dataset.uid ?? ''
+      else break
+    }
+    activeUid = cur
+  }
+
+  function jumpTo(uid: string) {
+    if (!el) return
+    const node = el.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
+    if (!node) return
+    const top = el.scrollTop + node.getBoundingClientRect().top - el.getBoundingClientRect().top - 24
+    el.scrollTo({ top, behavior: 'smooth' })
+  }
+
   /* 连续工具段分组：≥ TOOL_GROUP_MIN 折成一条摘要（审批卡等非 tool 块打断分组） */
   const TOOL_GROUP_MIN = 5
   type Seg = { type: 'one'; b: Block } | { type: 'tools'; blocks: Block[] }
@@ -145,6 +169,7 @@
   function onScroll() {
     if (!el) return
     stick = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    updateActive()
   }
 
   /* 模型调用中但正文尚未流出（首 token 前 / 纯工具调用构造期）→ 思考指示 */
@@ -164,11 +189,13 @@
   $effect(() => {
     void store.tick
     if (el && stick && !pull) el.scrollTop = el.scrollHeight
+    updateActive()
   })
 </script>
 
-<div class="timeline" bind:this={el} onscroll={onScroll} onwheel={onWheel}
-  ontouchstart={onTouchStart} ontouchmove={onTouchMove} ontouchend={onTouchEnd}>
+<div class="tlwrap">
+  <div class="timeline" bind:this={el} onscroll={onScroll} onwheel={onWheel}
+    ontouchstart={onTouchStart} ontouchmove={onTouchMove} ontouchend={onTouchEnd}>
   <div class="inner">
     <!-- 下拉指示器：随拉动量展开，文案三态（noMore 固定高度让"没有更早"可见） -->
     {#if pull > 0 || loading || noMore}
@@ -194,7 +221,7 @@
         {/if}
       {:else if seg.b.kind === 'user'}
         {@const ub = seg.b}
-        <div class:reveal={store.batchIds.has(ub.uid)}>
+        <div class:reveal={store.batchIds.has(ub.uid)} data-uid={ub.uid}>
           <MessageItem
             text={ub.text}
             role="user"
@@ -251,9 +278,28 @@
       </div>
     {/if}
   </div>
+  </div>
+  {#if turns.length >= 2}
+    <div class="turnnav">
+      {#each turns as t (t.uid)}
+        <button class:cur={t.uid === activeUid} onclick={() => jumpTo(t.uid)}
+          title={t.text.length > 40 ? t.text : undefined}>
+          <span class="tt">{t.text}</span>
+          <span class="tick"></span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
 
-<style>
+  <style>
+  /* 时间线容器：滚动区 + 右侧轮次导航 overlay 的定位父级 */
+  .tlwrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
   .timeline {
     flex: 1;
     overflow-y: auto;
@@ -261,6 +307,71 @@
     /* 滚动条槽位常驻：显隐不再挤压文本宽度；滚动不外传 */
     scrollbar-gutter: stable;
     overscroll-behavior: contain;
+  }
+  /* 轮次导航：贴内容右缘、输入框上方，列出每轮用户输入 */
+  .turnnav {
+    position: absolute;
+    right: 10px;
+    bottom: 12px;
+    z-index: 4;
+    max-width: 240px;
+    max-height: min(320px, 42%);
+    overflow-y: auto;
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 6%);
+    scrollbar-width: none;
+  }
+  .turnnav::-webkit-scrollbar {
+    display: none;
+  }
+  .turnnav button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--faint);
+    text-align: left;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  }
+  .turnnav button:hover {
+    background: var(--bg-soft);
+    color: var(--muted);
+  }
+  .turnnav button.cur {
+    color: var(--fg);
+    font-weight: 550;
+  }
+  .turnnav .tt {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .turnnav .tick {
+    flex: none;
+    margin-left: auto;
+    width: 10px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--line);
+    transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  }
+  .turnnav button.cur .tick {
+    width: 16px;
+    background: var(--fg);
   }
   .inner {
     max-width: 780px;
