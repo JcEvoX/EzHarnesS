@@ -190,9 +190,9 @@
                 <div class="add-form">
                   <input type="text" placeholder="模型名" bind:value={editDraft.name} />
                   <select bind:value={editDraft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
-                    <option value="openai">OpenAI 兼容（/chat/completions）</option>
-                    <option value="responses">Responses（/responses，DeepSeek/Codex）</option>
-                    <option value="anthropic">Anthropic（Claude /v1/messages）</option>
+                    <option value="openai">OpenAI 兼容</option>
+                    <option value="responses">Responses</option>
+                    <option value="anthropic">Anthropic</option>
                   </select>
                   <input type="text" placeholder="API 端点" bind:value={editDraft.baseUrl} />
                   <input type="password" placeholder="API Key" bind:value={editDraft.apiKey} />
@@ -224,9 +224,9 @@
             <div class="add-form">
               <input type="text" placeholder="模型名（如 deepseek-ai/DeepSeek-V3.2）" bind:value={draft.name} />
               <select bind:value={draft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
-                <option value="openai">OpenAI 兼容（/chat/completions）</option>
-                <option value="responses">Responses（/responses，DeepSeek/Codex）</option>
-                <option value="anthropic">Anthropic（Claude /v1/messages）</option>
+                <option value="openai">OpenAI 兼容</option>
+                <option value="responses">Responses</option>
+                <option value="anthropic">Anthropic</option>
               </select>
               <input type="text" placeholder={defaultBase()} bind:value={draft.baseUrl} />
               <input type="password" placeholder="API Key" bind:value={draft.apiKey} />
