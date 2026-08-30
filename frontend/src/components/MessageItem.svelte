@@ -1,15 +1,18 @@
 <script lang="ts">
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
+  import type { ImagePayload } from '../lib/api'
 
   let {
     text,
+    images,
     reasoning = '',
     streaming = false,
     role,
     onFork,
   }: {
     text: string
+    images?: ImagePayload[]
     reasoning?: string
     streaming?: boolean
     role: 'user' | 'assistant'
@@ -67,7 +70,18 @@
 {#if role === 'user'}
   <div class="user enter-rise">
     <span class="tag">你</span>
-    <div class="bubble">{text}</div>
+    <div class="ucontent">
+      {#if images?.length}
+        <div class="imgs">
+          {#each images as img, i (i)}
+            <img src={`data:${img.mimeType};base64,${img.data}`} alt="附件图片 {i + 1}" loading="lazy" />
+          {/each}
+        </div>
+      {/if}
+      {#if text}
+        <div class="bubble">{text}</div>
+      {/if}
+    </div>
     {#if onFork}
       <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
     {/if}
@@ -178,6 +192,27 @@
   .bubble::selection {
     background: rgb(255 255 255 / 32%);
     color: var(--fg-invert);
+  }
+  /* 多模态图片：缩略网格（点击原生放大交给浏览器，保持零依赖） */
+  .ucontent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+    max-width: 86%;
+  }
+  .imgs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .imgs img {
+    max-width: 240px;
+    max-height: 240px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    cursor: zoom-in;
   }
   .body {
     min-width: 0;

@@ -15,6 +15,13 @@ export interface HistoryMessage {
   tool_calls?: { ID: string; Name: string; Args: string | Record<string, unknown> }[]
   err?: string
   reasoning?: string
+  images?: ImagePayload[]
+}
+
+/* 多模态图片输入（内嵌 base64，后端 types.ImagePart） */
+export interface ImagePayload {
+  mimeType: string
+  data: string
 }
 
 export interface SseEvent {
@@ -113,6 +120,7 @@ export interface ModelEntry {
   tokens: number
   cost: number
   contextWindow?: number
+  protocol?: string // '' | 'openai'（默认）| 'responses' | 'anthropic'
 }
 
 export interface ModelsConfig {
@@ -277,7 +285,8 @@ export const api = {
       }),
     ),
 
-  send: (id: string, text: string) => post<{ ok: boolean }>(`/api/sessions/${id}/messages`, { text }),
+  send: (id: string, text: string, images?: ImagePayload[]) =>
+    post<{ ok: boolean }>(`/api/sessions/${id}/messages`, { text, images }),
 
   cancel: (id: string) => post<{ ok: boolean }>(`/api/sessions/${id}/cancel`),
 

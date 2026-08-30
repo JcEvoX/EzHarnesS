@@ -11,8 +11,10 @@
   let el: HTMLDivElement
   let stick = true
 
-  /* 右侧轮次导航：每轮用户输入一行，点击回溯、滚动跟随高亮 */
-  const turns = $derived(store.blocks.filter((b) => b.kind === 'user' && b.text.trim()))
+  /* 右侧轮次导航：每轮用户输入一行，点击回溯、滚动跟随高亮（纯图片轮次也算） */
+  const turns = $derived(
+    store.blocks.filter((b) => b.kind === 'user' && (b.text.trim() || b.images?.length)),
+  )
   let activeUid = $state('')
 
   function updateActive() {
@@ -224,6 +226,7 @@
         <div class:reveal={store.batchIds.has(ub.uid)} data-uid={ub.uid}>
           <MessageItem
             text={ub.text}
+            images={ub.images}
             role="user"
             onFork={ub.owner && ub.msgIdx !== undefined ? () => void store.forkFrom(ub.owner!, ub.msgIdx!) : undefined}
           />
@@ -284,7 +287,7 @@
       {#each turns as t (t.uid)}
         <button class:cur={t.uid === activeUid} onclick={() => jumpTo(t.uid)}
           title={t.text.length > 40 ? t.text : undefined}>
-          <span class="tt">{t.text}</span>
+          <span class="tt">{t.text || '[图片]'}</span>
           <span class="tick"></span>
         </button>
       {/each}

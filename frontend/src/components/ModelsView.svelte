@@ -25,9 +25,9 @@
   let saving = $state(false)
   let message = $state('')
   let adding = $state<SlotKey | null>(null)
-  let draft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, pairs: [] as HeaderPair[] })
+  let draft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', pairs: [] as HeaderPair[] })
   let editing = $state<{ slot: SlotKey; idx: number } | null>(null)
-  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, pairs: [] as HeaderPair[] })
+  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', pairs: [] as HeaderPair[] })
 
   onMount(async () => {
     try {
@@ -90,9 +90,10 @@
         tokens: 0,
         cost: 0,
         contextWindow: Number(draft.contextWindow) || 0,
+        protocol: draft.protocol || 'openai',
       },
     ]
-    draft = { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, pairs: [] }
+    draft = { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', pairs: [] }
     adding = null
     void persist()
   }
@@ -106,6 +107,7 @@
       baseUrl: m.baseUrl,
       apiKey: m.apiKey,
       contextWindow: m.contextWindow || 128000,
+      protocol: m.protocol || 'openai',
       pairs: Object.entries(m.headers ?? {}).map(([key, value]) => ({ key, value })),
     }
   }
@@ -124,6 +126,7 @@
             apiKey: editDraft.apiKey.trim(),
             headers: Object.keys(headers).length ? headers : undefined, // 删光时清掉旧值
             contextWindow: Number(editDraft.contextWindow) || 0,
+            protocol: editDraft.protocol || 'openai',
           }
         : e,
     )
@@ -175,7 +178,7 @@
                 <button class="dot" class:on={m.enabled} onclick={() => enable(k.key, i)} title={m.enabled ? '已启用' : '点击启用'}></button>
                 <div class="info">
                   <span class="name">{m.name}</span>
-                  <span class="meta">{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
+                  <span class="meta">{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
                 </div>
                 <div class="usage">
                   <span class="tokens" title="累计用量">{m.tokens > 0 ? fmtTokens(m.tokens) : '0'} tokens</span>
@@ -186,6 +189,11 @@
               {#if editing && editing.slot === k.key && editing.idx === i}
                 <div class="add-form">
                   <input type="text" placeholder="模型名" bind:value={editDraft.name} />
+                  <select bind:value={editDraft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
+                    <option value="openai">OpenAI 兼容（/chat/completions）</option>
+                    <option value="responses">Responses（/responses，DeepSeek/Codex）</option>
+                    <option value="anthropic">Anthropic（Claude /v1/messages）</option>
+                  </select>
                   <input type="text" placeholder="API 端点" bind:value={editDraft.baseUrl} />
                   <input type="password" placeholder="API Key" bind:value={editDraft.apiKey} />
                   <input type="number" placeholder="上下文窗口（tokens）" bind:value={editDraft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
@@ -215,6 +223,11 @@
           {#if adding === k.key}
             <div class="add-form">
               <input type="text" placeholder="模型名（如 deepseek-ai/DeepSeek-V3.2）" bind:value={draft.name} />
+              <select bind:value={draft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
+                <option value="openai">OpenAI 兼容（/chat/completions）</option>
+                <option value="responses">Responses（/responses，DeepSeek/Codex）</option>
+                <option value="anthropic">Anthropic（Claude /v1/messages）</option>
+              </select>
               <input type="text" placeholder={defaultBase()} bind:value={draft.baseUrl} />
               <input type="password" placeholder="API Key" bind:value={draft.apiKey} />
               <input type="number" placeholder="上下文窗口（tokens）" bind:value={draft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />

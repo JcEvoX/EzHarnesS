@@ -7,6 +7,7 @@ import {
   type DecisionRecord,
   type ForkSummary,
   type HistoryMessage,
+  type ImagePayload,
   type Settings,
   type SseEvent,
   type Status,
@@ -65,7 +66,7 @@ export interface NoticeData {
 /* 消息锚点（分叉定位）：owner=消息所属 session ID（leaf 或上翻出的旧世代），
    msgIdx=该会话 messages 数组下标；分叉复制 [0, msgIdx]（含选中消息） */
 export type Block = { uid: number } & (
-  | { kind: 'user'; text: string; owner?: string; msgIdx?: number }
+  | { kind: 'user'; text: string; images?: ImagePayload[]; owner?: string; msgIdx?: number }
   | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean; owner?: string; msgIdx?: number }
   | { kind: 'tool' } & ToolBlockData
   | { kind: 'fork'; forkId: string }
@@ -338,7 +339,7 @@ class AppStore {
         } else if (m.content.includes('<context_trim')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
         } else {
-          out.push({ kind: 'user', uid: this.nuid(), text: m.content, owner, msgIdx: mi })
+          out.push({ kind: 'user', uid: this.nuid(), text: m.content, images: m.images, owner, msgIdx: mi })
         }
       } else if (m.role === 'assistant') {
         if (m.content || m.reasoning) {
@@ -442,9 +443,9 @@ class AppStore {
   /* ── 发送 / 取消 ── */
 
   /* 打断式发送：运行中再来指令 = 先终止当前轮（等引擎真正退出，含工具树杀），
-     再执行新指令；等待超时则放弃并提示。 */
-  async send(text: string) {
-    if (!this.activeId || !text.trim()) return
+     再执行新指令；等待超时则放弃并提示。图片为可选多模态输入。 */
+  async send(text: string, images?: ImagePayload[]) {
+    if (!this.activeId || (!text.trim() && !images?.length)) return
     if (this.busy) {
       this.lastStatus = '正在终止当前轮…'
       await this.cancel()
@@ -453,11 +454,11 @@ class AppStore {
         return
       }
     }
-    this.blocks.push({ kind: 'user', uid: this.nuid(), text })
+    this.blocks.push({ kind: 'user', uid: this.nuid(), text, images })
     this.busy = true
     this.lastStatus = ''
     try {
-      await api.send(this.activeId, text)
+      await api.send(this.activeId, text, images)
       void this.refreshBranches() // 首次发言落线索引 + 运行指示
     } catch (e) {
       this.busy = false

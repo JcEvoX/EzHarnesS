@@ -1,17 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { store } from '../lib/store.svelte'
+  import { compressImage } from '../lib/image'
 
   let {
     files = [],
     onRemove,
     onEditImage,
     onOpenBoard,
+    onAddFiles,
+    onClearFiles,
   }: {
     files?: File[]
     onRemove?: (i: number) => void
     onEditImage?: (i: number) => void
     onOpenBoard?: () => void
+    onAddFiles?: (fs: File[]) => void
+    onClearFiles?: () => void
   } = $props()
 
   let text = $state('')
@@ -26,6 +31,9 @@
     })),
   )
 
+  /* 图片附件数量上限（与后端校验一致） */
+  const MAX_IMAGES = 8
+
   onMount(() => {
     /* rows=1 的浏览器默认高度与行高不齐，挂载即校准为单行高 */
     if (el) {
@@ -34,25 +42,45 @@
     }
   })
 
-  function send() {
+  async function send() {
     const t = text.trim()
-    if (!t) return
+    const imgs = files.filter((f) => f.type.startsWith('image/'))
+    if (!t && !imgs.length) return
     if (store.archivingRootId === store.activeId) {
       store.lastStatus = '正在归档当前话题，完成后即可继续对话（可先切换分支）'
       return
     }
-    if (files.length) {
-      store.lastStatus = '附件发送尚未接入（下一批），本次仅发送文本'
+    if (files.length > imgs.length) {
+      store.lastStatus = '暂只支持图片附件，非图片文件未发送'
     }
+    if (imgs.length > MAX_IMAGES) {
+      store.lastStatus = `图片最多 ${MAX_IMAGES} 张，多余的未发送`
+    }
+    const sendImgs = imgs.slice(0, MAX_IMAGES)
     text = ''
-    void store.send(t)
+    try {
+      const compressed = await Promise.all(sendImgs.map((f) => compressImage(f)))
+      onClearFiles?.()
+      await store.send(t, compressed)
+    } catch (e) {
+      store.lastStatus = `图片处理失败：${(e as Error).message}`
+    }
   }
 
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
-      send()
+      void send()
     }
+  }
+
+  /* 粘贴图片：拦截剪贴板 image 项转附件（与拖拽同路） */
+  function onPaste(e: ClipboardEvent) {
+    const items = [...(e.clipboardData?.items ?? [])]
+    const imgs = items.filter((i) => i.type.startsWith('image/')).map((i) => i.getAsFile()).filter(Boolean)
+    if (!imgs.length) return
+    e.preventDefault()
+    onAddFiles?.(imgs as File[])
   }
 
   function autoResize(e: Event) {
@@ -111,6 +139,7 @@
       onfocus={() => (focused = true)}
       onblur={() => (focused = false)}
       onkeydown={onKey}
+      onpaste={onPaste}
       oninput={autoResize}
       disabled={!store.activeId}
     ></textarea>
@@ -129,14 +158,14 @@
           <rect x="7" y="7" width="10" height="10" rx="1.5" />
         </svg>
       </button>
-      <button class="send ghost" onclick={send} disabled={!text.trim()} title="终止当前轮并发送新指令">
+      <button class="send ghost" onclick={() => void send()} disabled={!text.trim() && !files.length} title="终止当前轮并发送新指令">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 19V5" />
           <path d="M5 12l7-5 5 5" />
         </svg>
       </button>
     {:else}
-      <button class="send" onclick={send} disabled={!text.trim()} title="发送">
+      <button class="send" onclick={() => void send()} disabled={!text.trim() && !files.length} title="发送">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 19V5" />
           <path d="M5 12l7-5 5 5" />

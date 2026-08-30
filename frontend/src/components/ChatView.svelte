@@ -10,7 +10,7 @@
   import type { Notice } from './NoticePanel.svelte'
 
   /* 拖拽附件：整个对话页是热区（dragenter/leave 计数防子元素抖动）。
-  发送逻辑待业务开发。 */
+  图片附件随消息多模态直发（粘贴/画板同路），非图片暂不支持。 */
   let files = $state<File[]>([])
   let dragging = $state(false)
   let depth = 0
@@ -48,6 +48,14 @@
 
   function removeFile(i: number) {
     files = files.filter((_, idx) => idx !== i)
+  }
+
+  function addFiles(fs: File[]) {
+    files = [...files, ...fs]
+  }
+
+  function clearFiles() {
+    files = []
   }
 
   function openBoard(i: number | null) {
@@ -106,6 +114,8 @@
       onRemove={removeFile}
       onEditImage={(i) => openBoard(i)}
       onOpenBoard={() => openBoard(null)}
+      onAddFiles={addFiles}
+      onClearFiles={clearFiles}
     />
   </div>
   <aside class="side-left">
