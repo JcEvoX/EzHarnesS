@@ -251,6 +251,7 @@ export const api = {
         messages: HistoryMessage[]
         targetId?: string
         seedKind?: 'new' | 'fork' | 'compress' | string
+        canPrev?: boolean
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]

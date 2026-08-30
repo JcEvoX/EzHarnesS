@@ -55,9 +55,10 @@ type HistoryData struct {
 	ID          string                 `json:"id"` // 叶 session ID
 	RootID      string                 `json:"rootId"`
 	Busy        bool                   `json:"busy"`
-	Messages    []types.Message        `json:"messages"`
+	Messages    []types.Message        `json:"messages"` // 剥 system：与盘上快照同基准（分叉 msgIdx 对位）
 	TargetID    string                 `json:"targetId,omitempty"`  // 向上边目标（compress 链上翻游标）
 	SeedKind    string                 `json:"seedKind,omitempty"` // new | fork | compress
+	CanPrev     bool                   `json:"canPrev"`             // 上翻是否还有上一级（后端判定，fork 换源后算）
 	ForkedFrom  *hooks.ForkOrigin      `json:"forkedFrom,omitempty"`
 	PrevTitle   string                 `json:"prevTitle,omitempty"` // 上一话题标题（压缩标记用）
 	Decisions   []hooks.DecisionRecord `json:"decisions,omitempty"` // 人机决策记录（工具卡徽标用）
@@ -159,14 +160,42 @@ func (s *SessionService) History(rootID string) HistoryData {
 		ID:      sess.ID,
 		RootID:  sess.RootID,
 		Busy:    sess.Busy(),
-		Messages: sess.History(),
+		Messages: stripSystemMsgs(sess.History()),
 		TargetID: edge.TargetID,
 		SeedKind: edge.SeedKind,
+		CanPrev:  s.canPrev(context.Background(), sess.ID),
 		ForkedFrom: edge.ForkedFrom,
 	}
 	h.Decisions = hooks.LoadDecisions(context.Background(), sess.Fsys, h.ID)
 	h.Forks = hooks.ListForks(context.Background(), sess.Fsys, h.ID)
 	return h
+}
+
+/* stripSystemMsgs 剥 system 消息（GET 响应与盘上快照同基准，分叉对位）。 */
+func stripSystemMsgs(msgs []types.Message) []types.Message {
+	out := make([]types.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role != types.RoleSystem {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+/* canPrev 判定 id 上翻是否还有上一级（与 Prev 同规则：fork 换源后算）。 */
+func (s *SessionService) canPrev(ctx context.Context, id string) bool {
+	cur, err := hooks.LoadSnap(ctx, s.Hub.Fsys, id)
+	if err != nil {
+		return false
+	}
+	if cur.SeedKind == "fork" && cur.TargetID != "" {
+		src, serr := hooks.LoadSnap(ctx, s.Hub.Fsys, cur.TargetID)
+		if serr != nil {
+			return false
+		}
+		cur = src
+	}
+	return cur.TargetID != ""
 }
 
 /* ForkData 是 fork 分身详情响应（抽屉懒加载）。 */
