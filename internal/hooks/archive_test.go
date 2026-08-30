@@ -72,10 +72,10 @@ func TestArchiveSession(t *testing.T) {
 	if _, summary := sys.Parts(); !strings.Contains(summary, "交接摘要") {
 		t.Fatalf("sys must pin summary block, got %q", summary)
 	}
-	// 话题线换代：LeafID 指新库
+	// 话题线换代：LeafID 指新库，标题重置为未命名（新会话首条 user 后由 refreshLine 命名）
 	list := topics.Load()
-	if len(list) != 1 || list[0].LeafID != info.NewID || list[0].Title != "聊聊 Go 并发" {
-		t.Fatalf("line must rotate leaf: %+v", list)
+	if len(list) != 1 || list[0].LeafID != info.NewID || list[0].Title != "未命名" {
+		t.Fatalf("line must rotate leaf with reset title: %+v", list)
 	}
 }
 

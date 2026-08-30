@@ -153,15 +153,7 @@ func (t *TopicService) Fork(ctx context.Context, sourceID string, anchor int) (*
 		}
 		src = parent // 副本 [0, src.Anchor) 与 parent 同源，anchor 索引不变
 	}
-	title := ""
-	if src.LineRoot != "" {
-		if e, ok := t.Hub.Topics.Get(src.LineRoot); ok && e.Title != "" {
-			title = e.Title
-		}
-	}
-	if title == "" {
-		title = hooks.FirstUserTitle(src.Messages)
-	}
+	title := hooks.TitleFromMsg(src.Messages[anchor-1]) // fork 用分叉锚点消息内容命名
 	newID := hooks.NewSessionID()
 	now := time.Now().UnixMilli()
 	snap := &hooks.SessionSnap{

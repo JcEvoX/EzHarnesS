@@ -130,8 +130,9 @@ func (c *ChatService) ensureIndexed(s *domain.Session, firstText string) {
 	})
 }
 
-/* refreshLine 轮末刷新线（叶子/活动时间/规模；fork 线出现自己的首条
-新增 user 消息后标题切换）。 */
+/* refreshLine 轮末刷新线（叶子/活动时间/规模）。命名规则：线标题为
+"未命名"（归档换代重置 / 新建未发言）时按本代首条真实 user 消息命名；
+已命名的线不随后续消息改标题（fork 线在创建时用锚点消息命名）。 */
 func (c *ChatService) refreshLine(s *domain.Session) {
 	if s.RootID == "" {
 		return
@@ -141,8 +142,8 @@ func (c *ChatService) refreshLine(s *domain.Session) {
 		return
 	}
 	msgs := s.History()
-	if entry.Kind == "fork" && entry.Origin != nil && len(msgs) > entry.Origin.Anchor {
-		if t2 := hooks.FirstUserTitle(msgs[entry.Origin.Anchor:]); t2 != "未命名话题" {
+	if entry.Title == "" || entry.Title == "未命名" {
+		if t2 := hooks.FirstUserTitle(msgs); t2 != "未命名话题" {
 			c.Hub.Topics.SetTitle(s.RootID, t2)
 		}
 	}

@@ -49,7 +49,6 @@ func ArchiveSession(ctx context.Context, p provider.ModelProvider, fsys fs.FileS
 	if oldID == "" {
 		return CompactInfo{}, errors.New("no session to archive")
 	}
-	title := FirstUserTitle(full)
 	summaryText, err := summarizeMsgs(ctx, p, archiveSummaryPrompt, view)
 	if err != nil {
 		return CompactInfo{}, err
@@ -113,10 +112,24 @@ func ArchiveSession(ctx context.Context, p provider.ModelProvider, fsys fs.FileS
 	if trace != nil {
 		trace.SetTrace(newID)
 	}
-	_ = topics.UpdateLeaf(root, newID, title, now.UnixMilli(), len(full))
+	// 换代重置标题：新会话首条真实 user 后由 refreshLine 命名
+	topics.SetTitle(root, "未命名")
+	_ = topics.UpdateLeaf(root, newID, "未命名", now.UnixMilli(), len(full))
 
-	return CompactInfo{OldID: oldID, NewID: newID, Title: title, Summary: summaryText,
-		PrevPath: prevPath}, nil
+	return CompactInfo{OldID: oldID, NewID: newID, Title: FirstUserTitle(full),
+		Summary: summaryText, PrevPath: prevPath}, nil
+}
+
+/* TitleFromMsg 用消息内容作标题（fork 锚点命名）：截断 40 字。 */
+func TitleFromMsg(m types.Message) string {
+	t := strings.TrimSpace(m.Content)
+	if t == "" {
+		return "未命名"
+	}
+	if len([]rune(t)) > 40 {
+		return string([]rune(t)[:40]) + "…"
+	}
+	return t
 }
 
 /*
