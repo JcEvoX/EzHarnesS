@@ -119,14 +119,14 @@
   <aside class="side">
     <StatusCard />
     <NoticePanel notices={store.notices} onResolve={resolveNotice} onJump={jumpToNotice} onDismiss={(id) => store.dismissNotice(id)} />
-    <button class="board-entry" onclick={() => store.toggleBoard()} title="魔法看板（画板 / 浏览器 / 终端）">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2.5" />
-        <path d="M3 9.5h18" />
-        <path d="M9.5 21V9.5" />
-      </svg>
-      <span>魔法看板</span>
-    </button>
+    <div class="entries">
+      <button class="entry" onclick={() => store.toggleTermDrawer()} title="共享终端（用户与 AI 共写）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 8l4 4-4 4" />
+          <path d="M12 16.5h7" />
+        </svg>
+      </button>
+    </div>
   </aside>
   <ForkPanel />
   {#if dragging}    <div class="dropzone">
@@ -204,32 +204,34 @@
   .side > :global(.panel) {
     min-height: 0; /* 通知过多时收缩，列表内部滚动 */
   }
-  /* 魔法看板入口：右列通知下方，紧凑条状（与卡片同视觉语言） */
-  .board-entry {
+  /* 终端抽屉入口：右列通知下方，方形图标钮（与卡片同视觉语言） */
+  .entries {
     align-self: flex-end;
     display: flex;
-    align-items: center;
-    gap: 7px;
+    gap: 8px;
+  }
+  .entry {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
     border: 1px solid var(--line);
     background: var(--bg);
     color: var(--muted);
     border-radius: 10px;
-    padding: 7px 12px;
-    font-size: 12px;
-    font-weight: 550;
     transition:
       background var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out),
       border-color var(--dur-fast) var(--ease-out);
   }
-  .board-entry:hover {
+  .entry:hover {
     background: var(--bg-soft);
     color: var(--fg);
     border-color: var(--line-strong);
   }
-  .board-entry svg {
-    width: 14px;
-    height: 14px;
+  .entry svg {
+    width: 16px;
+    height: 16px;
   }
   .dropzone {
     position: absolute;

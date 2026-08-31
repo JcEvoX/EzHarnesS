@@ -172,16 +172,16 @@ class AppStore {
   /* 分身抽屉：当前打开的分身与待定位的决策卡（通知跳转用） */
   activeForkId = $state('')
   jumpDecision = $state('')
-  /* 魔法看板：开合/当前 tab/画板底图（编辑附件时为原 File）与待回流产物。
+  /* 画板：开合/画板底图（编辑附件时为原 File）与待回流产物。
      boardSeq 在每次"从关到开"时递增（Panel 用 {#key} 重建画板=新画布）；
      pendingBoardFile 由 ChatView 消费进附件列表（tag 为编辑目标下标） */
   boardOpen = $state(false)
-  boardTab = $state<'board' | 'browser' | 'terminal'>('board')
   boardSeq = $state(0)
   boardSource = $state<File | null>(null)
   pendingBoardFile = $state<{ file: File; tag: string; source: File | null } | null>(null)
-  /* 看板浏览器:待打开的 URL(点消息链接 → 看板浏览器 tab 加载) */
-  browserURL = $state('')
+  /* 共享终端抽屉(独立于画板 overlay,与聊天并存):收起仅滑出,
+     WS/xterm 常驻保活 */
+  termDrawerOpen = $state(false)
   private boardTag = ''
   /* 模型调用进行中（model_start→model_end），思考指示用 */
   modelActive = $state(false)
@@ -201,10 +201,10 @@ class AppStore {
 
   private unsub: (() => void) | null = null
   private uidSeq = 0
-  /* term_* 工具的看板自动弹出:免审调用延迟 ~1s 打开(tool_start 先于
+  /* term_* 工具的抽屉自动拉开:免审调用延迟 ~1s 打开(tool_start 先于
   approve.request 到达,1s 内无审批请求即视为免审直接执行);进入审批
   则等用户批准(decision.resolved=已批准)才打开——未批准时命令不会
-  运行,提前弹板只是打扰。 */
+  运行,提前弹出只是打扰。 */
   private termOpenTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private termApprovals = new Map<string, string>()
 
@@ -446,13 +446,12 @@ class AppStore {
 
   /* ── 魔法看板 ── */
 
-  /* openBoard 打开看板画板 tab；source 为编辑中的附件底图（tag 为其下标，
+  /* openBoard 打开画板；source 为编辑中的附件底图（tag 为其下标，
      回流时据此替换）。从关到开时递增 boardSeq（画板重建=新画布）。 */
   openBoard(source: File | null = null, tag = '') {
     if (!this.boardOpen) this.boardSeq++
     this.boardSource = source
     this.boardTag = tag
-    this.boardTab = 'board'
     this.boardOpen = true
   }
 
@@ -471,17 +470,18 @@ class AppStore {
     else this.openBoard()
   }
 
-  /* openInBrowser 在看板浏览器 tab 打开链接(共览场景入口)。 */
-  openInBrowser(url: string) {
-    this.browserURL = url
-    this.boardOpen = true
-    this.boardTab = 'browser'
+  /* openTermDrawer 拉开共享终端抽屉（AI term_* 实际执行时调用；
+     抽屉与聊天并存，不打断当前视图）。 */
+  private openTermDrawer() {
+    this.termDrawerOpen = true
   }
 
-  /* openTermBoard 打开看板并切到终端 tab（AI term_* 实际执行时调用）。 */
-  private openTermBoard() {
-    this.boardOpen = true
-    this.boardTab = 'terminal'
+  closeTermDrawer() {
+    this.termDrawerOpen = false
+  }
+
+  toggleTermDrawer() {
+    this.termDrawerOpen = !this.termDrawerOpen
   }
 
   /* loadForkDetail 懒加载存档详情（已结束分身的执行记录重建）；运行中的
@@ -744,10 +744,10 @@ class AppStore {
           this.resolveNotice(d.id, d.resolution || '')
           this.removeResolvedDecisions(d.id)
         }
-        // term_* 审批通过 → 现在才弹看板（拒绝则什么都不做）
+        // term_* 审批通过 → 现在才拉开终端抽屉（拒绝则什么都不做）
         if (d.id && this.termApprovals.has(d.id)) {
           this.termApprovals.delete(d.id)
-          if ((d.resolution || '').startsWith('已批准')) this.openTermBoard()
+          if ((d.resolution || '').startsWith('已批准')) this.openTermDrawer()
         }
         break
       }
@@ -836,8 +836,8 @@ class AppStore {
           })
         }
         if (!ev.forkId) this.lastTool = d.name || ''
-        // AI 用共享终端工具:延迟弹看板(见 termOpenTimers 注释——审批路径
-        // 由 approve.request 取消计时,批准后才弹)
+        // AI 用共享终端工具:延迟拉开终端抽屉(见 termOpenTimers 注释——
+        // 审批路径由 approve.request 取消计时,批准后才拉)
         if ((d.name || '').startsWith('term_') && d.id && !this.termApprovals.has(d.id)) {
           const id = d.id
           this.termOpenTimers.get(id) && clearTimeout(this.termOpenTimers.get(id))
@@ -845,7 +845,7 @@ class AppStore {
             id,
             setTimeout(() => {
               this.termOpenTimers.delete(id)
-              this.openTermBoard()
+              this.openTermDrawer()
             }, 1000),
           )
         }

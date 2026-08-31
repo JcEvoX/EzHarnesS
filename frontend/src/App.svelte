@@ -13,6 +13,7 @@
   import SecurityView from './components/SecurityView.svelte'
   import SettingsView from './components/SettingsView.svelte'
   import Panel from './components/board/Panel.svelte'
+  import TerminalDrawer from './components/board/TerminalDrawer.svelte'
 
   let view = $state<'chat' | 'models' | 'memory' | 'knowledge' | 'tools' | 'mcp' | 'security' | 'settings'>('chat')
   let expanded = $state(false)
@@ -72,8 +73,9 @@
   <a href="https://github.com/xuanlv2002/ezloop" target="_blank" rel="noreferrer">powered by ezloop</a>
 </footer>
 
-<!-- 魔法看板：全局工作台（fixed 定位，不参与 view 切换） -->
+<!-- 魔法看板（画板/浏览器大 overlay）与共享终端抽屉：fixed 定位，不参与 view 切换 -->
 <Panel />
+<TerminalDrawer />
 
 <style>
   .shell {

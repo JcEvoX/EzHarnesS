@@ -391,7 +391,7 @@ func termReportFn(t *TerminalService) func() hooks.TermReport {
 	return func() hooks.TermReport {
 		var rep hooks.TermReport
 		for _, info := range t.List() {
-			rep.Terms = append(rep.Terms, hooks.StatusTerm{ID: info.ID, Name: info.Name, Exited: info.Exited})
+			rep.Terms = append(rep.Terms, hooks.StatusTerm{ID: info.ID, Name: info.Name, Exited: info.Exited, Origin: info.Origin})
 		}
 		for _, l := range t.CollectUserActivity() {
 			rep.Lines = append(rep.Lines, hooks.UserAction{ID: l.ID, Line: l.Line})

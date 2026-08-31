@@ -141,6 +141,12 @@
       oninput={autoResize}
       disabled={!store.activeId}
     ></textarea>
+    <button class="board-btn" onclick={() => store.openBoard()} title="打开画板（画图/标注后发送）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19l7-7a4.95 4.95 0 1 0-7-7l-7 7v7h7z" />
+        <path d="M16 8l1.5 1.5" />
+      </svg>
+    </button>
     {#if store.busy}
       <!-- 运行中：⏹ 终止当前轮；已输入文字时 ⬆ 可打断并改发新指令 -->
       <button class="stop" onclick={() => void store.cancel()} title="取消当前轮">
@@ -345,6 +351,31 @@
     transition: opacity var(--dur-fast) var(--ease-out);
   }
   .send svg {
+    width: 15px;
+    height: 15px;
+  }
+  /* 画板入口：发送键旁的弱化图标钮 */
+  .board-btn {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .board-btn:hover {
+    background: var(--bg);
+    color: var(--fg);
+    border-color: var(--line-strong);
+  }
+  .board-btn svg {
     width: 15px;
     height: 15px;
   }

@@ -40,6 +40,7 @@ type StatusTerm struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Exited bool   `json:"exited"`
+	Origin string `json:"origin"` // "用户" / "AI" / "AI·<会话名>"：新增时报来源，模型可区分手动/自建终端
 }
 
 /* UserAction 是用户在终端的一次手动输入（agent_status 注入，AI 感知
@@ -185,42 +186,56 @@ func (h *Status) build(ctx context.Context) StatusData {
 	return data
 }
 
-/* termKey 终端基线编码（id|名称|是否退出）。 */
+/* termKey 终端基线编码（id|名称|是否退出|来源）。 */
 func termKey(t StatusTerm) string {
-	return fmt.Sprintf("%s|%s|%v", t.ID, t.Name, t.Exited)
+	return fmt.Sprintf("%s|%s|%v|%s", t.ID, t.Name, t.Exited, t.Origin)
 }
 
 /* diffTerms 对比终端基线产出变更（同 id 退出态变化报"已退出"，
-消失报"已关闭"，AI 可感知用户关掉了自己开的终端）。 */
+消失报"已关闭"，AI 可感知用户关掉了自己开的终端；新增时报创建
+来源——用户手动开的终端对模型是未知状态，须显式区分）。 */
 func diffTerms(oldS, newS []string) []string {
-	parse := func(s string) (id, name string, exited bool) {
-		parts := strings.SplitN(s, "|", 3)
-		if len(parts) != 3 {
-			return s, s, false
+	parse := func(s string) (id, name, origin string, exited bool) {
+		parts := strings.SplitN(s, "|", 4)
+		if len(parts) < 3 {
+			return s, s, "", false
 		}
-		return parts[0], parts[1], parts[2] == "true"
+		exited = parts[2] == "true"
+		if len(parts) == 4 {
+			return parts[0], parts[1], parts[3], exited
+		}
+		return parts[0], parts[1], "", exited // 旧 3 段基线（无来源）
+	}
+	originLabel := func(origin string) string {
+		switch {
+		case origin == "用户":
+			return "，用户手动创建"
+		case strings.HasPrefix(origin, "AI"):
+			return "，AI 创建"
+		}
+		return ""
 	}
 	prev := map[string]string{}
 	for _, s := range oldS {
-		id, _, _ := parse(s)
+		id, _, _, _ := parse(s)
 		prev[id] = s
 	}
 	var out []string
 	seen := map[string]bool{}
 	for _, s := range newS {
-		id, name, exited := parse(s)
+		id, name, origin, exited := parse(s)
 		seen[id] = true
 		old, had := prev[id]
 		if !had {
-			out = append(out, fmt.Sprintf("新增终端 %s(%s)", id, name))
+			out = append(out, fmt.Sprintf("新增终端 %s(%s)%s", id, name, originLabel(origin)))
 			continue
 		}
-		if _, _, wasExited := parse(old); exited && !wasExited {
+		if _, _, _, wasExited := parse(old); exited && !wasExited {
 			out = append(out, fmt.Sprintf("终端 %s(%s) 已退出", id, name))
 		}
 	}
 	for _, s := range oldS {
-		id, name, _ := parse(s)
+		id, name, _, _ := parse(s)
 		if !seen[id] {
 			out = append(out, fmt.Sprintf("终端 %s(%s) 已关闭", id, name))
 		}

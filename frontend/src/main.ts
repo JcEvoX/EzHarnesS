@@ -1,7 +1,7 @@
 import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
-import { store } from './lib/store.svelte'
+import { isDesktop } from './lib/desktop'
 
 /* 启动横幅：isometric1 等轴测 3D 字体，逐行青→紫渐变（ez 系列 logo 同款色系） */
 const LOGO = [
@@ -31,9 +31,9 @@ LOGO.forEach((line, i) => {
 
 const app = mount(App, { target: document.getElementById('app')! })
 
-/* 外部链接拦截（捕获阶段）：点击消息/页面里的外链一律在魔法看板浏览器
-   tab 打开（共览场景）。桌面壳 WebView 当前页导航会离开应用（SPA 被顶掉
-   无法返回），绝不能放行；同源相对链接（快应用等）不拦。 */
+/* 外部链接拦截（捕获阶段）：点击消息/页面里的外链在系统浏览器打开。
+   桌面壳 WebView 当前页导航会离开应用（SPA 被顶掉无法返回），绝不能
+   放行；浏览器模式直接 window.open；同源相对链接（快应用等）不拦。 */
 document.addEventListener(
   'click',
   (e) => {
@@ -50,7 +50,15 @@ document.addEventListener(
     if (origin === location.origin) return
     e.preventDefault()
     e.stopPropagation()
-    store.openInBrowser(href)
+    if (isDesktop) {
+      void fetch('/api/window/open-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: href }),
+      })
+    } else {
+      window.open(href, '_blank', 'noopener')
+    }
   },
   true,
 )
