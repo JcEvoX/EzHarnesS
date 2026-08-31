@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { isDesktop } from '../lib/desktop'
+
   /* 桌面壳标题栏：?desktop 参数时渲染（桌面窗口 URL 带 ?desktop=1）。
      三键/状态走 /api/window/*（Go 侧桥接原生窗口），拖拽与双击最大化由
      WebView2 原生非客户区支持处理（CSS app-region），浏览器访问不渲染 */
-  const desktop = new URLSearchParams(location.search).has('desktop')
+  const desktop = isDesktop
 
   let maximized = $state(false)
 

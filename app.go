@@ -30,7 +30,15 @@ type app struct {
 	hub    *domain.Hub // 当前代领域根（换代重建；退出/换代收尾用）
 	srv    *http.Server
 	winCtl *controller.WindowController
-	boot   atomic.Int64 // 服务代际（换代重启递增，跨代共享）
+	term   *service.TerminalService // 当前代共享终端（换代重建；收尾杀全部 shell）
+	boot   atomic.Int64             // 服务代际（换代重启递增，跨代共享）
+}
+
+/* setTerm 记录当前代共享终端（buildRouter 装配时调用）。 */
+func (a *app) setTerm(t *service.TerminalService) {
+	a.mu.Lock()
+	a.term = t
+	a.mu.Unlock()
 }
 
 /* newApp 创建应用并切到数据目录（进程 cwd 即数据根）。 */
@@ -140,9 +148,13 @@ OnEnd 落盘，不等待直接退出会丢整轮），再直接 Close 关 HTTP�
 */
 func (a *app) shutdownGeneration() {
 	a.mu.Lock()
-	hub, srv := a.hub, a.srv
+	hub, srv, term := a.hub, a.srv, a.term
 	a.srv = nil
+	a.term = nil
 	a.mu.Unlock()
+	if term != nil {
+		term.Shutdown(3 * time.Second) // 换代=换数据目录:杀全部终端 shell
+	}
 	if hub != nil {
 		hub.Active.Shutdown(5 * time.Second)
 		// 后台分支的运行轮同样只在 OnEnd 落盘：逐个收尾，不等待直接退出会丢轮

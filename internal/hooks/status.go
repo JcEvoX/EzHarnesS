@@ -35,6 +35,26 @@ type StatusMcp struct {
 	Desc string `json:"desc,omitempty"`
 }
 
+/* StatusTerm 是状态栏的终端条目（多终端清单 diff 用）。 */
+type StatusTerm struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Exited bool   `json:"exited"`
+}
+
+/* UserAction 是用户在终端的一次手动输入（agent_status 注入，AI 感知
+人为操作）。 */
+type UserAction struct {
+	ID   string `json:"id"`
+	Line string `json:"line"`
+}
+
+/* TermReport 是 status 向服务层要的终端状态面。 */
+type TermReport struct {
+	Terms []StatusTerm
+	Lines []UserAction
+}
+
 /* StatusData 是状态快照内容（SSE 事件给前端渲染；注入给模型的正文
 由 render 转成中文语义化文本）。skill/mcp 全量清单在 system
 （<skills>/<mcp> 块），这里只注入变更。 */
@@ -54,16 +74,18 @@ type Status struct {
 	ctxTokens func() int
 	ctxWindow int
 	mcpList   func() []StatusMcp
+	termRep   func() TermReport // 可空：无共享终端服务时不注入
 }
 
 /*
 NewStatus 创建状态栏 hook。ctxTokens 返回最近一次模型调用的 prompt
 tokens；ctxWindow 是主模型上下文窗口（<=0 由调用方兜底默认）；
-mcpList 返回启用的 server 清单（描述截断由调用方完成）。
+mcpList 返回启用的 server 清单（描述截断由调用方完成）；
+termRep 返回共享终端清单与用户手动输入（可空）。
 */
 func NewStatus(fsys fs.FileSystem, store *Store, ctxTokens func() int, ctxWindow int,
-	mcpList func() []StatusMcp) *Status {
-	return &Status{fsys: fsys, store: store, ctxTokens: ctxTokens, ctxWindow: ctxWindow, mcpList: mcpList}
+	mcpList func() []StatusMcp, termRep func() TermReport) *Status {
+	return &Status{fsys: fsys, store: store, ctxTokens: ctxTokens, ctxWindow: ctxWindow, mcpList: mcpList, termRep: termRep}
 }
 
 func (h *Status) Name() string { return "status" }
@@ -139,12 +161,71 @@ func (h *Status) build(ctx context.Context) StatusData {
 	}
 	sort.Strings(curMcps)
 
+	/* 终端：清单变更走基线 diff（新增/退出/关闭）；用户手动输入收割即
+	注入（服务侧队列取走即清，AI 写入不记录） */
+	var curTerms []string
+	var userChanges []string
+	if h.termRep != nil {
+		rep := h.termRep()
+		for _, t := range rep.Terms {
+			curTerms = append(curTerms, termKey(t))
+		}
+		for _, a := range rep.Lines {
+			userChanges = append(userChanges, fmt.Sprintf("用户在终端 %s 执行：%s", a.ID, a.Line))
+		}
+	}
+
 	if prev := h.store.ResSnap(); prev != nil {
 		data.Changes = append(diffNames(prev.Skills, curSkills, "skill"),
 			diffNames(prev.Mcps, curMcps, "mcp")...)
+		data.Changes = append(data.Changes, diffTerms(prev.Terms, curTerms)...)
 	}
-	h.store.SetResSnap(&ResSnapshot{Skills: curSkills, Mcps: curMcps})
+	data.Changes = append(data.Changes, userChanges...)
+	h.store.SetResSnap(&ResSnapshot{Skills: curSkills, Mcps: curMcps, Terms: curTerms})
 	return data
+}
+
+/* termKey 终端基线编码（id|名称|是否退出）。 */
+func termKey(t StatusTerm) string {
+	return fmt.Sprintf("%s|%s|%v", t.ID, t.Name, t.Exited)
+}
+
+/* diffTerms 对比终端基线产出变更（同 id 退出态变化报"已退出"，
+消失报"已关闭"，AI 可感知用户关掉了自己开的终端）。 */
+func diffTerms(oldS, newS []string) []string {
+	parse := func(s string) (id, name string, exited bool) {
+		parts := strings.SplitN(s, "|", 3)
+		if len(parts) != 3 {
+			return s, s, false
+		}
+		return parts[0], parts[1], parts[2] == "true"
+	}
+	prev := map[string]string{}
+	for _, s := range oldS {
+		id, _, _ := parse(s)
+		prev[id] = s
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, s := range newS {
+		id, name, exited := parse(s)
+		seen[id] = true
+		old, had := prev[id]
+		if !had {
+			out = append(out, fmt.Sprintf("新增终端 %s(%s)", id, name))
+			continue
+		}
+		if _, _, wasExited := parse(old); exited && !wasExited {
+			out = append(out, fmt.Sprintf("终端 %s(%s) 已退出", id, name))
+		}
+	}
+	for _, s := range oldS {
+		id, name, _ := parse(s)
+		if !seen[id] {
+			out = append(out, fmt.Sprintf("终端 %s(%s) 已关闭", id, name))
+		}
+	}
+	return out
 }
 
 /* diffNames 对比新旧名单产出变更记录（中文完整短语，模型可读）。 */

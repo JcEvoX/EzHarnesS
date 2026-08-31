@@ -18,6 +18,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -155,15 +156,20 @@ func (a wailsWindow) IsMaximised() bool { return a.win.IsMaximised() }
 func (a wailsWindow) Close()            { a.win.Close() }
 
 /* OpenAppWindow 为快应用开独立子窗口：页面走本进程 gin 直出的绝对 URL
-（release 与 dev 一致；wails 资产域只服务主窗口相对路径）。带系统标题栏。 */
+（release 与 dev 一致；wails 资产域只服务主窗口相对路径）。带系统标题栏。
+path 为完整 http(s) URL 时直接加载（看板浏览器的"独立窗口"，绕开 iframe
+内嵌限制）。 */
 func (a wailsWindow) OpenAppWindow(path, title string) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", a.port(), path)
+	url := path
+	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+		url = fmt.Sprintf("http://127.0.0.1:%d%s", a.port(), path)
+	}
 	opts := application.WebviewWindowOptions{
 		Name:   fmt.Sprintf("app-%d", appWinSeq.Add(1)),
 		Title:  title,
 		URL:    url,
-		Width:  960,
-		Height: 640,
+		Width:  1100,
+		Height: 720,
 		Hidden: true,
 	}
 	w := a.wailsApp.Window.NewWithOptions(opts)

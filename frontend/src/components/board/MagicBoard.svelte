@@ -6,20 +6,22 @@
   拖动/笔画期间只叠加活动元素（rAF 节流）。
   工具：选择（拖动 / Del 删除 / 双击改字）、画笔、白笔、矩形、
   椭圆、箭头、文本。贴入图片作底图垫底；导出走离屏合成。
+  作为看板 tab 常驻（keep-alive）：active 仅在本 tab 激活时为真，
+  键盘监听与尺寸测量都按此守卫（display:none 下 clientWidth=0）。
   */
   let {
     source = null,
+    active = false,
     onDone,
-    onClose,
   }: {
     source?: File | null
+    active?: boolean
     onDone: (f: File) => void
-    onClose: () => void
   } = $props()
 
   /* ── 常量与类型 ── */
 
-  /* 画布逻辑尺寸：挂载时按容器 × dpr 自适应（cap 2048 保清晰与性能） */
+  /* 画布逻辑尺寸：首次可见时按容器 × dpr 自适应（cap 2048 保清晰与性能） */
   let W = 960
   let H = 600
   const colors = ['#0a0a0a', '#ffffff', '#2563eb', '#c0392b']
@@ -170,7 +172,7 @@
       ctx.lineJoin = 'round'
       ctx.beginPath()
       el.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)))
-      if (el.pts.length === 1) ctx.lineTo(el.pts[0].x + 0.1, el.pts[0].y)
+      if (el.pts.length === 1) ctx.lineTo(el.pts[0].x + 0.1, el.pts[0].y + 0.1)
       ctx.stroke()
     } else if (el.kind === 'text') {
       ctx.fillStyle = el.color
@@ -511,36 +513,48 @@
     refresh()
   }
 
-  /* 挂载即初始化一次。不可用 $effect：refresh 读 elements/selected，
-  会把交互写入反哺成重新 init，画布被反复清空。 */
+  /* 首次可见即初始化一次（tab 可能 display:none 挂载，clientWidth=0，
+  用 ResizeObserver 等到有尺寸再测）。不可用 $effect：refresh 读
+  elements/selected，会把交互写入反哺成重新 init，画布被反复清空。 */
   onMount(() => {
     const wrap = canvas?.parentElement
-    if (wrap && canvas) {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      W = Math.min(Math.round(wrap.clientWidth * dpr), 2048) || W
-      H = Math.min(Math.round(wrap.clientHeight * dpr), 2048) || H
-      canvas.width = W
-      canvas.height = H
+    if (!wrap || !canvas) {
+      void init()
+      return
     }
-    buf.width = W
-    buf.height = H
-    void init()
+    let measured = false
+    const measure = () => {
+      if (measured) return
+      const w = wrap.clientWidth
+      const h = wrap.clientHeight
+      if (!w || !h) return
+      measured = true
+      ro.disconnect()
+      if (!source) {
+        /* 空白创作按容器 × dpr 定画布尺寸（cap 2048）；编辑场景由
+        init() 按图片原始尺寸定，容器测量不覆盖 */
+        const dpr = Math.min(window.devicePixelRatio || 1, 2)
+        W = Math.min(Math.round(w * dpr), 2048) || W
+        H = Math.min(Math.round(h * dpr), 2048) || H
+        canvas!.width = W
+        canvas!.height = H
+        buf.width = W
+        buf.height = H
+      }
+      void init()
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(wrap)
   })
 
   function onKey(e: KeyboardEvent) {
+    if (!active) return
     if (e.code === 'Space' && !textEdit) {
       e.preventDefault()
       spaceHeld = true
       return
     }
-    if (textEdit) {
-      if (e.key === 'Escape') textEdit = null
-      return
-    }
-    if (e.key === 'Escape') {
-      onClose()
-      return
-    }
+    if (textEdit) return
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected !== null) {
       e.preventDefault()
       delSelected()
@@ -558,172 +572,111 @@
 
 <svelte:window onkeydown={onKey} onkeyup={onKeyUp} />
 
-<div class="overlay" role="dialog" aria-label="魔法画板">
-  <div class="board">
-    <header>
-      <h2>魔法画板</h2>
-      <span class="sub">{source ? '标注后添加到聊天' : '画点什么，直接发出去'}</span>
-      <button class="fit" onclick={fitView} title="适应窗口">适应窗口</button>
-      <button class="close" onclick={onClose} title="关闭">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
-    </header>
+<section class="mboard" aria-label="魔法画板">
+  <header>
+    <span class="sub">{source ? '标注后添加到聊天' : '画点什么，直接发出去'}</span>
+    <button class="fit" onclick={fitView} title="适应窗口">适应窗口</button>
+  </header>
 
-    <div class="canvas-wrap">
-      <canvas
-        bind:this={canvas}
-        class:panning={spaceHeld || !!panning}
-        onpointerdown={down}
-        onpointermove={move}
-        onpointerup={up}
-        onpointercancel={up}
-        ondblclick={dblClick}
-        onwheel={onWheel}
-      ></canvas>
-      {#if textEdit}
-        <input
-          class="text-input"
-          style={textInputStyle()}
-          placeholder="输入文字…"
-          bind:value={textValue}
-          onkeydown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              commitText()
-            }
-          }}
-          onblur={commitText}
-        />
-      {/if}
-    </div>
-
-    <footer>
-      <div class="tools">
-        <div class="group">
-          {#each colors as c (c)}
-            <button
-              class="swatch"
-              class:active={color === c && tool !== 'eraser'}
-              style="background:{c}"
-              onclick={() => {
-                color = c
-                if (tool === 'select' || tool === 'eraser') pickTool('pen')
-              }}
-              title={c}
-            ></button>
-          {/each}
-        </div>
-        <div class="group">
-          {#each sizes as s (s)}
-            <button class="size" class:active={size === s} onclick={() => (size = s)} title="粗细 {s}">
-              <i style="width:{4 + s * 2}px;height:{4 + s * 2}px"></i>
-            </button>
-          {/each}
-        </div>
-        <div class="group">
-          {#each tools as t (t.key)}
-            <button class="tool" class:active={tool === t.key} onclick={() => pickTool(t.key)} title={t.label}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                {@html t.icon}
-              </svg>
-            </button>
-          {/each}
-        </div>
-        <div class="group">
-          <button class="tool" disabled={!canUndo} onclick={undo} title="撤销（Ctrl+Z）">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 14L4 9l5-5" />
-              <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
-            </svg>
-          </button>
-          <button class="tool" onclick={clearAll} title="清空">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-14" />
-            </svg>
-          </button>
-        </div>
-      </div>
-      <button class="done" onclick={finish}>添加到聊天</button>
-    </footer>
+  <div class="canvas-wrap">
+    <canvas
+      bind:this={canvas}
+      class:panning={spaceHeld || !!panning}
+      onpointerdown={down}
+      onpointermove={move}
+      onpointerup={up}
+      onpointercancel={up}
+      ondblclick={dblClick}
+      onwheel={onWheel}
+    ></canvas>
+    {#if textEdit}
+      <input
+        class="text-input"
+        style={textInputStyle()}
+        placeholder="输入文字…"
+        bind:value={textValue}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commitText()
+          } else if (e.key === 'Escape') {
+            e.stopPropagation()
+            textEdit = null
+          }
+        }}
+        onblur={commitText}
+      />
+    {/if}
   </div>
-</div>
+
+  <footer>
+    <div class="tools">
+      <div class="group">
+        {#each colors as c (c)}
+          <button
+            class="swatch"
+            class:active={color === c && tool !== 'eraser'}
+            style="background:{c}"
+            onclick={() => {
+              color = c
+              if (tool === 'select' || tool === 'eraser') pickTool('pen')
+            }}
+            title={c}
+          ></button>
+        {/each}
+      </div>
+      <div class="group">
+        {#each sizes as s (s)}
+          <button class="size" class:active={size === s} onclick={() => (size = s)} title="粗细 {s}">
+            <i style="width:{4 + s * 2}px;height:{4 + s * 2}px"></i>
+          </button>
+        {/each}
+      </div>
+      <div class="group">
+        {#each tools as t (t.key)}
+          <button class="tool" class:active={tool === t.key} onclick={() => pickTool(t.key)} title={t.label}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              {@html t.icon}
+            </svg>
+          </button>
+        {/each}
+      </div>
+      <div class="group">
+        <button class="tool" disabled={!canUndo} onclick={undo} title="撤销（Ctrl+Z）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 14L4 9l5-5" />
+            <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+          </svg>
+        </button>
+        <button class="tool" onclick={clearAll} title="清空">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-14" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <button class="done" onclick={finish}>添加到聊天</button>
+  </footer>
+</section>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    display: grid;
-    place-items: center;
-    background: rgb(0 0 0 / 42%);
-    backdrop-filter: blur(3px);
-    animation: fade var(--dur-fast) var(--ease-out) both;
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-  /* 近全屏：屏幕多大画板多大 */
-  .board {
+  .mboard {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    width: calc(100vw - 48px);
-    height: calc(100vh - 48px);
-    max-width: 1920px;
-    background: var(--bg);
-    border-radius: 18px;
-    padding: 18px 18px 16px;
-    box-shadow: 0 24px 64px rgb(0 0 0 / 24%);
-    animation: pop var(--dur-in) var(--ease-out) both;
-  }
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: translateY(10px) scale(0.98);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+    width: 100%;
+    height: 100%;
+    padding: 16px 16px 14px;
   }
   header {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
-  }
-  h2 {
-    font-size: 15px;
-    font-weight: 700;
   }
   .sub {
     font-size: 11.5px;
     color: var(--faint);
     flex: 1;
-  }
-  .close {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    border-radius: 8px;
-  }
-  .close:hover {
-    background: var(--line);
-    color: var(--fg);
-  }
-  .close svg {
-    width: 14px;
-    height: 14px;
   }
   .fit {
     border: 1px solid var(--line);
@@ -836,7 +789,7 @@
   }
   .tool svg {
     width: 14px;
- height: 14px;
+    height: 14px;
   }
   .tool:hover {
     background: var(--line);

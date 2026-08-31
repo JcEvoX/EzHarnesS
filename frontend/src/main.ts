@@ -1,6 +1,7 @@
 import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
+import { store } from './lib/store.svelte'
 
 /* 启动横幅：isometric1 等轴测 3D 字体，逐行青→紫渐变（ez 系列 logo 同款色系） */
 const LOGO = [
@@ -29,5 +30,29 @@ LOGO.forEach((line, i) => {
 })
 
 const app = mount(App, { target: document.getElementById('app')! })
+
+/* 外部链接拦截（捕获阶段）：点击消息/页面里的外链一律在魔法看板浏览器
+   tab 打开（共览场景）。桌面壳 WebView 当前页导航会离开应用（SPA 被顶掉
+   无法返回），绝不能放行；同源相对链接（快应用等）不拦。 */
+document.addEventListener(
+  'click',
+  (e) => {
+    const a = (e.target as HTMLElement)?.closest?.('a[href]')
+    if (!(a instanceof HTMLAnchorElement)) return
+    const href = a.getAttribute('href') || ''
+    if (!/^https?:\/\//i.test(href)) return
+    let origin = ''
+    try {
+      origin = new URL(href, location.href).origin
+    } catch {
+      return
+    }
+    if (origin === location.origin) return
+    e.preventDefault()
+    e.stopPropagation()
+    store.openInBrowser(href)
+  },
+  true,
+)
 
 export default app

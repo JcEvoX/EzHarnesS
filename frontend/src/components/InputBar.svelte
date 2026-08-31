@@ -7,14 +7,12 @@
     files = [],
     onRemove,
     onEditImage,
-    onOpenBoard,
     onAddFiles,
     onClearFiles,
   }: {
     files?: File[]
     onRemove?: (i: number) => void
     onEditImage?: (i: number) => void
-    onOpenBoard?: () => void
     onAddFiles?: (fs: File[]) => void
     onClearFiles?: () => void
   } = $props()
@@ -143,14 +141,6 @@
       oninput={autoResize}
       disabled={!store.activeId}
     ></textarea>
-    <button class="board-btn" onclick={() => onOpenBoard?.()} title="魔法画板">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 19l7-7 3 3-7 7-3-3z" />
-        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
-        <path d="M2 2l7.586 7.586" />
-        <circle cx="11" cy="11" r="2" />
-      </svg>
-    </button>
     {#if store.busy}
       <!-- 运行中：⏹ 终止当前轮；已输入文字时 ⬆ 可打断并改发新指令 -->
       <button class="stop" onclick={() => void store.cancel()} title="取消当前轮">
@@ -303,28 +293,6 @@
   .edit-mark svg {
     width: 13px;
     height: 13px;
-  }
-  .board-btn {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border: none;
-    background: transparent;
-    border-radius: 10px;
-    color: var(--faint);
-    transition:
-      background var(--dur-fast) var(--ease-out),
-      color var(--dur-fast) var(--ease-out);
-  }
-  .board-btn svg {
-    width: 16px;
-    height: 16px;
-  }
-  .board-btn:hover {
-    background: var(--line);
-    color: var(--fg);
   }
   .box {
     display: flex;

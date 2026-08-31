@@ -186,6 +186,17 @@ func DefaultToolRules() []ToolRule {
 			"dir", "type", "cd", "ver", // cmd 只读（Windows 原生 shell）
 			"git status", "git diff", "git log", "go test",
 		}},
+		/* 共享终端（魔法看板）：run 与 terminal 白名单同集；list/read/interrupt
+		只读免审；write 是交互应答（可能涉及密码等敏感输入）逐次审批 */
+		{Tool: "term_run", Level: LevelWhite, List: []string{
+			"ls", "cat", "head", "tail", "pwd",
+			"dir", "type", "cd", "ver",
+			"git status", "git diff", "git log", "go test",
+		}},
+		{Tool: "term_list", Level: LevelAuto},
+		{Tool: "term_read", Level: LevelAuto},
+		{Tool: "term_interrupt", Level: LevelAuto},
+		{Tool: "term_write", Level: LevelAsk},
 		{Tool: "task", Level: LevelAsk},
 		{Tool: "save_app", Level: LevelAsk},
 		{Tool: "mcp.*", Level: LevelAsk},

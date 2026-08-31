@@ -73,7 +73,11 @@ func (a *app) buildRouter() *gin.Engine {
 	a.hub = hub
 	a.mu.Unlock()
 
-	agents := &service.AgentService{Hub: hub}
+	// 共享终端(魔法看板):workDir 与 agent shell 一致;换代随 shutdownGeneration 重建
+	termSvc := service.NewTerminalService(service.ResolveWorkDir(hub.SettingsSnapshot().WorkDir))
+	a.setTerm(termSvc)
+
+	agents := &service.AgentService{Hub: hub, Term: termSvc}
 	agents.Assemble(hub.Active, hub.SettingsSnapshot())
 
 	appSvc := &service.AppService{
@@ -94,6 +98,7 @@ func (a *app) buildRouter() *gin.Engine {
 		Apps:   &controller.AppsController{Svc: &service.AppsService{Fsys: hub.Fsys}, Win: a.winCtl},
 		App:    &controller.AppController{Svc: appSvc},
 		Window: a.winCtl,
+		Terminal: &controller.TerminalController{Svc: termSvc},
 	}
 	return controller.NewRouter(controllers, distFS())
 }

@@ -3,7 +3,6 @@
   import InputBar from './InputBar.svelte'
   import StatusCard from './StatusCard.svelte'
   import NoticePanel from './NoticePanel.svelte'
-  import MagicBoard from './MagicBoard.svelte'
   import ForkPanel from './ForkPanel.svelte'
   import BranchPanel from './BranchPanel.svelte'
   import { store } from '../lib/store.svelte'
@@ -14,10 +13,6 @@
   let files = $state<File[]>([])
   let dragging = $state(false)
   let depth = 0
-
-  /* 魔法画板：editing 为编辑中的附件下标，null = 空白创作 */
-  let boardOpen = $state(false)
-  let editing: number | null = $state(null)
 
   function onDragEnter(e: DragEvent) {
     if (!e.dataTransfer?.types.includes('Files')) return
@@ -58,21 +53,22 @@
     files = []
   }
 
-  function openBoard(i: number | null) {
-    editing = i
-    boardOpen = true
-  }
-
-  function boardDone(f: File) {
-    if (editing !== null) {
+  /* 画板产物回流：tag 为编辑目标的下标且原附件未变时替换，否则追加
+  （编辑期间附件被删/换了页面则降级追加）。本页未挂载时产物积压在
+  store，回对话页后首跑消费，跨页不丢。 */
+  $effect(() => {
+    const p = store.pendingBoardFile
+    if (!p) return
+    store.pendingBoardFile = null
+    const i = /^\d+$/.test(p.tag) ? Number(p.tag) : -1
+    if (i >= 0 && files[i] === p.source) {
       const next = [...files]
-      next[editing] = f
+      next[i] = p.file
       files = next
     } else {
-      files = [...files, f]
+      files = [...files, p.file]
     }
-    boardOpen = false
-  }
+  })
 
   /* 通知内联操作 → 决策回传（联动时间线卡/分身抽屉卡与通知状态） */
   function resolveNotice(id: string, action: string, input?: string) {
@@ -112,8 +108,7 @@
     <InputBar
       {files}
       onRemove={removeFile}
-      onEditImage={(i) => openBoard(i)}
-      onOpenBoard={() => openBoard(null)}
+      onEditImage={(i) => store.openBoard(files[i] ?? null, String(i))}
       onAddFiles={addFiles}
       onClearFiles={clearFiles}
     />
@@ -124,10 +119,17 @@
   <aside class="side">
     <StatusCard />
     <NoticePanel notices={store.notices} onResolve={resolveNotice} onJump={jumpToNotice} onDismiss={(id) => store.dismissNotice(id)} />
+    <button class="board-entry" onclick={() => store.toggleBoard()} title="魔法看板（画板 / 浏览器 / 终端）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2.5" />
+        <path d="M3 9.5h18" />
+        <path d="M9.5 21V9.5" />
+      </svg>
+      <span>魔法看板</span>
+    </button>
   </aside>
   <ForkPanel />
-  {#if dragging}
-    <div class="dropzone">
+  {#if dragging}    <div class="dropzone">
       <div class="hint-box">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 16V5" />
@@ -139,10 +141,6 @@
     </div>
   {/if}
 </div>
-
-{#if boardOpen}
-  <MagicBoard source={editing !== null ? (files[editing] ?? null) : null} onDone={boardDone} onClose={() => (boardOpen = false)} />
-{/if}
 
 <style>
   .chat {
@@ -205,6 +203,33 @@
   }
   .side > :global(.panel) {
     min-height: 0; /* 通知过多时收缩，列表内部滚动 */
+  }
+  /* 魔法看板入口：右列通知下方，紧凑条状（与卡片同视觉语言） */
+  .board-entry {
+    align-self: flex-end;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 550;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .board-entry:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+    border-color: var(--line-strong);
+  }
+  .board-entry svg {
+    width: 14px;
+    height: 14px;
   }
   .dropzone {
     position: absolute;

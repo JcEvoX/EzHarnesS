@@ -23,6 +23,7 @@ type Controllers struct {
 	Apps     *AppsController
 	App      *AppController
 	Window   *WindowController
+	Terminal *TerminalController
 }
 
 /* NewRouter 装配 gin engine 与全部路由。dist 非 nil 时服务前端静态资源。 */
@@ -78,10 +79,18 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.GET("/apps", c.Apps.List)
 		api.POST("/apps/open", c.Apps.Open)
 
+		/* 魔法看板·共享终端：WS 多路复用 + REST 管理 */
+		api.GET("/terminal/ws", c.Terminal.Ws)
+		api.GET("/terminal/list", c.Terminal.List)
+		api.POST("/terminal/create", c.Terminal.Create)
+		api.POST("/terminal/close", c.Terminal.Close)
+
 		api.POST("/window/min", c.Window.Minimise)
 		api.POST("/window/max", c.Window.ToggleMaximise)
 		api.GET("/window/state", c.Window.State)
 		api.POST("/window/close", c.Window.Close)
+		api.POST("/window/open-url", c.Window.OpenURL)
+		api.POST("/window/open-web", c.Window.OpenWeb)
 
 		api.POST("/sessions/:id/decisions/approve", c.Chat.DecideApprove)
 		api.POST("/sessions/:id/decisions/answer", c.Chat.DecideAnswer)

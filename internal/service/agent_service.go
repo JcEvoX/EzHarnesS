@@ -44,7 +44,8 @@ import (
 
 /* AgentService 装配领域会话的运行时。 */
 type AgentService struct {
-	Hub *domain.Hub
+	Hub  *domain.Hub
+	Term *TerminalService // 共享终端（魔法看板），可空：term_* 工具与状态注入的前提
 }
 
 /*
@@ -113,6 +114,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		func() int { return s.CtxTokens() },
 		window,
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
+		termReportFn(a.Term),
 	)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
@@ -123,18 +125,18 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	agent := core.NewAgent(provider,
 		core.WithModelWarp(modeldump.Warp(), modelretry.Warp()),
 		core.WithToolWarp(limit.Warp(4), safetool.Warp()),
-		core.WithTools(tools.SaveApp(s.Fsys)...),
+		core.WithTools(append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)...),
 		core.WithHooks(
 			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
-			filetools.New(s.Fsys, filetools.WithWorkDir(resolveWorkDir(st.WorkDir))),
+			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir))),
 			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir),
 			statusHook,
 			approver,
 			asker,
 			task.New(),
 			NewMcpHook(s.Fsys),
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
+			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, hooks.SkillTool), offload.WithReplayTool("read_file")), // load_skill 返回的指令集是后续行动依据,卸载再回读纯浪费
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			trimHook, // OnLoop 回边水位整理（就地截断，立即生效），OnToolStart 拦模型主动整理
 			traceHook,
@@ -155,6 +157,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			"read_file", "write_file", "edit_file", "bash", "save_app",
 			askuser.ToolName, task.ToolName,
 			"mcp_router", hooks.TrimTool, hooks.SkillTool,
+			"term_run", "term_list", "term_read", "term_write", "term_interrupt",
 		},
 	})
 }
@@ -231,7 +234,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 	key := ""
 	switch ruleTool {
-	case "terminal":
+	case "terminal", "term_run": // 共享终端执行与独立进程命令共用命令词匹配
 		var a struct {
 			Command string `json:"command"`
 		}
@@ -261,7 +264,7 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 		if key == e {
 			return true
 		}
-		if ruleTool == "terminal" && strings.HasPrefix(key, e+" ") {
+		if (ruleTool == "terminal" || ruleTool == "term_run") && strings.HasPrefix(key, e+" ") {
 			return true // 命令词边界
 		}
 		if ruleTool == "mcp.*" && strings.HasPrefix(key, e+".") {
@@ -275,11 +278,11 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 }
 
 /*
-resolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/
+ResolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/
 （模型草稿与命令产物落这里，不与 models.json/sessions/ 等数据文件混放），
-相对 = 相对数据目录；目录不存在则创建（terminal 的执行目录必须存在）。
+相对 = 相对数据目录；目录不存在则创建（terminal 与共享终端的执行目录必须存在）。
 */
-func resolveWorkDir(spec string) string {
+func ResolveWorkDir(spec string) string {
 	wd, err := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
 	if err != nil {
 		wd = "."
@@ -316,7 +319,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		b.WriteString("\n\n" + st.SystemExtra)
 	}
 	dataDir, _ := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
-	workDir := resolveWorkDir(st.WorkDir)
+	workDir := ResolveWorkDir(st.WorkDir)
 	p := func(rel string) string { return filepath.ToSlash(filepath.Join(dataDir, rel)) }
 	b.WriteString("\n\n<workspace>\n" +
 		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
@@ -330,6 +333,10 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"# " + p("settings.json") + " / " + p("models.json") + " / " + p("stats.json") + " / " + p("topics.json") + "：应用配置与索引，由设置页和应用自身管理，不要直接改写\n" +
 		"# 规则：terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，不要依赖当前目录；\n" +
 		"# 工作目录之外的临时文件不要随手乱放。\n" +
+		"# 共享终端（term_run 等）：魔法看板里的多终端，用户与你实时共见同一屏幕；term_run 不带 termId 会新建终端" +
+		"（推荐，用户可接管），term_list 查看全部（含用户手开的），续操作用 termId 定向；\n" +
+		"# 需要交互式应答/状态保留/长驻程序/想让用户看到过程时用 term_run 系列，一次性无状态命令仍用 terminal；\n" +
+		"# 用户手动在终端里的操作会出现在每轮 agent_status，留意并在需要时接续。\n" +
 		"</workspace>")
 	memRoot := filepath.ToSlash(filepath.Join(dataDir, "memory"))
 	b.WriteString("\n\n<memory>\n" +
@@ -373,6 +380,24 @@ func mcpListLines(fsys osfs.OS) []string {
 		}
 	}
 	return out
+}
+
+/* termReportFn 共享终端状态面（agent_status 注入：终端清单变更 + 用户
+手动输入）；nil 服务返回 nil（未注入终端服务时不注入终端状态）。 */
+func termReportFn(t *TerminalService) func() hooks.TermReport {
+	if t == nil {
+		return nil
+	}
+	return func() hooks.TermReport {
+		var rep hooks.TermReport
+		for _, info := range t.List() {
+			rep.Terms = append(rep.Terms, hooks.StatusTerm{ID: info.ID, Name: info.Name, Exited: info.Exited})
+		}
+		for _, l := range t.CollectUserActivity() {
+			rep.Lines = append(rep.Lines, hooks.UserAction{ID: l.ID, Line: l.Line})
+		}
+		return rep
+	}
 }
 
 /* mcpStatusList 返回状态栏 MCP 清单（描述前 8 字）。 */
