@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/core"
@@ -110,11 +111,13 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		window = 128000 // 旧 models.json 无 contextWindow 字段的兜底
 	}
 	s.Sess.BindCtx(func() (int, int) { return s.CtxTokens(), window })
+	disabledSkills := func() []string { return a.Hub.SettingsSnapshot().DisabledSkills }
 	statusHook := hooks.NewStatus(s.Fsys, s.Sess,
 		func() int { return s.CtxTokens() },
 		window,
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
 		termReportFn(a.Term),
+		disabledSkills,
 	)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
@@ -130,7 +133,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
 			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir))),
-			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir),
+			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir, disabledSkills),
 			statusHook,
 			approver,
 			asker,
@@ -348,7 +351,17 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"# 索引 harness.md 全文\n" +
 		hooks.EnsureHarnessMd(ctx, fsys) +
 		"\n</memory>")
-	if skills, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir); err == nil && len(skills) > 0 {
+	skills, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir)
+	if err == nil && len(st.DisabledSkills) > 0 {
+		kept := skills[:0]
+		for _, sk := range skills {
+			if !slices.Contains(st.DisabledSkills, hooks.SkillDirOf(sk.Path)) {
+				kept = append(kept, sk)
+			}
+		}
+		skills = kept
+	}
+	if len(skills) > 0 {
 		b.WriteString("\n\n<skills>\n（本清单由系统运行时生成，不在任何文件里；技能正文在 " +
 			memRoot+"/skills/<名>/SKILL.md，可用文件工具编辑，改动下个 session 生效；"+
 			"使用前先调用 load_skill 获取完整指令与脚本路径）")

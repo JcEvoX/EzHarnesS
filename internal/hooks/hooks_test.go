@@ -200,7 +200,7 @@ func TestSkillToolLoad(t *testing.T) {
 	_ = fsys.Write(ctx, "memory/skills/pdf/scripts/extract.py", []byte("print(1)"))
 	_ = fsys.Write(ctx, "memory/skills/pdf/references/api.md", []byte("api 文档"))
 
-	h := NewSkillTool(fsys, "memory/skills")
+	h := NewSkillTool(fsys, "memory/skills", nil)
 	state := newTestState(nil)
 	if err := h.OnStart(ctx, state); err != nil {
 		t.Fatal(err)

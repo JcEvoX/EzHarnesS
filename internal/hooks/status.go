@@ -75,18 +75,21 @@ type Status struct {
 	ctxTokens func() int
 	ctxWindow int
 	mcpList   func() []StatusMcp
-	termRep   func() TermReport // 可空：无共享终端服务时不注入
+	termRep   func() TermReport   // 可空：无共享终端服务时不注入
+	disabled  func() []string     // 可空：禁用技能目录名（实时读设置快照，变更基线不含禁用项）
 }
 
 /*
 NewStatus 创建状态栏 hook。ctxTokens 返回最近一次模型调用的 prompt
 tokens；ctxWindow 是主模型上下文窗口（<=0 由调用方兜底默认）；
 mcpList 返回启用的 server 清单（描述截断由调用方完成）；
-termRep 返回共享终端清单与用户手动输入（可空）。
+termRep 返回共享终端清单与用户手动输入（可空）；
+disabled 返回禁用技能目录名（可空：基线只统计启用技能）。
 */
 func NewStatus(fsys fs.FileSystem, store *Store, ctxTokens func() int, ctxWindow int,
-	mcpList func() []StatusMcp, termRep func() TermReport) *Status {
-	return &Status{fsys: fsys, store: store, ctxTokens: ctxTokens, ctxWindow: ctxWindow, mcpList: mcpList, termRep: termRep}
+	mcpList func() []StatusMcp, termRep func() TermReport, disabled func() []string) *Status {
+	return &Status{fsys: fsys, store: store, ctxTokens: ctxTokens, ctxWindow: ctxWindow,
+		mcpList: mcpList, termRep: termRep, disabled: disabled}
 }
 
 func (h *Status) Name() string { return "status" }
@@ -151,8 +154,15 @@ func (h *Status) build(ctx context.Context) StatusData {
 	}
 
 	var curSkills, curMcps []string
+	var off []string
+	if h.disabled != nil {
+		off = h.disabled()
+	}
 	if skills, err := skill.LoadDir(ctx, h.fsys, SkillsDir); err == nil {
 		for _, s := range skills {
+			if slices.Contains(off, SkillDirOf(s.Path)) {
+				continue
+			}
 			curSkills = append(curSkills, s.Name)
 		}
 		sort.Strings(curSkills)

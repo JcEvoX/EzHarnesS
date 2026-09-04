@@ -4,11 +4,15 @@ SettingsService 与 MemoryService：运行配置与长期记忆的读写用例�
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
@@ -205,12 +209,14 @@ func (m *MemoryService) Config() MemoryConfigView {
 		}
 	}
 	if entries, err := skill.LoadDir(context.Background(), m.Hub.Fsys, hooks.SkillsDir); err == nil {
+		disabled := m.Hub.SettingsSnapshot().DisabledSkills
 		for _, s := range entries {
+			id := hooks.SkillDirOf(s.Path)
 			v.Skills.Items = append(v.Skills.Items, SkillEntryView{
-				ID:      s.Name,
+				ID:      id,
 				Name:    s.Name,
 				Desc:    s.Description,
-				Enabled: true, // 启停机制待后续（skill hook 无开关，暂恒启用）
+				Enabled: !slices.Contains(disabled, id),
 			})
 		}
 	}
@@ -239,4 +245,216 @@ func (m *MemoryService) GetMemory() string {
 /* SaveMemory 写入 harness.md（下一轮对话即注入 system）。 */
 func (m *MemoryService) SaveMemory(content string) error {
 	return m.Hub.Fsys.Write(context.Background(), hooks.MemoryFile, []byte(content))
+}
+
+/* ── 技能管理：启停 / 删除 / zip 新建 ── */
+
+/*
+validSkillID 校验技能目录名（同时用作磁盘目录与 URL 参数）：拒绝空、
+. ..、路径分隔符与盘符（防穿越）、首尾空格/点（Windows 会剥离导致名实
+不符）与保留设备名（CON/NUL/COM1-9 等）；其余字符（含中文）放行。
+*/
+func validSkillID(id string) bool {
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\:`) {
+		return false
+	}
+	if id != strings.Trim(id, " .") {
+		return false
+	}
+	upper := strings.ToUpper(id)
+	switch upper {
+	case "CON", "PRN", "AUX", "NUL":
+		return false
+	}
+	if len(upper) == 4 && (strings.HasPrefix(upper, "COM") || strings.HasPrefix(upper, "LPT")) &&
+		upper[3] >= '1' && upper[3] <= '9' {
+		return false
+	}
+	for _, r := range id {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+/*
+ToggleSkill 切换技能启停（DisabledSkills 名单按目录名增删）。load_skill
+与状态面板经闭包实时读取设置快照，即时生效；system 清单是 session 级
+快照，下个 session 生效（与 skill 文件编辑同语义）。
+*/
+func (m *MemoryService) ToggleSkill(id string, enabled bool) error {
+	if !validSkillID(id) {
+		return fmt.Errorf("非法技能名 %q", id)
+	}
+	st := m.Hub.SettingsSnapshot()
+	cur := slices.Contains(st.DisabledSkills, id)
+	switch {
+	case enabled && cur:
+		st.DisabledSkills = slices.DeleteFunc(st.DisabledSkills, func(s string) bool { return s == id })
+	case !enabled && !cur:
+		st.DisabledSkills = append(st.DisabledSkills, id)
+	default:
+		return nil
+	}
+	if err := domain.SaveSettings(m.Hub.Fsys, st); err != nil {
+		return err
+	}
+	m.Hub.ApplySettings(st)
+	return nil
+}
+
+/* DeleteSkill 删除技能目录（连同 scripts 等子资源），并清理禁用名单残留。 */
+func (m *MemoryService) DeleteSkill(id string) error {
+	if !validSkillID(id) {
+		return fmt.Errorf("非法技能名 %q", id)
+	}
+	dir := hooks.SkillsDir + "/" + id
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("技能 %q 不存在", id)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("删除技能目录失败: %w", err)
+	}
+	if st := m.Hub.SettingsSnapshot(); slices.Contains(st.DisabledSkills, id) {
+		st.DisabledSkills = slices.DeleteFunc(st.DisabledSkills, func(s string) bool { return s == id })
+		if err := domain.SaveSettings(m.Hub.Fsys, st); err != nil {
+			return err
+		}
+		m.Hub.ApplySettings(st)
+	}
+	return nil
+}
+
+/* 技能 zip 上传的大小护栏：压缩包 ≤ 20MB，解压后总内容 ≤ 10MB。 */
+const (
+	skillZipMax     = 20 << 20
+	skillUnzippedMax = 10 << 20
+)
+
+/*
+CreateSkill 从 zip 压缩包新建技能，目录名自动推导：单文件夹整体压缩
+取外层文件夹名，平铺取 SKILL.md frontmatter 的 name。解压写入
+memory/skills/<名>/，zip 需含根级 SKILL.md（唯一必需文件）。
+*/
+func (m *MemoryService) CreateSkill(zipData []byte) error {
+	if len(zipData) > skillZipMax {
+		return errors.New("压缩包超过 20MB 上限")
+	}
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return fmt.Errorf("压缩包无法读取: %w", err)
+	}
+	name, files, err := unzipSkill(zr)
+	if err != nil {
+		return err
+	}
+	if !validSkillID(name) {
+		return fmt.Errorf("无法从压缩包确定可用的技能名（%q）：单文件夹压缩取文件夹名，平铺需在 SKILL.md frontmatter 提供 name", name)
+	}
+	if _, err := os.Stat(hooks.SkillsDir + "/" + name); err == nil {
+		return fmt.Errorf("技能 %q 已存在", name)
+	}
+	ctx := context.Background()
+	for _, f := range files {
+		if err := m.Hub.Fsys.Write(ctx, hooks.SkillsDir+"/"+name+"/"+f.name, f.data); err != nil {
+			return fmt.Errorf("写入 %q 失败: %w", f.name, err)
+		}
+	}
+	return nil
+}
+
+/* skillZipEntry 是解压出的待写文件。 */
+type skillZipEntry struct {
+	name string
+	data []byte
+}
+
+/*
+unzipSkill 解析技能 zip 为待写文件清单与推导的技能目录名：条目名规范
+为 / 分隔，拒绝 ..、绝对路径与盘符（zip-slip 防护）；跳过 __MACOSX/
+.DS_Store；所有条目共享同一顶级目录时剥掉该层（"压缩整个文件夹"形态，
+目录名取该层）；平铺形态取 SKILL.md frontmatter 的 name。
+*/
+func unzipSkill(zr *zip.Reader) (string, []skillZipEntry, error) {
+	var list []skillZipEntry
+	total := 0
+	for _, f := range zr.File {
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		drop := name == ""
+		for _, p := range strings.Split(name, "/") {
+			if p == "" || p == "." || p == ".." || p == "__MACOSX" || p == ".DS_Store" || strings.Contains(p, ":") {
+				drop = true
+				break
+			}
+		}
+		if drop {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", nil, fmt.Errorf("读取压缩包条目 %q 失败: %w", f.Name, err)
+		}
+		data, rerr := io.ReadAll(io.LimitReader(rc, skillUnzippedMax+1))
+		rc.Close()
+		if rerr != nil {
+			return "", nil, fmt.Errorf("解压 %q 失败: %w", f.Name, rerr)
+		}
+		if total += len(data); total > skillUnzippedMax {
+			return "", nil, errors.New("解压内容超过 10MB 上限")
+		}
+		list = append(list, skillZipEntry{name: name, data: data})
+	}
+	if len(list) == 0 {
+		return "", nil, errors.New("压缩包为空")
+	}
+	skillName := ""
+	// 共享顶级目录剥层：首个条目的第一段在其余所有条目路径中出现才剥。
+	if i := strings.Index(list[0].name, "/"); i >= 0 {
+		prefix := list[0].name[:i+1]
+		shared := true
+		for _, e := range list {
+			if !strings.HasPrefix(e.name, prefix) {
+				shared = false
+				break
+			}
+		}
+		if shared {
+			skillName = prefix[:len(prefix)-1]
+			for i := range list {
+				list[i].name = list[i].name[len(prefix):]
+			}
+		}
+	}
+	for _, e := range list {
+		if e.name == skill.SkillFile {
+			if skillName == "" {
+				skillName = frontmatterName(string(e.data))
+			}
+			return skillName, list, nil
+		}
+	}
+	return "", nil, errors.New("压缩包缺少 SKILL.md（技能的唯一必需文件）")
+}
+
+/* frontmatterName 提取 SKILL.md frontmatter 的 name 字段（扁平
+`name: xx` 行；无 frontmatter 或无 name 返回空）。 */
+func frontmatterName(body string) string {
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	for _, l := range lines[1:] {
+		t := strings.TrimSpace(l)
+		if t == "---" {
+			return ""
+		}
+		if strings.HasPrefix(t, "name:") {
+			return strings.TrimSpace(strings.Trim(strings.TrimSpace(strings.TrimPrefix(t, "name:")), `"'`))
+		}
+	}
+	return ""
 }

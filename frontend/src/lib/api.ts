@@ -326,6 +326,15 @@ export const api = {
 
   getMemoryConfig: () => fetch('/api/memory/config').then(json<MemoryConfig>),
 
+  /* 技能管理：zip(base64) 上传新建（名称自动推导） / 删除目录 / 启停（即时生效于 load_skill 与状态面板） */
+  createSkill: (data: string) => post<{ ok: boolean }>('/api/memory/skills', { data }),
+
+  deleteSkill: (id: string) =>
+    fetch(`/api/memory/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
+
+  toggleSkill: (id: string, enabled: boolean) =>
+    post<{ ok: boolean }>(`/api/memory/skills/${encodeURIComponent(id)}/enabled`, { enabled }),
+
   /* 完整会话树（全部世代与分叉，记忆页渲染） */
   getMemoryTree: () => fetch('/api/memory/tree').then(json<SessionNode[]>),
 

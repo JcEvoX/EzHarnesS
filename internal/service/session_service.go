@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
@@ -116,7 +117,11 @@ func (s *SessionService) Snapshot() Status {
 	ctxTokens, ctxWindow := sess.Sess.CtxInfo()
 	skills := []string{}
 	if entries, err := skill.LoadDir(context.Background(), s.Hub.Fsys, hooks.SkillsDir); err == nil {
+		disabled := s.Hub.SettingsSnapshot().DisabledSkills
 		for _, e := range entries {
+			if slices.Contains(disabled, hooks.SkillDirOf(e.Path)) {
+				continue
+			}
 			skills = append(skills, e.Name)
 		}
 	}

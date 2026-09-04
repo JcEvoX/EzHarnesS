@@ -58,6 +58,9 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.GET("/memory", c.Settings.GetMemory)
 		api.POST("/memory", c.Settings.SaveMemory)
 		api.GET("/memory/config", c.Settings.GetMemoryConfig)
+		api.POST("/memory/skills", c.Settings.CreateSkill)         // zip base64 新建技能
+		api.DELETE("/memory/skills/:id", c.Settings.DeleteSkill)   // 删除技能目录
+		api.POST("/memory/skills/:id/enabled", c.Settings.ToggleSkill) // 启停技能
 
 		api.GET("/topics", c.Topics.List)
 		api.GET("/topics/:id", c.Topics.Get)
