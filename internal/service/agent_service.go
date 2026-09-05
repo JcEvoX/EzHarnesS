@@ -160,7 +160,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			"read_file", "write_file", "edit_file", "bash", "save_app",
 			askuser.ToolName, task.ToolName,
 			"mcp_router", hooks.TrimTool, hooks.SkillTool,
-			"term_run", "term_list", "term_read", "term_write", "term_interrupt",
+			"term_start", "term_send", "term_read", "term_list", "term_close",
 		},
 	})
 }
@@ -237,7 +237,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 	key := ""
 	switch ruleTool {
-	case "terminal", "term_run": // 共享终端执行与独立进程命令共用命令词匹配
+	case "terminal", "term_start", "term_send": // 共享终端执行与独立进程命令共用命令词匹配
 		var a struct {
 			Command string `json:"command"`
 		}
@@ -267,13 +267,13 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 		if key == e {
 			return true
 		}
-		if (ruleTool == "terminal" || ruleTool == "term_run") && strings.HasPrefix(key, e+" ") {
+		if (ruleTool == "terminal" || ruleTool == "term_start" || ruleTool == "term_send") && strings.HasPrefix(key, e+" ") {
 			return true // 命令词边界
 		}
 		if ruleTool == "mcp.*" && strings.HasPrefix(key, e+".") {
 			return true // server 前缀放行整站（点边界：time 不误命中 timeX）
 		}
-		if ruleTool != "terminal" && ruleTool != "mcp.*" && strings.HasPrefix(key, e) {
+		if ruleTool != "terminal" && ruleTool != "term_start" && ruleTool != "term_send" && ruleTool != "mcp.*" && strings.HasPrefix(key, e) {
 			return true // 路径前缀
 		}
 	}
@@ -336,9 +336,10 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"# " + p("settings.json") + " / " + p("models.json") + " / " + p("stats.json") + " / " + p("topics.json") + "：应用配置与索引，由设置页和应用自身管理，不要直接改写\n" +
 		"# 规则：terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，不要依赖当前目录；\n" +
 		"# 工作目录之外的临时文件不要随手乱放。\n" +
-		"# 共享终端（term_run 等）：魔法看板里的多终端，用户与你实时共见同一屏幕；term_run 不带 termId 会新建终端" +
-		"（推荐，用户可接管），term_list 查看全部（含用户手开的），续操作用 termId 定向；\n" +
-		"# 需要交互式应答/状态保留/长驻程序/想让用户看到过程时用 term_run 系列，一次性无状态命令仍用 terminal；\n" +
+		"# 共享终端（term_start/term_send 等）：魔法看板里的多终端，用户与你实时共见同一屏幕，全局共享（所有会话可用同一批终端）；" +
+		"term_list 查看全部（含用户手开的），term_start 新建（带描述，可附带首条命令）；\n" +
+		"# term_send 发命令并等输出静默返回（也用于应答交互/发 \\u0003 中断），term_read 游标式续读（只返回新增），term_close 关闭；\n" +
+		"# 需要交互式应答/状态保留/长驻程序/想让用户看到过程时用 term_* 系列，一次性无状态命令仍用 terminal；\n" +
 		"# 用户手动在终端里的操作会出现在每轮 agent_status，留意并在需要时接续。\n" +
 		"</workspace>")
 	memRoot := filepath.ToSlash(filepath.Join(dataDir, "memory"))
@@ -396,7 +397,9 @@ func mcpListLines(fsys osfs.OS) []string {
 }
 
 /* termReportFn 共享终端状态面（agent_status 注入：终端清单变更 + 用户
-手动输入）；nil 服务返回 nil（未注入终端服务时不注入终端状态）。 */
+手动输入）；nil 服务返回 nil。终端全局共享，清单实时全量——各会话的
+ResSnapshot 基线独立对比（A 会话首轮见到 B 会话开的终端同样报"新增"，
+模型各自知悉全局终端水位）。 */
 func termReportFn(t *TerminalService) func() hooks.TermReport {
 	if t == nil {
 		return nil

@@ -187,17 +187,17 @@ func DefaultToolRules() []ToolRule {
 			"dir", "type", "cd", "ver", // cmd 只读（Windows 原生 shell）
 			"git status", "git diff", "git log", "go test",
 		}},
-		/* 共享终端（魔法看板）：run 与 terminal 白名单同集；list/read/interrupt
-		只读免审；write 是交互应答（可能涉及密码等敏感输入）逐次审批 */
-		{Tool: "term_run", Level: LevelWhite, List: []string{
+		/* 共享终端（魔法看板，按分支绑定）：send 与 terminal 白名单同集；
+		list/read 只读免审；close 是资源清理（杀本分支终端进程）免审 */
+		{Tool: "term_send", Level: LevelWhite, List: []string{
 			"ls", "cat", "head", "tail", "pwd",
 			"dir", "type", "cd", "ver",
 			"git status", "git diff", "git log", "go test",
 		}},
+		{Tool: "term_start", Level: LevelAsk},
 		{Tool: "term_list", Level: LevelAuto},
 		{Tool: "term_read", Level: LevelAuto},
-		{Tool: "term_interrupt", Level: LevelAuto},
-		{Tool: "term_write", Level: LevelAsk},
+		{Tool: "term_close", Level: LevelAuto},
 		{Tool: "task", Level: LevelAsk},
 		{Tool: "save_app", Level: LevelAsk},
 		{Tool: "mcp.*", Level: LevelAsk},
@@ -241,12 +241,27 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 		out.TrimPercent = clamp(*s.TrimPercent, 0, 100)
 	}
 	if len(s.ToolRules) > 0 {
-		for i := range s.ToolRules {
-			if s.ToolRules[i].Tool == "bash" {
-				s.ToolRules[i].Tool = "terminal" // 旧存档里的工具名
+		/* 旧存档工具名迁移：bash→terminal；term_run/term_write→term_send
+		（write 先到先得，后者丢弃避免双规则打架）；term_interrupt 并入
+		term_send 的控制字符能力，直接丢弃。 */
+		migrated := make([]ToolRule, 0, len(s.ToolRules))
+		hasSend := false
+		for _, r := range s.ToolRules {
+			switch r.Tool {
+			case "bash":
+				r.Tool = "terminal"
+			case "term_run", "term_write":
+				if hasSend {
+					continue
+				}
+				r.Tool = "term_send"
+				hasSend = true
+			case "term_interrupt":
+				continue
 			}
+			migrated = append(migrated, r)
 		}
-		out.ToolRules = s.ToolRules
+		out.ToolRules = migrated
 	}
 	return out
 }

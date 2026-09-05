@@ -64,6 +64,80 @@ func TestTailRunes(t *testing.T) {
 	}
 }
 
+func TestIsRawControl(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"\u0003", true},          // 纯 ^C
+		{"\u0003\u0003", true},    // 多个控制符
+		{"y\r", false},            // 含可打印内容
+		{"echo hi", false},        // 普通命令
+		{"", false},               // 空
+		{"\ty", false},            // \t 不算控制输入
+	}
+	for _, c := range cases {
+		if got := isRawControl(c.in); got != c.want {
+			t.Errorf("isRawControl(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+/* 终端全局共享:Get 按 id 取,lastAi 空参兜底最近终端。 */
+func TestGetLastAiFallback(t *testing.T) {
+	s := NewTerminalService("")
+	s.sessions["t1"] = &TermSession{ID: "t1", Name: "build"}
+	s.lastAi = "t1"
+
+	if _, err := s.Get("t1"); err != nil {
+		t.Fatalf("按 id 访问应成功: %v", err)
+	}
+	if _, err := s.Get(""); err != nil {
+		t.Fatalf("lastAi 兜底应命中: %v", err)
+	}
+	if _, err := s.Get("t9"); err == nil {
+		t.Fatal("不存在的终端应报错")
+	}
+}
+
+/* remove 清理全局 lastAi 引用。 */
+func TestRemoveClearsLastAi(t *testing.T) {
+	s := NewTerminalService("")
+	sess := &TermSession{ID: "t1"}
+	s.sessions["t1"] = sess
+	s.lastAi = "t1"
+
+	s.remove(sess)
+	if _, ok := s.sessions["t1"]; ok {
+		t.Fatal("t1 应被移除")
+	}
+	if s.lastAi != "" {
+		t.Fatalf("lastAi 引用应清理, got %q", s.lastAi)
+	}
+}
+
+/* 游标式读即消费:send/read 共用 readMark,已交付内容不重复。 */
+func TestReadMarkConsume(t *testing.T) {
+	sess := &TermSession{ring: newRing(64)}
+	sess.ring.append([]byte("hello"))
+	sess.readMark = sess.ring.mark() // term_start:读位点取创建时刻
+	sess.ring.append([]byte(" world"))
+
+	if got := string(sess.ring.since(sess.readMark)); got != " world" {
+		t.Fatalf("首次读 = %q, want %q", got, " world")
+	}
+	sess.readMark = sess.ring.mark() // 读后推进
+
+	sess.ring.append([]byte("!")) // 新输出
+	if got := string(sess.ring.since(sess.readMark)); got != "!" {
+		t.Fatalf("续读 = %q, want %q", got, "!")
+	}
+	sess.readMark = sess.ring.mark()
+	if got := string(sess.ring.since(sess.readMark)); got != "" {
+		t.Fatalf("无新输出时续读 = %q, want 空", got)
+	}
+}
+
 func TestAggregate(t *testing.T) {
 	s := &TerminalService{}
 	cases := []struct {

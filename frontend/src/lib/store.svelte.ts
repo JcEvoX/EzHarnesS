@@ -348,7 +348,8 @@ class AppStore {
           }
         } else if (m.content.includes('<agent_status>')) {
           // 新格式：中文语义化文本；同样仅异常行进时间线
-          if (m.content.includes('建议整理') || m.content.includes('资源变更')) {
+          // （文案是"建议调用 trim_context 整理上下文"，关键词取"整理上下文"）
+          if (m.content.includes('整理上下文') || m.content.includes('资源变更')) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
           }
         } else if (m.content.includes('<end_reason>')) {

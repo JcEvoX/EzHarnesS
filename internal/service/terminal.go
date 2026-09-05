@@ -1,8 +1,11 @@
 /*
-魔法看板·共享终端:多终端全局公共池(跨会话/分支共享,随换代重建)。
-每个终端是一个 ConPTY + shell 进程,用户(WS 输入)与 AI(term_* 工具)
-共写同一终端。输出进环形缓冲(WS 重连 hello 恢复 + AI 读尾部),用
-户手敲的命令行会被聚合记录(agent_status 每轮带给模型,AI 写入不记)。
+魔法看板·共享终端:多终端全局公共池(跨会话共享,个人助手语义:任何
+会话都能操作全部终端)。每个终端是一个 ConPTY + shell 进程,用户
+(WS 输入)与 AI(term_* 工具)共写同一终端。输出进环形缓冲(WS 重连
+hello 恢复),AI 读走游标式增量(term_send/term_read 共用读位点,读即
+消费)。用户手敲的命令行聚合记录供 agent_status(每会话的 ResSnapshot
+基线独立对比——A 会话首轮见到 B 会话开的终端同样报"新增",模型各
+自知悉全局终端水位)。AI 写入不记(避免自反馈)。
 */
 package service
 
@@ -49,10 +52,10 @@ type TermFrame struct {
 const (
 	termRingSize   = 256 * 1024 // 每终端输出环形缓冲
 	termReadBuf    = 4096
-	termSubsBuf    = 64           // 每订阅者帧队列,满丢帧(重连 hello 兜底)
-	termUserQueue  = 50           // 每终端用户命令行 pending 上限
-	termLineMax    = 256          // 行聚合缓冲上限
-	termCollectMax = 20           // 每轮收割条数上限
+	termSubsBuf    = 64  // 每订阅者帧队列,满丢帧(重连 hello 兜底)
+	termUserQueue  = 50  // 每分支用户命令行 pending 上限
+	termLineMax    = 256 // 行聚合缓冲上限
+	termCollectMax = 20  // 每轮收割条数上限
 )
 
 /* ── 环形缓冲 ── */
@@ -130,23 +133,24 @@ type TermSession struct {
 	Origin  string
 	LastCmd string
 
-	mu      sync.Mutex
-	pty     pty.Pty
-	cmd     *pty.Cmd
-	ring    *ringBuffer
-	lastOut time.Time
-	exited  bool
+	mu       sync.Mutex
+	pty      pty.Pty
+	cmd      *pty.Cmd
+	ring     *ringBuffer
+	lastOut  time.Time
+	exited   bool
+	readMark int64 // agent 读位点(term_send/term_read 共用,读即消费)
 
 	/* 用户输入聚合(agent_status):按回车切行,滤控制字符 */
 	lineAgg  []byte
 	escState int // 输入转义序列过滤状态(0 正常 1 ESC后 2 CSI中 3 OSC中)
 
-	condCh chan struct{} // RunIn 静默等待(写泵 close 广播)
+	condCh chan struct{} // 静默等待(写泵 close 广播)
 }
 
 /* ── 服务 ── */
 
-/* TerminalService 管理全部共享终端(全局单例,随换代重建)。 */
+/* TerminalService 管理全部终端(全局单例,随换代重建)。 */
 type TerminalService struct {
 	mu        sync.Mutex
 	seq       int
@@ -223,7 +227,8 @@ func (s *TerminalService) Create(name, origin string) (*TermInfo, error) {
 }
 
 func (sess *TermSession) info() *TermInfo {
-	return &TermInfo{ID: sess.ID, Name: sess.Name, Origin: sess.Origin, Exited: sess.exited, LastCmd: sess.LastCmd}
+	return &TermInfo{ID: sess.ID, Name: sess.Name, Origin: sess.Origin,
+		Exited: sess.exited, LastCmd: sess.LastCmd}
 }
 
 /* readPump 持续读 PTY 输出:入 ring、刷新静默时钟、广播给 WS 订阅者。 */
@@ -266,7 +271,7 @@ func (s *TerminalService) get(id string) (*TermSession, bool) {
 	return sess, ok
 }
 
-/* Get 返回终端信息;id 为空时取 AI 最近使用的终端。 */
+/* Get 返回终端;id 为空时取 AI 最近使用的终端(全局兜底)。 */
 func (s *TerminalService) Get(id string) (*TermSession, error) {
 	s.mu.Lock()
 	if id == "" {
@@ -280,7 +285,7 @@ func (s *TerminalService) Get(id string) (*TermSession, error) {
 	return sess, nil
 }
 
-/* List 返回全部终端清单(创建顺序)。 */
+/* List 返回全部终端清单(创建顺序;WS/REST 全局视角)。 */
 func (s *TerminalService) List() []TermInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -306,23 +311,228 @@ func (s *TerminalService) ListTermsJSON() string {
 	return string(b)
 }
 
-/* WriteAI 是 AI 工具写入:记录 lastCmd 与最近终端(id 空兜底最近),
-不做用户输入聚合(避免 agent_status 自反馈)。 */
-func (s *TerminalService) WriteAI(id, cmd string, b []byte) error {
-	sess, err := s.Get(id)
+/* StartTerm 新建终端(desc 为描述/名称);带 command 时立即运行
+并等输出静默返回(等价"新建+send"一步到位)。读位点取注入前的当前
+位置(欢迎横幅不计入 agent 可读增量)。 */
+func (s *TerminalService) StartTerm(desc, command string, quietMs, timeoutMs int) (string, error) {
+	quiet := clampInt(quietMs, 100, 5000, 800)
+	timeout := clampInt(timeoutMs, 1000, 60000, 30000)
+
+	info, err := s.Create(desc, "AI")
 	if err != nil {
-		return err
+		return "", err
 	}
+	sess, ok := s.get(info.ID)
+	if !ok {
+		return "", fmt.Errorf("终端 %q 创建后即失效", info.ID)
+	}
+	sess.mu.Lock()
+	sess.readMark = sess.ring.mark()
+	sess.mu.Unlock()
+	if command == "" {
+		return fmt.Sprintf("[终端 #%s %q 已创建(分支绑定,用户可在看板查看接管)]\n后续用 term_send(termId=%s) 发送命令", info.ID, info.Name, info.ID), nil
+	}
+
+	payload := command
+	if !isRawControl(command) {
+		payload += "\r"
+	}
+	sess.mu.Lock()
+	sess.lastOut = time.Now()
+	gen := sess.ring.mark()
+	sess.mu.Unlock()
+	s.writeAI(sess, command, []byte(payload))
+
+	out, exited, timedOut := waitQuiet(context.Background(), sess, gen, quiet, timeout)
+	sess.mu.Lock()
+	sess.readMark = sess.ring.mark()
+	name := sess.Name
+	sess.mu.Unlock()
+	head := fmt.Sprintf("[终端 #%s %q 已创建并执行]", info.ID, name)
+	if exited {
+		head += " shell 已退出"
+	}
+	note := "[输出已静默]"
+	if timedOut {
+		note = fmt.Sprintf("[等待超时(>%ds),命令可能仍在运行,可用 term_read(termId=%s) 续读]", timeout/1000, info.ID)
+	}
+	return renderTermOutput(head, out, note), nil
+}
+
+/* isRawControl 判断是否为原始控制输入(如 ^C):含 C0 控制字符且无
+可打印内容时原样写入、不补回车。 */
+func isRawControl(cmd string) bool {
+	hasCtrl, hasPrint := false, false
+	for _, c := range cmd {
+		switch {
+		case c == '\t':
+		case c < 0x20 || c == 0x7f:
+			hasCtrl = true
+		default:
+			hasPrint = true
+		}
+	}
+	return hasCtrl && !hasPrint
+}
+
+/* writeAI 是 AI 侧写入:记录 lastCmd 与最近终端,不做用户输入聚合
+(避免 agent_status 自反馈)。 */
+func (s *TerminalService) writeAI(sess *TermSession, lastCmd string, b []byte) {
 	s.mu.Lock()
 	s.lastAi = sess.ID
 	s.mu.Unlock()
 	sess.mu.Lock()
-	if cmd != "" {
-		sess.LastCmd = cmd
+	if lastCmd != "" {
+		sess.LastCmd = lastCmd
 	}
 	sess.pty.Write(b) //nolint:errcheck
 	sess.mu.Unlock()
+}
+
+/* Send 在终端执行命令并等待输出静默,返回本次新增输出。收集起点取
+读位点与写前位置的较早者(此前未读的增量一并交付,不丢输出),返回后
+推进读位点(send 与 read 共用,读即消费)。 */
+func (s *TerminalService) Send(ctx context.Context, id, cmd string, quietMs, timeoutMs int) (string, error) {
+	quiet := clampInt(quietMs, 100, 5000, 800)
+	timeout := clampInt(timeoutMs, 1000, 60000, 30000)
+
+	sess, err := s.Get(id)
+	if err != nil {
+		return "", err
+	}
+	payload := cmd
+	if !isRawControl(cmd) {
+		payload += "\r"
+	}
+
+	sess.mu.Lock()
+	sess.lastOut = time.Now() // 静默计时从写入后起算(命令回显/结果未出时不误判)
+	gen := sess.ring.mark()
+	if sess.readMark < gen { // 旧未读增量一并带回
+		gen = sess.readMark
+	}
+	sess.mu.Unlock()
+	s.writeAI(sess, cmd, []byte(payload))
+
+	out, exited, timedOut := waitQuiet(ctx, sess, gen, quiet, timeout)
+	sess.mu.Lock()
+	sess.readMark = sess.ring.mark() // 游标推进:已交付内容不再重复
+	name := sess.Name
+	sess.mu.Unlock()
+
+	head := fmt.Sprintf("[终端 #%s %q]", sess.ID, name)
+	if exited {
+		head += " shell 已退出"
+	}
+	note := "[输出已静默]"
+	if timedOut {
+		note = fmt.Sprintf("[等待超时(>%ds),命令可能仍在运行,可用 term_read 续读]", timeout/1000)
+	}
+	return renderTermOutput(head, out, note), nil
+}
+
+/* waitQuiet 等待输出静默/退出/超时,返回期间新增输出。 */
+func waitQuiet(ctx context.Context, sess *TermSession, gen int64, quiet, timeout int) (out []byte, exited, timedOut bool) {
+	deadline := time.Now().Add(time.Duration(timeout) * time.Millisecond)
+	for {
+		sess.mu.Lock()
+		ch := sess.condCh
+		out = sess.ring.since(gen)
+		quieted := time.Since(sess.lastOut) >= time.Duration(quiet)*time.Millisecond
+		exited = sess.exited
+		sess.mu.Unlock()
+		if exited || quieted {
+			return out, exited, false
+		}
+		if time.Now().After(deadline) {
+			return out, exited, true
+		}
+		select {
+		case <-ctx.Done():
+			return out, exited, false
+		case <-ch:
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+/* renderTermOutput 组装工具返回:头行 + 净化输出 + 状态行(截尾 8000 rune)。 */
+func renderTermOutput(head string, out []byte, note string) string {
+	text := string(bytes.ToValidUTF8(out, nil))
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = stripAnsi(text)
+	if r := []rune(text); len(r) > 8000 {
+		text = "…(输出过长,已截断)\n" + string(r[len(r)-8000:])
+	}
+	var b strings.Builder
+	b.WriteString(head + "\n")
+	if body := strings.TrimSpace(text); body != "" {
+		b.WriteString(body + "\n")
+	}
+	b.WriteString(note)
+	return b.String()
+}
+
+/* ReadTerm 游标式读取终端新输出(读即消费,下次只返回新增)。 */
+func (s *TerminalService) ReadTerm(id string, chars int) (string, error) {
+	sess, err := s.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if chars <= 0 {
+		chars = 4000
+	}
+	if chars > 20000 {
+		chars = 20000
+	}
+	sess.mu.Lock()
+	out := sess.ring.since(sess.readMark)
+	sess.readMark = sess.ring.mark()
+	exited := sess.exited
+	name := sess.Name
+	sess.mu.Unlock()
+
+	head := fmt.Sprintf("[终端 #%s %q]", sess.ID, name)
+	if exited {
+		head += " shell 已退出"
+	}
+	text := string(bytes.ToValidUTF8(out, nil))
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	body := tailRunes(stripAnsi(text), chars)
+	if body == "" {
+		body = "(无新输出)"
+	}
+	return head + "\n" + body, nil
+}
+
+func tailRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
+}
+
+/* CloseTerm 关闭终端(杀进程树防子进程残留);幂等。 */
+func (s *TerminalService) CloseTerm(id string) error {
+	sess, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	s.remove(sess)
 	return nil
+}
+
+/* remove 杀进程树并摘除会话,清理 lastAi 引用,广播清单。 */
+func (s *TerminalService) remove(sess *TermSession) {
+	killTree(sess.cmd)
+	s.mu.Lock()
+	delete(s.sessions, sess.ID)
+	if s.lastAi == sess.ID {
+		s.lastAi = ""
+	}
+	s.mu.Unlock()
+	s.broadcast(TermFrame{Type: "terminals", Sessions: s.List()})
 }
 
 /* UserInput 是用户手敲输入(WS 路径):写入并聚合命令行供 agent_status。
@@ -443,126 +653,13 @@ func (s *TerminalService) Resize(id string, cols, rows int) error {
 
 /* Snapshot 返回终端输出全量(WS hello 恢复屏幕用)。 */
 func (s *TerminalService) Snapshot(id string) []byte {
-	sess, err := s.Get(id)
-	if err != nil {
+	sess, ok := s.get(id)
+	if !ok {
 		return nil
 	}
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	return sess.ring.snapshot()
-}
-
-/* ReadTail 返回终端尾部输出(剥 ANSI 的纯文本,AI term_read 用)。 */
-func (s *TerminalService) ReadTail(id string, chars int) string {
-	sess, err := s.Get(id)
-	if err != nil {
-		return "error: " + err.Error()
-	}
-	if chars <= 0 {
-		chars = 4000
-	}
-	if chars > 20000 {
-		chars = 20000
-	}
-	sess.mu.Lock()
-	snap := sess.ring.snapshot()
-	exited := sess.exited
-	sess.mu.Unlock()
-	text := string(bytes.ToValidUTF8(snap, nil))
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	out := tailRunes(stripAnsi(text), chars)
-	if exited {
-		out += "\n[shell 已退出]"
-	}
-	return out
-}
-
-func tailRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[len(r)-n:])
-}
-
-/* RunIn 在终端执行命令并等待输出静默:id 为空则新建终端(名称取命令
-首词)。返回首行终端标识 + 新增输出 + 状态行。 */
-func (s *TerminalService) RunIn(ctx context.Context, id, cmd string, quietMs, timeoutMs int) (string, error) {
-	quiet := clampInt(quietMs, 100, 5000, 800)
-	timeout := clampInt(timeoutMs, 1000, 60000, 30000)
-
-	if id == "" {
-		info, err := s.Create(firstWord(cmd), "AI")
-		if err != nil {
-			return "", err
-		}
-		id = info.ID
-	}
-	sess, err := s.Get(id)
-	if err != nil {
-		return "", err
-	}
-	if err := s.WriteAI(id, cmd, []byte(cmd+"\r")); err != nil {
-		return "", err
-	}
-
-	sess.mu.Lock()
-	sess.lastOut = time.Now() // 静默计时从写入后起算(命令回显/结果未出时不误判)
-	gen := sess.ring.mark()
-	sess.mu.Unlock()
-
-	deadline := time.Now().Add(time.Duration(timeout) * time.Millisecond)
-	var out []byte
-	var exited bool
-	for {
-		sess.mu.Lock()
-		ch := sess.condCh
-		out = sess.ring.since(gen)
-		quieted := time.Since(sess.lastOut) >= time.Duration(quiet)*time.Millisecond
-		exited = sess.exited
-		sess.mu.Unlock()
-		if exited || quieted {
-			break
-		}
-		if time.Now().After(deadline) {
-			return s.runResult(sess, id, out, fmt.Sprintf("[等待超时(>%ds),命令可能仍在运行,可用 term_read 续读或 term_interrupt 中断]", timeout/1000)), nil
-		}
-		select {
-		case <-ctx.Done():
-			return s.runResult(sess, id, out, "[本轮已取消]"), nil
-		case <-ch:
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
-	return s.runResult(sess, id, out, ""), nil
-}
-
-func (s *TerminalService) runResult(sess *TermSession, id string, out []byte, note string) string {
-	text := string(bytes.ToValidUTF8(out, nil))
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = stripAnsi(text)
-	if r := []rune(text); len(r) > 8000 {
-		text = "…(输出过长,已截断)\n" + string(r[len(r)-8000:])
-	}
-	sess.mu.Lock()
-	name, exited := sess.Name, sess.exited
-	sess.mu.Unlock()
-	head := fmt.Sprintf("[终端 #%s %q]", id, name)
-	if exited {
-		head += " shell 已退出"
-	}
-	body := strings.TrimSpace(text)
-	var b strings.Builder
-	b.WriteString(head + "\n")
-	if body != "" {
-		b.WriteString(body + "\n")
-	}
-	if note != "" {
-		b.WriteString(note)
-	} else {
-		b.WriteString("[输出已静默]")
-	}
-	return b.String()
 }
 
 func clampInt(v, lo, hi, def int) int {
@@ -576,19 +673,6 @@ func clampInt(v, lo, hi, def int) int {
 		return hi
 	}
 	return v
-}
-
-func firstWord(cmd string) string {
-	f := strings.Fields(cmd)
-	if len(f) == 0 {
-		return ""
-	}
-	w := f[0]
-	r := []rune(w)
-	if len(r) > 20 {
-		w = string(r[:20])
-	}
-	return w
 }
 
 /* Subscribe 订阅广播帧(WS 连接用);返回退订函数。 */
@@ -615,24 +699,17 @@ func (s *TerminalService) broadcast(f TermFrame) {
 	}
 }
 
-/* Close 关闭一个终端(杀进程树防子进程残留);幂等。 */
+/* Close 关闭一个终端(REST 路径,用户可关任意终端);幂等。 */
 func (s *TerminalService) Close(id string) {
 	sess, ok := s.get(id)
 	if !ok {
 		return
 	}
-	killTree(sess.cmd)
-	s.mu.Lock()
-	delete(s.sessions, id)
-	if s.lastAi == id {
-		s.lastAi = ""
-	}
-	s.mu.Unlock()
-	s.broadcast(TermFrame{Type: "terminals", Sessions: s.List()})
+	s.remove(sess)
 }
 
 func killTree(cmd *pty.Cmd) {
-	if cmd.Process == nil {
+	if cmd == nil || cmd.Process == nil {
 		return
 	}
 	if runtime.GOOS == "windows" {
@@ -656,7 +733,7 @@ func (s *TerminalService) Shutdown(_ time.Duration) {
 	}
 }
 
-/* ── ANSI 剥离(term_read/RunIn 输出净化) ── */
+/* ── ANSI 剥离(term_send/term_read 输出净化) ── */
 
 var (
 	csiRe  = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)     // CSI 序列

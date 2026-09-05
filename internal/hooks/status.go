@@ -35,7 +35,7 @@ type StatusMcp struct {
 	Desc string `json:"desc,omitempty"`
 }
 
-/* StatusTerm 是状态栏的终端条目（多终端清单 diff 用）。 */
+/* StatusTerm 是状态栏的终端条目（清单 diff 用）。 */
 type StatusTerm struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -201,9 +201,9 @@ func termKey(t StatusTerm) string {
 	return fmt.Sprintf("%s|%s|%v|%s", t.ID, t.Name, t.Exited, t.Origin)
 }
 
-/* diffTerms 对比终端基线产出变更（同 id 退出态变化报"已退出"，
-消失报"已关闭"，AI 可感知用户关掉了自己开的终端；新增时报创建
-来源——用户手动开的终端对模型是未知状态，须显式区分）。 */
+/* diffTerms 对比终端基线产出变更：新增（报创建来源——用户手动开的
+终端对模型是未知状态，须显式区分）、已退出（退出态翻转）、已修改
+（名称/来源变化）、已关闭（消失，AI 可感知用户关掉了自己开的终端）。 */
 func diffTerms(oldS, newS []string) []string {
 	parse := func(s string) (id, name, origin string, exited bool) {
 		parts := strings.SplitN(s, "|", 4)
@@ -240,8 +240,19 @@ func diffTerms(oldS, newS []string) []string {
 			out = append(out, fmt.Sprintf("新增终端 %s(%s)%s", id, name, originLabel(origin)))
 			continue
 		}
-		if _, _, _, wasExited := parse(old); exited && !wasExited {
+		_, oldName, oldOrigin, wasExited := parse(old)
+		if exited && !wasExited {
 			out = append(out, fmt.Sprintf("终端 %s(%s) 已退出", id, name))
+		}
+		if name != oldName || origin != oldOrigin {
+			var fields []string
+			if name != oldName {
+				fields = append(fields, fmt.Sprintf("名称 %q→%q", oldName, name))
+			}
+			if origin != oldOrigin {
+				fields = append(fields, fmt.Sprintf("来源 %q→%q", oldOrigin, origin))
+			}
+			out = append(out, fmt.Sprintf("终端 %s 已修改（%s）", id, strings.Join(fields, "，")))
 		}
 	}
 	for _, s := range oldS {
