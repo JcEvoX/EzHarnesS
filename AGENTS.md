@@ -23,6 +23,10 @@
 
 - `internal/service/agent_service.go`：**ToolNames 硬编码清单**；
   `needsApprove`/`matchRuleList` 的工具名匹配与命令词边界分支
+- **工具实名以注册处为准**（如 ezloop filetools 的 `terminal`，tools.go:152），
+  ToolNames 曾残留旧名 `bash` 导致右上角显示不存在 的工具——改名时
+  grep 旧名逐一核对（settings.go LoadSettings 里的 bash→terminal 迁移是
+  历史档兼容，属故意保留）
 - `internal/domain/settings.go`：`DefaultToolRules` + `LoadSettings` 旧档迁移
   （参照 bash→terminal、term_run→term_send 的写法）。注意 **ToolRules 是全量覆盖
   语义**：用户档里没有的新工具默认 ask——不迁移就是能力倒退

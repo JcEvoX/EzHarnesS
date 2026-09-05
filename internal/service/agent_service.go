@@ -157,7 +157,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		AnswerCh:  answerCh,
 		Trace:     traceHook,
 		ToolNames: []string{
-			"read_file", "write_file", "edit_file", "bash", "save_app",
+			"read_file", "write_file", "edit_file", "terminal", "save_app",
 			askuser.ToolName, task.ToolName,
 			"mcp_router", hooks.TrimTool, hooks.SkillTool,
 			"term_start", "term_send", "term_read", "term_list", "term_close",
