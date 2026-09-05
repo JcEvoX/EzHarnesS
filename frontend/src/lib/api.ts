@@ -109,6 +109,7 @@ export interface Settings {
   trimPercent?: number | null
   workDir?: string
   closeToTray?: boolean
+  maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 12）
 }
 
 export interface ModelEntry {
@@ -117,6 +118,7 @@ export interface ModelEntry {
   apiKey: string
   headers?: Record<string, string>
   enabled: boolean
+  vision?: boolean // 支持多模态视觉输入；false 时带图请求自动省略图片
   tokens: number
   cost: number
   contextWindow?: number
@@ -132,6 +134,7 @@ export interface ModelsConfig {
 
 export interface Status {
   model: string
+  modelVision: boolean
   sessionId: string
   sessionMsgs: number
   busy: boolean
@@ -302,7 +305,7 @@ export const api = {
 
   saveSettings: (s: Settings) => post<{ ok: boolean }>('/api/settings', s),
 
-  getSecurity: () => fetch('/api/security').then(json<{ rules: ToolRule[] }>),
+  getSecurity: () => fetch('/api/security').then(json<{ rules: ToolRule[]; default: ApproveLevel }>),
 
   getApps: () => fetch('/api/apps').then(json<{ apps: AppEntry[] }>),
 
@@ -345,7 +348,7 @@ export const api = {
   deleteTopic: (id: string) =>
     fetch(`/api/topics/${id}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
 
-  saveSecurity: (rules: ToolRule[]) => post<{ ok: boolean }>('/api/security', { rules }),
+  saveSecurity: (rules: ToolRule[], def: ApproveLevel) => post<{ ok: boolean }>('/api/security', { rules, default: def }),
 
   getMemory: () => fetch('/api/memory').then(json<{ content: string }>),
 

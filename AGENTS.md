@@ -54,6 +54,38 @@
 - WS 帧结构（`wsTermSessionOut`）改动要同步 `frontend/src/lib/term.ts` 的 `TermInfo`
 - `killTree(nil)` 会 panic——手工构造 TermSession 的测试场景需 nil 防护（已加）
 
+## SSE 时序（断线重连的坑）
+
+- **回放帧语义**：SSE 建连时后端回放整轮聚合帧（`ReplayFrames`，含 loop_start/
+  model_end/tool 卡），但前端 blocks 里可能已有半轮内容——**所有回放帧的 apply
+  必须幂等**。曾踩坑：loop_start 去重只看"最后一个块"，重连时尾部已是模型输出
+  → user 块重复 push（消息显示两次）
+- **turn_end 不可回放**（`replayable` 名单排除）：轮在断线窗口内结束则前端永远
+  收不到 → busy 卡死。修复：建连首帧 `replay.sync {turnActive}`（前端权威复位
+  busy / 截断本轮块再收重放）+ `Cancel` 无运行轮时补发合成 turn_end
+- **改帧类型/事件协议时**检查三处：后端 `Publish`/`replayable` 名单（session.go）、
+  `MapEvent`（event.go）、前端 `apply` 的对应 case（含幂等性）
+
+## 模型 warp 链
+
+链序（先注册 = 外层）：`modeldump → modelretry → [stripimage] → provider`。
+- 模型层错误**必须**在 provider 装饰器里处理（引擎在模型节点失败即终止
+  loop，hook 拦截不到）
+- `stripimage`（internal/warp/stripimage）：主模型 `ModelEntry.Vision=false`
+  时装配（配置驱动），请求前把全部图片**落盘到工作目录 images/** 并把
+  正文替换为路径与引导（识别槽启用时引导 image_recognize，否则引导去
+  设置启用）——防"一次带图失败、图片留历史、之后每轮 400 卡死"；替换
+  直接改引擎消息（落盘自愈语义）。用户偏好显式配置而非 400 自适应降级
+  （曾实现过 novision 自适应方案被否）
+
+## 模型槽语义（四槽）
+
+main 是唯一对话模型（Vision 开关决定图片进上下文还是落盘）；vision 槽
+= 图片识别（启用 → 暴露 `image_recognize` 工具，service 层实时读槽配置
+调 buildProvider，无需重建 agent）；image/audio 槽 = 预留（工具后续版本）。
+改槽语义/工具暴露记得：ToolNames 动态清单、DefaultToolRules、ModelsView
+槽文案三处同步。
+
 ## 构建/运行陷阱
 
 - `go run .` 会把 exe 放 go-build 临时目录，config 按 exe 位置找不到

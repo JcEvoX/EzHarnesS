@@ -27,6 +27,7 @@ type ModelEntry struct {
 	APIKey        string            `json:"apiKey"`
 	Headers       map[string]string `json:"headers,omitempty"`       // 自定义请求头（网关鉴权、组织 ID 等）
 	Enabled       bool              `json:"enabled"`                 // 每槽至多一条启用
+	Vision        bool              `json:"vision,omitempty"`        // 支持多模态视觉输入；false 时带图请求主动剥图（防 VLM 400 卡死会话）
 	Tokens        int               `json:"tokens"`                  // 累计用量（prompt+completion）
 	Cost          float64           `json:"cost"`                    // 累计花费（单价表后续接入）
 	ContextWindow int               `json:"contextWindow,omitempty"` // 上下文窗口（tokens，水位与压缩推荐用；0 未知)
@@ -157,6 +158,8 @@ type Settings struct {
 	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
 	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（关窗时实时读取，即改即生效）
 	DisabledSkills []string   `json:"disabledSkills"` // 已禁用 skill 的目录名（load_skill/状态面板实时读取，system 清单下个 session 生效）
+	MaxIterations  int        `json:"maxIterations"`  // 单轮对话的最大模型迭代次数（0 = 默认 12；随 Reassemble 生效）
+	ToolDefault    Level      `json:"toolDefault"`    // 未列出工具的审批默认：ask（每次审批）| auto（免审）；个别工具的 toolRules 仍可覆盖
 }
 
 /* Level 是审批策略档位。 */
@@ -200,6 +203,7 @@ func DefaultToolRules() []ToolRule {
 		{Tool: "term_close", Level: LevelAuto},
 		{Tool: "task", Level: LevelAsk},
 		{Tool: "save_app", Level: LevelAsk},
+		{Tool: "image_recognize", Level: LevelAuto}, // 图片识别（识别槽模型驱动，只读）
 		{Tool: "mcp.*", Level: LevelAsk},
 	}
 }

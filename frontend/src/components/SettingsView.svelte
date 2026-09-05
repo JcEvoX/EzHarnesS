@@ -28,6 +28,12 @@
   let closeToTray = $state(false)
   let savingTray = $state(false)
 
+  /* 单轮最大迭代次数（模型工具循环上限；0 = 默认 12，随 Reassemble 生效） */
+  let iters = $state<number | ''>('')
+  let origIters = $state<number | null>(null)
+  let savingIters = $state(false)
+  let itersMsg = $state('')
+
   onMount(async () => {
     try {
       cfg = await api.appConfig()
@@ -45,6 +51,8 @@
       origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
       closeToTray = st.closeToTray ?? false
+      iters = st.maxIterations ?? 12
+      origIters = st.maxIterations ?? 12
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
     }
@@ -81,6 +89,22 @@
       thresholdMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
     } finally {
       savingThreshold = false
+    }
+  }
+
+  async function saveIters() {
+    savingIters = true
+    itersMsg = ''
+    try {
+      const v = Math.min(Math.max(Number(iters) || 0, 0), 50)
+      await api.saveSettings({ systemExtra: origExtra, maxIterations: v })
+      iters = v
+      origIters = v
+      itersMsg = '已保存（下个对话轮生效）'
+    } catch (e) {
+      itersMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      savingIters = false
     }
   }
 
@@ -169,6 +193,10 @@
         <span>整理水位（窗口百分比）</span>
         <input type="number" bind:value={percent} min="0" max="100" />
       </label>
+      <label class="field">
+        <span>单轮最大迭代次数（0 = 默认 12）</span>
+        <input type="number" bind:value={iters} min="0" max="50" />
+      </label>
     </div>
     <button
       class="primary"
@@ -177,8 +205,18 @@
     >
       {savingThreshold ? '保存中…' : '保存水位'}
     </button>
+    <button
+      class="primary"
+      disabled={savingIters || Number(iters) === origIters}
+      onclick={saveIters}
+    >
+      {savingIters ? '保存中…' : '保存迭代次数'}
+    </button>
     {#if thresholdMsg}
       <p class="msg">{thresholdMsg}</p>
+    {/if}
+    {#if itersMsg}
+      <p class="msg">{itersMsg}</p>
     {/if}
   </section>
 

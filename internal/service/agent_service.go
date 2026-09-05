@@ -12,7 +12,9 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,12 +37,14 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/warp/tool/safetool"
 	"github.com/xuanlv2002/ezloop/provider"
 	"github.com/xuanlv2002/ezloop/types"
+	"github.com/xuanlv2002/ezloop/warp"
 
 	"ezharness/internal/domain"
 	"ezharness/internal/hooks"
 	"ezharness/internal/osfs"
 	"ezharness/internal/tools"
 	"ezharness/internal/warp/modeldump"
+	"ezharness/internal/warp/stripimage"
 )
 
 /* AgentService 装配领域会话的运行时。 */
@@ -97,7 +101,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	} else if snap := s.Snapshot(); snap != nil {
 		sys = hooks.NewSysPrompt(snap.SystemBase, snap.SummaryBlock)
 	} else {
-		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys), "")
+		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys, main.Vision), "")
 	}
 	s.SetSysP(sys)
 	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
@@ -125,10 +129,33 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		window, // 模型窗口（整理提示展示水位比例用）
 	)
 
+	// 能力槽启用态：图片识别槽启用 → agent 获得图片识别工具
+	visionOn := visionModel(a.Hub) != nil
+
+	// 主模型未开视觉（ModelEntry.Vision=false）时挂图片落盘装饰器：带图
+	// 请求（含历史残留）的图片存到工作目录 images/ 并替换为路径与引导
+	// 说明（有识别工具则引导 image_recognize），防 VLM 400 卡死会话
+	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp()}
+	if main != nil && !main.Vision {
+		modelWarps = append(modelWarps, stripimage.Warp(s.Fsys, ResolveWorkDir(st.WorkDir), visionOn))
+	}
+	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
+	if visionOn {
+		agentTools = append(agentTools, tools.ImageRecognize(a)...)
+	}
+	toolNames := []string{
+		"read_file", "write_file", "edit_file", "terminal", "save_app",
+		askuser.ToolName, task.ToolName,
+		"mcp_router", hooks.TrimTool, hooks.SkillTool,
+		"term_start", "term_send", "term_read", "term_list", "term_close",
+	}
+	if visionOn {
+		toolNames = append(toolNames, tools.ImageRecognizeTool)
+	}
 	agent := core.NewAgent(provider,
-		core.WithModelWarp(modeldump.Warp(), modelretry.Warp()),
+		core.WithModelWarp(modelWarps...),
 		core.WithToolWarp(limit.Warp(4), safetool.Warp()),
-		core.WithTools(append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)...),
+		core.WithTools(agentTools...),
 		core.WithHooks(
 			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
@@ -146,7 +173,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			hooks.NewEndNote(), // 每轮收尾补 <end_reason>（轮次/时长/结束时间/原因），须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
 		),
-		core.WithLoopParams(core.LoopParams{MaxIterations: 12}),
+		core.WithLoopParams(core.LoopParams{MaxIterations: maxIters(st)}),
 		core.WithStreaming(true),
 	)
 
@@ -156,13 +183,68 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		ApproveCh: approveCh,
 		AnswerCh:  answerCh,
 		Trace:     traceHook,
-		ToolNames: []string{
-			"read_file", "write_file", "edit_file", "terminal", "save_app",
-			askuser.ToolName, task.ToolName,
-			"mcp_router", hooks.TrimTool, hooks.SkillTool,
-			"term_start", "term_send", "term_read", "term_list", "term_close",
-		},
+		ToolNames: toolNames,
 	})
+}
+
+/* maxIters 单轮最大模型迭代次数（设置页可配；0/负数回落默认 12）。 */
+func maxIters(st domain.Settings) int {
+	if st.MaxIterations <= 0 {
+		return 12
+	}
+	return st.MaxIterations
+}
+
+/* visionModel 返回图片识别槽的启用条目（无则 nil）。 */
+func visionModel(h *domain.Hub) *domain.ModelEntry {
+	for i := range h.ModelsSnapshot().Vision {
+		if h.ModelsSnapshot().Vision[i].Enabled {
+			return &h.ModelsSnapshot().Vision[i]
+		}
+	}
+	return nil
+}
+
+/*
+RecognizeImage 用图片识别槽模型识别一张图片（image_recognize 工具的
+后端）。槽模型与启用态每次实时读取——设置变更即生效，无需重建 agent。
+*/
+func (a *AgentService) RecognizeImage(ctx context.Context, path string) (string, error) {
+	m := visionModel(a.Hub)
+	if m == nil || m.APIKey == "" {
+		return "", errors.New("图片识别模型未启用（设置·模型·图片识别）")
+	}
+	data, err := a.Hub.Fsys.Read(ctx, path)
+	if err != nil {
+		return "", fmt.Errorf("读取图片失败: %w", err)
+	}
+	prov := buildProvider(m)
+	resp, err := prov.Invoke(ctx, &types.ModelRequest{Messages: []types.Message{{
+		Role: types.RoleUser,
+		Content: "识别这张图片的内容：先概述是什么，再按需提取其中的文字、数据、代码或关键细节。" +
+			"输出将直接交给另一个 agent 使用，请客观、结构化，不要寒暄。",
+		Images: []types.ImagePart{{
+			MimeType: mimeOf(path),
+			Data:     base64.StdEncoding.EncodeToString(data),
+		}},
+	}}})
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
+
+/* mimeOf 按扩展名推图片 MIME（识别模型通用要求 image/*）。 */
+func mimeOf(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	}
+	return "image/jpeg"
 }
 
 /* Reassemble 重建全部存活分支的 agent（配置变更后；运行中的分支
@@ -205,7 +287,8 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		}
 		name = "mcp.*" // tool_call 按 server.tool 名单走四档
 	}
-	rules := a.Hub.SettingsSnapshot().ToolRules
+	st := a.Hub.SettingsSnapshot()
+	rules := st.ToolRules
 	var rule *domain.ToolRule
 	for i := range rules {
 		if rules[i].Tool == name {
@@ -214,7 +297,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		}
 	}
 	if rule == nil {
-		return true
+		return st.ToolDefault != domain.LevelAuto // 未列出工具按全局默认（默认审批）
 	}
 	switch rule.Level {
 	case domain.LevelAuto:
@@ -311,11 +394,14 @@ buildSystemBase 组装 session 的 system 基础段：人格 + SystemExtra +
 skill 全文与记忆细节不注入（模型按需用文件工具读取），列表变更要等
 下个 session 才进 system，过渡期靠 agent_status 状态栏告知模型。
 */
-func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) string {
+func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mainVision bool) string {
 	var b strings.Builder
+	visionLine := "用户消息可直接携带图片，你能直接看到并理解。"
+	if !mainVision {
+		visionLine = "用户消息携带的图片会自动存为文件并在正文给出路径——你无法直接看图，按正文引导识别。"
+	}
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
-		"能用工具就用工具，回答简洁。" +
-		"用户消息可直接携带图片，你能直接看到并理解，无需借助任何工具。" +
+		"能用工具就用工具，回答简洁。" + visionLine +
 		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动。" +
 		"重要的用户偏好与事实可写入长期记忆（结构见 <memory> 块）。")
 	if st.SystemExtra != "" {
@@ -324,9 +410,14 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 	dataDir, _ := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
 	workDir := ResolveWorkDir(st.WorkDir)
 	p := func(rel string) string { return filepath.ToSlash(filepath.Join(dataDir, rel)) }
+	imagesLine := ""
+	if !mainVision {
+		imagesLine = "# " + filepath.ToSlash(filepath.Join(workDir, "images")) + "   图片落盘处（用户图片存这里，正文会带路径与识别引导）\n"
+	}
 	b.WriteString("\n\n<workspace>\n" +
 		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
 		"# " + p("workspace") + "          工作目录，草稿/脚本/命令产物放这里，自由读写（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）\n" +
+		imagesLine +
 		"# " + p("memory/longterm") + "    长期记忆，可写：harness.md 是索引（已注入上下文），主题文件按需新建，沉淀用户偏好与重要事实\n" +
 		"# " + p("memory/skills") + "      技能库，可写：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
 		"# " + p("apps") + "               快应用目录，由 save_app 工具写入，一般不手动改\n" +

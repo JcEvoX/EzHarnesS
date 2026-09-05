@@ -49,11 +49,14 @@
   let message = $state('')
   let newList = $state<Record<string, string>>({})
 
+  /* 未列出工具的全局默认（新工具/精简档里没覆盖的工具走这一档） */
+  let defLevel = $state<Level>('ask')
+
   const hasList = (lv: Level) => lv === 'black' || lv === 'white'
 
   onMount(async () => {
     try {
-      const { rules: rs } = await api.getSecurity()
+      const { rules: rs, default: d } = await api.getSecurity()
       rules = rs.map((r) => ({
         tool: r.tool,
         level: r.level,
@@ -62,25 +65,31 @@
         kind: meta[r.tool]?.kind ?? 'tool',
         noList: meta[r.tool]?.noList,
       }))
+      defLevel = d || 'ask'
     } catch {
       message = '策略加载失败（后端不可达）'
     }
     loaded = true
   })
 
-  /* persist 自动保存（档位/名单变更即时提交）。 */
+  /* persist 自动保存（档位/名单/全局默认变更即时提交）。 */
   async function persist() {
     if (!rules.length) return
     saving = true
     message = ''
     try {
-      await api.saveSecurity(rules.map(({ tool, level, list }) => ({ tool, level, list })))
+      await api.saveSecurity(rules.map(({ tool, level, list }) => ({ tool, level, list })), defLevel)
       message = '已保存，即时生效'
     } catch (e) {
       message = `保存失败：${(e as Error).message}`
     } finally {
       saving = false
     }
+  }
+
+  function setDefault(lv: Level) {
+    defLevel = lv
+    void persist()
   }
 
   function setRule(r: RuleRow, lv: Level) {
@@ -126,6 +135,32 @@
       <p class="hint">策略为空（后端将按内置默认执行：未知工具一律审批）。</p>
     {/if}
     <div class="list">
+      <div class="rule-wrap">
+        <div class="rule">
+          <div class="info">
+            <span class="name">未列出工具（全局默认）</span>
+            <span class="desc">下方清单未覆盖的工具（含后续版本新增的）按此档执行</span>
+          </div>
+          <div class="seg" role="radiogroup" aria-label="全局默认">
+            <button
+              class="seg-btn"
+              class:active={defLevel === 'ask'}
+              onclick={() => setDefault('ask')}
+              title="未列出的工具每次审批"
+            >
+              审批
+            </button>
+            <button
+              class="seg-btn"
+              class:active={defLevel === 'auto'}
+              onclick={() => setDefault('auto')}
+              title="未列出的工具全部免审"
+            >
+              免审
+            </button>
+          </div>
+        </div>
+      </div>
       {#each rules as r (r.tool)}
         <div class="rule-wrap">
           <div class="rule">

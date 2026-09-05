@@ -55,6 +55,9 @@
       store.lastStatus = `图片最多 ${MAX_IMAGES} 张，多余的未发送`
     }
     const sendImgs = imgs.slice(0, MAX_IMAGES)
+    if (sendImgs.length && store.status && !store.status.modelVision) {
+      store.lastStatus = '当前主模型未开启视觉支持，图片将省略（可在设置·模型勾选"支持视觉"）'
+    }
     text = ''
     try {
       const compressed = await Promise.all(sendImgs.map((f) => compressImage(f)))

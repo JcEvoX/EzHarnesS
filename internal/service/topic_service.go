@@ -352,8 +352,12 @@ func (t *TopicService) Compact(ctx context.Context, rootID string) error {
 		return errors.New("session not assembled")
 	}
 	st := t.Hub.SettingsSnapshot()
+	mainVision := false
+	if m := t.Hub.ModelsSnapshot().ActiveMain(); m != nil {
+		mainVision = m.Vision
+	}
 	info, err := hooks.ArchiveSession(ctx, w.Provider, t.Hub.Fsys, s.Sess, sys,
-		s.Topics, w.Trace, func() string { return buildSystemBase(ctx, st, s.Fsys) },
+		s.Topics, w.Trace, func() string { return buildSystemBase(ctx, st, s.Fsys, mainVision) },
 		s.History(), s.ModelView())
 	if err != nil {
 		return err

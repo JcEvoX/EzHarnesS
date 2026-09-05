@@ -61,19 +61,24 @@ func (c *SettingsController) UpdateModels(g *gin.Context) {
 
 /* GetSecurity GET /api/security。 */
 func (c *SettingsController) GetSecurity(g *gin.Context) {
-	g.JSON(http.StatusOK, gin.H{"rules": c.Settings.SecurityRules()})
+	rules, def := c.Settings.SecurityRules()
+	if def == "" {
+		def = domain.LevelAsk
+	}
+	g.JSON(http.StatusOK, gin.H{"rules": rules, "default": def})
 }
 
 /* UpdateSecurity POST /api/security。 */
 func (c *SettingsController) UpdateSecurity(g *gin.Context) {
 	var body struct {
-		Rules []domain.ToolRule `json:"rules"`
+		Rules   []domain.ToolRule `json:"rules"`
+		Default domain.Level      `json:"default"`
 	}
 	if err := g.ShouldBindJSON(&body); err != nil {
 		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := c.Settings.UpdateSecurity(body.Rules); err != nil {
+	if err := c.Settings.UpdateSecurity(body.Rules, body.Default); err != nil {
 		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

@@ -3,16 +3,19 @@
   import { api, type ModelEntry, type ModelsConfig } from '../lib/api'
 
   /*
-  「主模型 + 能力槽」四类：main（驱动 agent 循环，可直接选多模态模型）/
-  vision（主模型无视觉时转写兜底）/ image（文生图）/ audio（语音合成）。
-  数据 GET/PUT /api/models，每槽至多启用一个，保存后重建 agent。
+  「主模型 + 能力槽」四类：main（驱动 agent 循环的唯一对话模型，支持
+  视觉则图片直接进上下文，否则图片落盘并引导工具识别）/ vision
+  （图片识别：启用后 agent 获得 image_recognize 工具）/ image（图片
+  生成）/ audio（声音生成）——能力槽配置并启用后向 agent 暴露对应
+  工具（image/audio 的工具后续版本提供）。数据 GET/PUT /api/models，
+  每槽至多启用一个，保存后重建 agent。
   */
   type SlotKey = keyof ModelsConfig
   const kinds: { key: SlotKey; title: string; hint: string }[] = [
-    { key: 'main', title: '主模型', hint: '驱动对话与工具循环，可直接选用多模态模型' },
-    { key: 'vision', title: '多模态模型', hint: '主模型无视觉能力时，用于图片识别转写' },
-    { key: 'image', title: '图片生成', hint: '主模型按需调用的文生图工具' },
-    { key: 'audio', title: '声音生成', hint: '主模型按需调用的语音合成工具' },
+    { key: 'main', title: '主模型', hint: '驱动对话与工具循环；勾选"支持视觉"则图片直接进上下文，否则图片存文件并引导用工具识别' },
+    { key: 'vision', title: '图片识别', hint: '启用后 agent 获得图片识别工具（image_recognize），可识别任意图片文件' },
+    { key: 'image', title: '图片生成', hint: '启用后向 agent 暴露文生图工具（工具后续版本提供）' },
+    { key: 'audio', title: '声音生成', hint: '启用后向 agent 暴露语音合成工具（工具后续版本提供）' },
   ]
 
   interface HeaderPair {
@@ -25,9 +28,9 @@
   let saving = $state(false)
   let message = $state('')
   let adding = $state<SlotKey | null>(null)
-  let draft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', pairs: [] as HeaderPair[] })
+  let draft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] as HeaderPair[] })
   let editing = $state<{ slot: SlotKey; idx: number } | null>(null)
-  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', pairs: [] as HeaderPair[] })
+  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] as HeaderPair[] })
 
   onMount(async () => {
     try {
@@ -57,9 +60,16 @@
     }
   }
 
+  /* 启用切换：点亮目标为槽内唯一启用；再次点击已启用的条目 = 停用整槽
+  （main 槽除外——对话必须由主模型驱动，后端也会兜底点亮首条） */
   function enable(slot: SlotKey, idx: number) {
     if (!cfg) return
-    cfg[slot] = cfg[slot].map((e, i) => ({ ...e, enabled: i === idx }))
+    if (cfg[slot][idx].enabled) {
+      if (slot === 'main') return
+      cfg[slot] = cfg[slot].map((e) => ({ ...e, enabled: false }))
+    } else {
+      cfg[slot] = cfg[slot].map((e, i) => ({ ...e, enabled: i === idx }))
+    }
     void persist()
   }
 
@@ -87,13 +97,14 @@
         apiKey: draft.apiKey.trim(),
         ...(Object.keys(headers).length ? { headers } : {}),
         enabled: cfg[slot].length === 0,
+        ...(draft.vision ? { vision: true } : {}),
         tokens: 0,
         cost: 0,
         contextWindow: Number(draft.contextWindow) || 0,
         protocol: draft.protocol || 'openai',
       },
     ]
-    draft = { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', pairs: [] }
+    draft = { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] }
     adding = null
     void persist()
   }
@@ -108,6 +119,7 @@
       apiKey: m.apiKey,
       contextWindow: m.contextWindow || 128000,
       protocol: m.protocol || 'openai',
+      vision: !!m.vision,
       pairs: Object.entries(m.headers ?? {}).map(([key, value]) => ({ key, value })),
     }
   }
@@ -125,6 +137,7 @@
             baseUrl: editDraft.baseUrl.trim(),
             apiKey: editDraft.apiKey.trim(),
             headers: Object.keys(headers).length ? headers : undefined, // 删光时清掉旧值
+            ...(editDraft.vision ? { vision: true } : { vision: false }),
             contextWindow: Number(editDraft.contextWindow) || 0,
             protocol: editDraft.protocol || 'openai',
           }
@@ -175,10 +188,10 @@
           {#each cfg[k.key] as m, i (m.name + i)}
             <div class="model-wrap">
               <div class="model" class:enabled={m.enabled}>
-                <button class="dot" class:on={m.enabled} onclick={() => enable(k.key, i)} title={m.enabled ? '已启用' : '点击启用'}></button>
+                <button class="dot" class:on={m.enabled} onclick={() => enable(k.key, i)} title={m.enabled ? (k.key === 'main' ? '已启用（主模型必启用）' : '已启用（点击停用）') : '点击启用'}></button>
                 <div class="info">
                   <span class="name">{m.name}</span>
-                  <span class="meta">{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
+                  <span class="meta">{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
                 </div>
                 <div class="usage">
                   <span class="tokens" title="累计用量">{m.tokens > 0 ? fmtTokens(m.tokens) : '0'} tokens</span>
@@ -197,6 +210,10 @@
                   <input type="text" placeholder="API 端点" bind:value={editDraft.baseUrl} />
                   <input type="password" placeholder="API Key" bind:value={editDraft.apiKey} />
                   <input type="number" placeholder="上下文窗口（tokens）" bind:value={editDraft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
+                  <label class="vision-ck" title="勾选表示模型支持多模态视觉输入（可发图片）；未勾选时带图请求会自动省略图片，防止不支持视觉的模型报错卡死会话">
+                    <input type="checkbox" bind:checked={editDraft.vision} />
+                    <span>支持视觉（图片输入）</span>
+                  </label>
                   {#each editDraft.pairs as p, j}
                     <div class="hdr-row">
                       <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />
@@ -231,6 +248,10 @@
               <input type="text" placeholder={defaultBase()} bind:value={draft.baseUrl} />
               <input type="password" placeholder="API Key" bind:value={draft.apiKey} />
               <input type="number" placeholder="上下文窗口（tokens）" bind:value={draft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
+              <label class="vision-ck" title="勾选表示模型支持多模态视觉输入（可发图片）；未勾选时带图请求会自动省略图片，防止不支持视觉的模型报错卡死会话">
+                <input type="checkbox" bind:checked={draft.vision} />
+                <span>支持视觉（图片输入）</span>
+              </label>
               {#each draft.pairs as p, j}
                 <div class="hdr-row">
                   <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />
@@ -434,6 +455,22 @@
   .add-form input:focus,
   .add-form select:focus {
     border-color: var(--line-strong);
+  }
+  /* 视觉开关：checkbox 不吃表单输入框样式，横排一行 */
+  .vision-ck {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .vision-ck input {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
   }
   /* select 去原生外观（Windows 白底系统控件与表单不协调），自绘下拉箭头 */
   .add-form select {

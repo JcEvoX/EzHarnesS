@@ -28,13 +28,15 @@ type SettingsService struct {
 }
 
 /* SettingsView 是设置页行为设置视图（模型归 /api/models）。
-TrimPercent/WorkDir/CloseToTray 用指针：区分"未提交该字段"与"提交
-空值（0=禁用压缩 / 空=工作目录回默认 / false=关闭托盘常驻）"。 */
+TrimPercent/WorkDir/CloseToTray/MaxIterations 用指针：区分"未提交该
+字段"与"提交空值（0=禁用压缩 / 空=工作目录回默认 / false=关闭托盘
+常驻 / 0=迭代次数回默认 12）。 */
 type SettingsView struct {
-	SystemExtra    string  `json:"systemExtra"`
-	TrimPercent *int    `json:"compactPercent,omitempty"`
-	WorkDir        *string `json:"workDir,omitempty"`
-	CloseToTray    *bool   `json:"closeToTray,omitempty"`
+	SystemExtra   string  `json:"systemExtra"`
+	TrimPercent   *int    `json:"compactPercent,omitempty"`
+	WorkDir       *string `json:"workDir,omitempty"`
+	CloseToTray   *bool   `json:"closeToTray,omitempty"`
+	MaxIterations *int    `json:"maxIterations,omitempty"`
 }
 
 /* Get 返回当前行为设置。 */
@@ -60,6 +62,12 @@ func (s *SettingsService) Update(v SettingsView) error {
 	}
 	if v.CloseToTray != nil {
 		st.CloseToTray = *v.CloseToTray
+	}
+	if v.MaxIterations != nil {
+		if *v.MaxIterations < 0 || *v.MaxIterations > 50 {
+			return errors.New("最大迭代次数需在 0-50 之间（0 = 默认 12）")
+		}
+		st.MaxIterations = *v.MaxIterations
 	}
 	if st.WorkDir != "" {
 		if abs, err := filepath.Abs(st.WorkDir); err == nil {
@@ -97,11 +105,21 @@ func normalizeModels(m domain.ModelsConfig) domain.ModelsConfig {
 	return m
 }
 
-/* UpdateModels 保存模型四槽（每槽至多一条启用，main 槽不可为空）
-并重建 agent（busy 时拒绝）。 */
+/* UpdateModels 保存模型四槽（每槽至多一条启用，main 槽不可为空且必须
+有启用条目——能力槽允许全部停用）并重建 agent（busy 时拒绝）。 */
 func (s *SettingsService) UpdateModels(m domain.ModelsConfig) error {
 	if len(m.Main) == 0 {
 		return errors.New("main 槽至少需要一个模型")
+	}
+	mainOn := false
+	for _, e := range m.Main {
+		if e.Enabled {
+			mainOn = true
+			break
+		}
+	}
+	if !mainOn {
+		m.Main[0].Enabled = true // 兜底：对话必须由主模型驱动，与 ActiveMain 取首条语义对齐
 	}
 	for slot, entries := range map[string][]domain.ModelEntry{
 		"main": m.Main, "vision": m.Vision, "image": m.Image, "audio": m.Audio,
@@ -123,13 +141,15 @@ func (s *SettingsService) UpdateModels(m domain.ModelsConfig) error {
 	return s.Agents.Reassemble(s.Hub.SettingsSnapshot())
 }
 
-/* SecurityRules 返回当前审批策略。 */
-func (s *SettingsService) SecurityRules() []domain.ToolRule {
-	return s.Hub.SettingsSnapshot().ToolRules
+/* SecurityRules 返回当前审批策略与未列出工具的全局默认。 */
+func (s *SettingsService) SecurityRules() ([]domain.ToolRule, domain.Level) {
+	st := s.Hub.SettingsSnapshot()
+	return st.ToolRules, st.ToolDefault
 }
 
-/* UpdateSecurity 保存审批策略。needsApprove 运行时读设置快照，即时生效。 */
-func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule) error {
+/* UpdateSecurity 保存审批策略与未列出工具的全局默认。needsApprove
+运行时读设置快照，即时生效。 */
+func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule, toolDefault domain.Level) error {
 	valid := map[domain.Level]bool{
 		domain.LevelAsk: true, domain.LevelBlack: true,
 		domain.LevelWhite: true, domain.LevelAuto: true,
@@ -142,8 +162,12 @@ func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule) error {
 			return errors.New("task 只支持 审批/免审（分身继承主 agent 策略）")
 		}
 	}
+	if toolDefault != domain.LevelAsk && toolDefault != domain.LevelAuto {
+		return fmt.Errorf("全局默认只支持 审批/免审（got %q）", toolDefault)
+	}
 	st := s.Hub.SettingsSnapshot()
 	st.ToolRules = rules
+	st.ToolDefault = toolDefault
 	if err := domain.SaveSettings(s.Hub.Fsys, st); err != nil {
 		return err
 	}
