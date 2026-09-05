@@ -207,9 +207,10 @@ func visionModel(h *domain.Hub) *domain.ModelEntry {
 
 /*
 RecognizeImage 用图片识别槽模型识别一张图片（image_recognize 工具的
-后端）。槽模型与启用态每次实时读取——设置变更即生效，无需重建 agent。
+后端）。question 为识别侧重点（空 = 通用描述），由调用方按任务语境给定。
+槽模型与启用态每次实时读取——设置变更即生效，无需重建 agent。
 */
-func (a *AgentService) RecognizeImage(ctx context.Context, path string) (string, error) {
+func (a *AgentService) RecognizeImage(ctx context.Context, path, question string) (string, error) {
 	m := visionModel(a.Hub)
 	if m == nil || m.APIKey == "" {
 		return "", errors.New("图片识别模型未启用（设置·模型·图片识别）")
@@ -218,11 +219,15 @@ func (a *AgentService) RecognizeImage(ctx context.Context, path string) (string,
 	if err != nil {
 		return "", fmt.Errorf("读取图片失败: %w", err)
 	}
+	prompt := question
+	if prompt == "" {
+		prompt = "识别这张图片的内容：先概述是什么，再按需提取其中的文字、数据、代码或关键细节。"
+	}
+	prompt += "\n输出将直接交给另一个 agent 使用，请客观、结构化，不要寒暄。"
 	prov := buildProvider(m)
 	resp, err := prov.Invoke(ctx, &types.ModelRequest{Messages: []types.Message{{
 		Role: types.RoleUser,
-		Content: "识别这张图片的内容：先概述是什么，再按需提取其中的文字、数据、代码或关键细节。" +
-			"输出将直接交给另一个 agent 使用，请客观、结构化，不要寒暄。",
+		Content: prompt,
 		Images: []types.ImagePart{{
 			MimeType: mimeOf(path),
 			Data:     base64.StdEncoding.EncodeToString(data),

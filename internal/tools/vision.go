@@ -19,7 +19,7 @@ const ImageRecognizeTool = "image_recognize"
 
 /* RecognizeIO 是图片识别能力面（service 层实现：图片识别槽模型调用）。 */
 type RecognizeIO interface {
-	RecognizeImage(ctx context.Context, path string) (string, error)
+	RecognizeImage(ctx context.Context, path, question string) (string, error)
 }
 
 /* ImageRecognize 返回图片识别工具集。 */
@@ -33,6 +33,7 @@ func (recognizeTool) Name() string { return ImageRecognizeTool }
 func (recognizeTool) Description() string {
 	return "识别一张图片文件并返回详细文字描述（由图片识别模型驱动）。适用于以文件形式存在的图片：" +
 		"本机任意路径的图片、终端/脚本产物、历史落盘图片（正文引导里给出路径时）。" +
+		"可用 question 参数指定识别侧重点（如逐字转录文字、还原页面布局与配色），缺省为通用描述。" +
 		"注意：用户直接发送且已在你上下文里的图片无需调用本工具。"
 }
 
@@ -40,7 +41,8 @@ func (recognizeTool) ArgsSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"path": {"type": "string", "description": "图片文件的完整绝对路径（png/jpg/webp/gif）"}
+			"path": {"type": "string", "description": "图片文件的完整绝对路径（png/jpg/webp/gif）"},
+			"question": {"type": "string", "description": "识别侧重点（可选）：想从图片获得什么，如\"逐字转录全部文字\"、\"还原页面布局与配色\"；缺省为通用描述"}
 		},
 		"required": ["path"]
 	}`)
@@ -48,10 +50,11 @@ func (recognizeTool) ArgsSchema() json.RawMessage {
 
 func (t recognizeTool) Invoke(ctx context.Context, args json.RawMessage) (string, error) {
 	var a struct {
-		Path string `json:"path"`
+		Path     string `json:"path"`
+		Question string `json:"question"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return "", err
 	}
-	return t.io.RecognizeImage(ctx, a.Path)
+	return t.io.RecognizeImage(ctx, a.Path, a.Question)
 }
