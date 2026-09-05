@@ -305,7 +305,7 @@ export const api = {
 
   saveSettings: (s: Settings) => post<{ ok: boolean }>('/api/settings', s),
 
-  getSecurity: () => fetch('/api/security').then(json<{ rules: ToolRule[]; default: ApproveLevel }>),
+  getSecurity: () => fetch('/api/security').then(json<{ rules: ToolRule[] }>),
 
   getApps: () => fetch('/api/apps').then(json<{ apps: AppEntry[] }>),
 
@@ -348,7 +348,7 @@ export const api = {
   deleteTopic: (id: string) =>
     fetch(`/api/topics/${id}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
 
-  saveSecurity: (rules: ToolRule[], def: ApproveLevel) => post<{ ok: boolean }>('/api/security', { rules, default: def }),
+  saveSecurity: (rules: ToolRule[]) => post<{ ok: boolean }>('/api/security', { rules }),
 
   getMemory: () => fetch('/api/memory').then(json<{ content: string }>),
 

@@ -159,7 +159,6 @@ type Settings struct {
 	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（关窗时实时读取，即改即生效）
 	DisabledSkills []string   `json:"disabledSkills"` // 已禁用 skill 的目录名（load_skill/状态面板实时读取，system 清单下个 session 生效）
 	MaxIterations  int        `json:"maxIterations"`  // 单轮对话的最大模型迭代次数（0 = 默认 12；随 Reassemble 生效）
-	ToolDefault    Level      `json:"toolDefault"`    // 未列出工具的审批默认：ask（每次审批）| auto（免审）；个别工具的 toolRules 仍可覆盖
 }
 
 /* Level 是审批策略档位。 */

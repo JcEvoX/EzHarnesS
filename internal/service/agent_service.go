@@ -287,8 +287,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		}
 		name = "mcp.*" // tool_call 按 server.tool 名单走四档
 	}
-	st := a.Hub.SettingsSnapshot()
-	rules := st.ToolRules
+	rules := a.Hub.SettingsSnapshot().ToolRules
 	var rule *domain.ToolRule
 	for i := range rules {
 		if rules[i].Tool == name {
@@ -297,7 +296,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		}
 	}
 	if rule == nil {
-		return st.ToolDefault != domain.LevelAuto // 未列出工具按全局默认（默认审批）
+		return true
 	}
 	switch rule.Level {
 	case domain.LevelAuto:

@@ -141,15 +141,29 @@ func (s *SettingsService) UpdateModels(m domain.ModelsConfig) error {
 	return s.Agents.Reassemble(s.Hub.SettingsSnapshot())
 }
 
-/* SecurityRules 返回当前审批策略与未列出工具的全局默认。 */
-func (s *SettingsService) SecurityRules() ([]domain.ToolRule, domain.Level) {
+/* SecurityRules 返回当前审批策略：用户档为准，DefaultToolRules 补缺
+（旧档/精简档没覆盖的新工具按内置默认档出现，安全页可配全部工具）。 */
+func (s *SettingsService) SecurityRules() []domain.ToolRule {
 	st := s.Hub.SettingsSnapshot()
-	return st.ToolRules, st.ToolDefault
+	if len(st.ToolRules) == 0 {
+		return domain.DefaultToolRules()
+	}
+	seen := map[string]bool{}
+	out := make([]domain.ToolRule, 0, len(st.ToolRules)+4)
+	for _, r := range st.ToolRules {
+		out = append(out, r)
+		seen[r.Tool] = true
+	}
+	for _, r := range domain.DefaultToolRules() {
+		if !seen[r.Tool] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
-/* UpdateSecurity 保存审批策略与未列出工具的全局默认。needsApprove
-运行时读设置快照，即时生效。 */
-func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule, toolDefault domain.Level) error {
+/* UpdateSecurity 保存审批策略。needsApprove 运行时读设置快照，即时生效。 */
+func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule) error {
 	valid := map[domain.Level]bool{
 		domain.LevelAsk: true, domain.LevelBlack: true,
 		domain.LevelWhite: true, domain.LevelAuto: true,
@@ -162,12 +176,8 @@ func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule, toolDefault do
 			return errors.New("task 只支持 审批/免审（分身继承主 agent 策略）")
 		}
 	}
-	if toolDefault != domain.LevelAsk && toolDefault != domain.LevelAuto {
-		return fmt.Errorf("全局默认只支持 审批/免审（got %q）", toolDefault)
-	}
 	st := s.Hub.SettingsSnapshot()
 	st.ToolRules = rules
-	st.ToolDefault = toolDefault
 	if err := domain.SaveSettings(s.Hub.Fsys, st); err != nil {
 		return err
 	}

@@ -30,13 +30,21 @@
     noList?: boolean // 不支持名单档（如 task：分身继承主 agent 策略）
   }
 
-  /* 展示元数据（说明/名单类型/约束）；档位与名单以后端下发为准 */
+  /* 展示元数据（说明/名单类型/约束）；档位与名单以后端下发为准
+  （后端会把内置默认与用户档合并，全部工具都会出现在清单里） */
   const meta: Record<string, { desc: string; kind: ListKind; noList?: boolean }> = {
     read_file: { desc: '读取任意文件', kind: 'path' },
     write_file: { desc: '写入 / 创建文件', kind: 'path' },
     edit_file: { desc: '精确替换文件内容', kind: 'path' },
-    bash: { desc: '执行命令', kind: 'command' },
+    terminal: { desc: '执行命令（独立进程一次性）', kind: 'command' },
+    term_start: { desc: '新建共享终端（可带首条命令）', kind: 'command' },
+    term_send: { desc: '向共享终端发送命令 / 控制键', kind: 'command' },
+    term_read: { desc: '读取共享终端新输出', kind: 'tool' },
+    term_list: { desc: '列出共享终端', kind: 'tool' },
+    term_close: { desc: '关闭共享终端', kind: 'tool' },
+    image_recognize: { desc: '图片识别（识别槽模型驱动，只读）', kind: 'tool' },
     task: { desc: 'fork 分身执行子任务（分身继承主 agent 策略）', kind: 'tool', noList: true },
+    save_app: { desc: '保存快应用 html', kind: 'tool' },
     'mcp.*': {
       desc: 'MCP 工具调用，名单填 server 或 server.tool（如 time.getCurrentTime）；mcp_list/tool_list 恒免审',
       kind: 'tool',
@@ -49,14 +57,11 @@
   let message = $state('')
   let newList = $state<Record<string, string>>({})
 
-  /* 未列出工具的全局默认（新工具/精简档里没覆盖的工具走这一档） */
-  let defLevel = $state<Level>('ask')
-
   const hasList = (lv: Level) => lv === 'black' || lv === 'white'
 
   onMount(async () => {
     try {
-      const { rules: rs, default: d } = await api.getSecurity()
+      const { rules: rs } = await api.getSecurity()
       rules = rs.map((r) => ({
         tool: r.tool,
         level: r.level,
@@ -65,31 +70,25 @@
         kind: meta[r.tool]?.kind ?? 'tool',
         noList: meta[r.tool]?.noList,
       }))
-      defLevel = d || 'ask'
     } catch {
       message = '策略加载失败（后端不可达）'
     }
     loaded = true
   })
 
-  /* persist 自动保存（档位/名单/全局默认变更即时提交）。 */
+  /* persist 自动保存（档位/名单变更即时提交）。 */
   async function persist() {
     if (!rules.length) return
     saving = true
     message = ''
     try {
-      await api.saveSecurity(rules.map(({ tool, level, list }) => ({ tool, level, list })), defLevel)
+      await api.saveSecurity(rules.map(({ tool, level, list }) => ({ tool, level, list })))
       message = '已保存，即时生效'
     } catch (e) {
       message = `保存失败：${(e as Error).message}`
     } finally {
       saving = false
     }
-  }
-
-  function setDefault(lv: Level) {
-    defLevel = lv
-    void persist()
   }
 
   function setRule(r: RuleRow, lv: Level) {
@@ -132,35 +131,9 @@
     {#if !loaded}
       <p class="hint">加载中…</p>
     {:else if !rules.length}
-      <p class="hint">策略为空（后端将按内置默认执行：未知工具一律审批）。</p>
+      <p class="hint">策略为空（后端将按内置默认执行：未配置工具一律审批）。</p>
     {/if}
     <div class="list">
-      <div class="rule-wrap">
-        <div class="rule">
-          <div class="info">
-            <span class="name">未列出工具（全局默认）</span>
-            <span class="desc">下方清单未覆盖的工具（含后续版本新增的）按此档执行</span>
-          </div>
-          <div class="seg" role="radiogroup" aria-label="全局默认">
-            <button
-              class="seg-btn"
-              class:active={defLevel === 'ask'}
-              onclick={() => setDefault('ask')}
-              title="未列出的工具每次审批"
-            >
-              审批
-            </button>
-            <button
-              class="seg-btn"
-              class:active={defLevel === 'auto'}
-              onclick={() => setDefault('auto')}
-              title="未列出的工具全部免审"
-            >
-              免审
-            </button>
-          </div>
-        </div>
-      </div>
       {#each rules as r (r.tool)}
         <div class="rule-wrap">
           <div class="rule">
