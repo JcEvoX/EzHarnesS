@@ -204,9 +204,16 @@ class AppStore {
   /* term_* 工具的抽屉自动拉开:免审调用延迟 ~1s 打开(tool_start 先于
   approve.request 到达,1s 内无审批请求即视为免审直接执行);进入审批
   则等用户批准(decision.resolved=已批准)才打开——未批准时命令不会
-  运行,提前弹出只是打扰。 */
+  运行,提前弹出只是打扰。只有产生可见终端活动的工具(start/send)才
+  自动拉——list/read/close 是查询管理类,弹抽屉纯打扰。 */
+  private termAutoOpen = new Set(['term_start', 'term_send'])
   private termOpenTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private termApprovals = new Map<string, string>()
+  /* 本轮本地已 push 的 user 块（send 时记录，turn_end/replay.sync 清除）：
+  loop_start 到达时同文本跳过（实时路径防双 push）；SSE 重连回放时按 uid
+  截断本地本轮块，让整轮回放帧干净重建（防 user/回复块重复） */
+  private pendingUserUid = 0
+  private pendingUserText = ''
 
   private nuid(): number {
     return ++this.uidSeq
@@ -254,6 +261,8 @@ class AppStore {
     this.activeForkId = ''
     this.busy = false
     this.lastStatus = ''
+    this.pendingUserUid = 0
+    this.pendingUserText = ''
     // 分支切换：输出/工具指示与实时水位不跨分支（原分支的 turn_end
     // 已收不到——单 SSE 只订阅当前分支，残留标志会永远挂着）
     this.modelActive = false
@@ -513,7 +522,10 @@ class AppStore {
         return
       }
     }
-    this.blocks.push({ kind: 'user', uid: this.nuid(), text, images })
+    const uid = this.nuid()
+    this.blocks.push({ kind: 'user', uid, text, images })
+    this.pendingUserUid = uid
+    this.pendingUserText = text
     this.busy = true
     this.lastStatus = ''
     try {
@@ -720,6 +732,23 @@ class AppStore {
   apply(ev: SseEvent) {
     this.tick++
     switch (ev.type) {
+      case 'replay.sync': {
+        // SSE 建连首帧（后端权威运行态）：无运行轮时复位 busy（轮在断线
+        // 窗口内结束会错过 turn_end 而卡"运行中"）；有运行轮时截断本地
+        // 本轮块（到 pendingUserUid 含），让随后整轮回放帧干净重建
+        const active = !!(ev.data as { turnActive?: boolean } | undefined)?.turnActive
+        if (!active) {
+          this.busy = false
+          this.modelActive = false
+          this.lastTool = ''
+        } else if (this.pendingUserUid) {
+          const i = this.blocks.findIndex((b) => b.uid === this.pendingUserUid)
+          if (i >= 0) this.blocks = this.blocks.slice(0, i)
+        }
+        this.pendingUserUid = 0
+        this.pendingUserText = ''
+        break
+      }
       case 'loop_start': {
         // 回放重建：本轮 user 输入（实时路径 send 已本地 push，同文本去重）
         const text = typeof ev.data === 'string' ? ev.data : ''
@@ -732,9 +761,14 @@ class AppStore {
           }
           break
         }
-        const last = this.blocks[this.blocks.length - 1]
-        if (text && !(last && last.kind === 'user' && last.text === text)) {
-          this.blocks.push({ kind: 'user', uid: this.nuid(), text })
+        // 本地已 push 过本轮输入（含实时与重放截断后的重建）才跳过——
+        // 不再依赖"最后一个块"比对（断线重连时尾部已是模型输出，会误判重复）；
+        // 重建 push 后同样记录标记（多次重连的截断依据）
+        if (text && text !== this.pendingUserText) {
+          const uid = this.nuid()
+          this.blocks.push({ kind: 'user', uid, text })
+          this.pendingUserUid = uid
+          this.pendingUserText = text
         }
         break
       }
@@ -838,8 +872,8 @@ class AppStore {
         }
         if (!ev.forkId) this.lastTool = d.name || ''
         // AI 用共享终端工具:延迟拉开终端抽屉(见 termOpenTimers 注释——
-        // 审批路径由 approve.request 取消计时,批准后才拉)
-        if ((d.name || '').startsWith('term_') && d.id && !this.termApprovals.has(d.id)) {
+        // 审批路径由 approve.request 取消计时,批准后才拉;名单外的查询类不拉)
+        if (this.termAutoOpen.has(d.name || '') && d.id && !this.termApprovals.has(d.id)) {
           const id = d.id
           this.termOpenTimers.get(id) && clearTimeout(this.termOpenTimers.get(id))
           this.termOpenTimers.set(
@@ -1033,6 +1067,8 @@ class AppStore {
         this.busy = false
         this.modelActive = false
         this.lastTool = ''
+        this.pendingUserUid = 0
+        this.pendingUserText = ''
         // 兜底收尾：取消路径引擎不发 model_end，流式块的打字光标须在此收掉；
         // 残留 building 工具块（模型输出了调用但引擎未执行）同样标记完成
         for (const bs of [this.blocks, ...Object.values(this.forks).map((f) => f.blocks)]) {

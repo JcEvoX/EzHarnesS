@@ -264,13 +264,26 @@ func (s *Session) FinishRun(state *types.LoopState, runErr error) {
 	s.mu.Unlock()
 }
 
-/* Cancel 取消当前轮。 */
+/* Cancel 取消当前轮；无运行轮时补发一帧 turn_end（幂等纠正——轮在
+SSE 断线窗口内结束时前端会错过 turn_end 而卡在"运行中"，取消操作
+借此自愈）。 */
 func (s *Session) Cancel() {
 	s.mu.Lock()
+	idle := s.cur == nil
 	if s.cur != nil {
 		s.cur.cancel()
 	}
 	s.mu.Unlock()
+	if idle {
+		s.Publish(TurnEnd("cancelled", 0, nil, nil, 0))
+	}
+}
+
+/* TurnActive 返回是否有轮在运行（SSE 建连 replay.sync 用）。 */
+func (s *Session) TurnActive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cur != nil
 }
 
 /* Shutdown 收尾运行中的轮：取消并等待轮结束落盘（带超时，进程退出/

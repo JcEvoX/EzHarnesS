@@ -31,26 +31,32 @@
 <style>
   .drawer {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    top: 14px;
+    right: 14px;
+    bottom: 14px;
     z-index: 90;
     display: flex;
     flex-direction: column;
     width: min(620px, 46vw);
     background: var(--bg);
-    border-left: 1px solid var(--line-strong);
-    border-radius: 14px 0 0 14px;
-    box-shadow: -16px 0 48px rgb(0 0 0 / 14%);
-    transform: translateX(105%);
-    transition: transform var(--dur-in) var(--ease-out);
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+    box-shadow: 0 18px 56px rgb(0 0 0 / 16%);
+    transform: translateX(calc(100% + 28px));
+    opacity: 0;
+    transition:
+      transform 0.32s var(--ease-out),
+      opacity 0.2s var(--ease-out);
   }
   .drawer.titled {
-    top: 34px; /* 桌面壳自绘标题栏高度 */
-    border-top: none;
+    top: 48px; /* 桌面壳自绘标题栏(34px) + 悬浮边距 */
   }
   .drawer.open {
     transform: translateX(0);
+    opacity: 1;
+    transition:
+      transform 0.3s var(--ease-out),
+      opacity 0.24s var(--ease-out);
   }
   header {
     display: flex;

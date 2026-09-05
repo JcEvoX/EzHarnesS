@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -104,6 +105,11 @@ func (c *ChatController) Events(g *gin.Context) {
 	g.Header("Connection", "keep-alive")
 	fmt.Fprint(g.Writer, ": connected\n\n")
 
+	/* 建连首帧：当前轮运行态（前端复位 busy / 截断本地本轮块，配合
+	随后的整轮回放干净重建——防断线重连导致的重复块与卡死） */
+	if data, err := json.Marshal(domain.ReplaySync(sess.TurnActive())); err == nil {
+		fmt.Fprintf(g.Writer, "data: %s\n\n", data)
+	}
 	for _, frame := range sess.ReplayFrames() {
 		fmt.Fprintf(g.Writer, "data: %s\n\n", frame)
 	}
