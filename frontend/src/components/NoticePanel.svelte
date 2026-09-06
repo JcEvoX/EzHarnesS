@@ -6,8 +6,9 @@
   */
   export interface Notice {
     id: string
+    rootId?: string // 所属分支根（跳转切换分支）
     kind: 'approve' | 'ask' | 'info'
-    source: string // 'agent' 或 fork 名
+    source: string // 'agent'、分支名或 fork 名
     forkId?: string // 非空＝分身请求：跳转打开分身抽屉
     title: string
     detail?: string
@@ -89,7 +90,7 @@
     <p class="empty">暂无通知——审批与提问会出现在这里</p>
   {:else}
     <div class="list">
-      {#each notices as n (n.id)}
+      {#each notices as n (`${n.rootId}:${n.id}`)}
         <div class="notice" class:pending={n.status === 'pending'} class:done={n.status === 'done'}>
           <div class="row" role={n.target ? 'button' : undefined} tabindex="0" onclick={() => n.target && onJump?.(n)}>
             <span class="kind-icon">

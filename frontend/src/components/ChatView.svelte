@@ -2,11 +2,9 @@
   import Timeline from './Timeline.svelte'
   import InputBar from './InputBar.svelte'
   import StatusCard from './StatusCard.svelte'
-  import NoticePanel from './NoticePanel.svelte'
   import ForkPanel from './ForkPanel.svelte'
   import BranchPanel from './BranchPanel.svelte'
   import { store } from '../lib/store.svelte'
-  import type { Notice } from './NoticePanel.svelte'
 
   /* 拖拽附件：整个对话页是热区（dragenter/leave 计数防子元素抖动）。
   图片附件随消息多模态直发（粘贴/画板同路），非图片暂不支持。 */
@@ -70,29 +68,17 @@
     }
   })
 
-  /* 通知内联操作 → 决策回传（联动时间线卡/分身抽屉卡与通知状态） */
-  function resolveNotice(id: string, action: string, input?: string) {
-    const n = store.notices.find((x) => x.id === id)
-    const block = [store.blocks, ...Object.values(store.forks).map((f) => f.blocks)]
-      .flatMap((bs) => bs)
-      .find((b) => b.kind === 'decision' && b.id === id)
-    if (!n || !block || block.kind !== 'decision') return
-    if (n.kind === 'approve') {
-      void store.decideApprove(block, action === 'approve', '')
-    } else if (n.kind === 'ask') {
-      void store.decideAnswer(block, input ?? '')
+  /* 通知跳转主时间线锚点：jumpMain 置位后滚动到目标卡（跨分支切换后
+  历史异步加载，tick 依赖让块到达后重试；找到即滚动并清空） */
+  $effect(() => {
+    if (!store.jumpMain) return
+    store.tick
+    const el = document.getElementById(store.jumpMain)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      store.jumpMain = ''
     }
-  }
-
-  /* 通知跳转：分身请求打开分身抽屉定位决策卡；主请求滚动时间线 */
-  function jumpToNotice(n: Notice) {
-    if (!n.target) return
-    if (n.forkId) {
-      store.openFork(n.forkId, n.target)
-      return
-    }
-    document.getElementById(n.target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+  })
 </script>
 
 <div
@@ -118,7 +104,6 @@
   </aside>
   <aside class="side">
     <StatusCard />
-    <NoticePanel notices={store.notices} onResolve={resolveNotice} onJump={jumpToNotice} onDismiss={(id) => store.dismissNotice(id)} />
     <div class="entries">
       <button class="entry" onclick={() => store.toggleTermDrawer()} title="共享终端（用户与 AI 共写）">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

@@ -172,6 +172,12 @@ export interface TopicEntry {
   origin?: ForkOrigin
 }
 
+/* 全分支未决人机请求（GET /api/notifications，通知栏轮询数据源） */
+export interface NotificationGroup {
+  rootId: string
+  items: { callId: string; forkId?: string; kind: 'approve' | 'ask'; tool: string; args?: string; ts: number }[]
+}
+
 /* 分支面板条目（GET /api/topics 响应，含运行态合成） */
 export interface BranchView extends TopicEntry {
   running?: boolean
@@ -299,6 +305,8 @@ export const api = {
 
   decideAnswer: (id: string, callId: string, input: string) =>
     post<{ ok: boolean }>(`/api/sessions/${id}/decisions/answer`, { callId, input }),
+
+  listNotifications: () => fetch('/api/notifications').then(json<NotificationGroup[]>),
 
   summarize: (id: string) => post<{ text: string }>(`/api/sessions/${id}/summary`),
 

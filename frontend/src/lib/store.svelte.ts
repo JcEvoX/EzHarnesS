@@ -51,9 +51,10 @@ export interface DecisionData {
 }
 
 export interface NoticeData {
-  id: string
+  id: string // 决策回传键（工具调用 ID）
+  rootId: string // 所属分支根（跳转与决策端点路由键）
   kind: 'approve' | 'ask' | 'info'
-  source: string // 'agent' 或 fork 标识
+  source: string // 'agent'、分支名或 fork 标识
   forkId: string // 非空＝分身请求：跳转打开分身抽屉而非主时间线
   title: string
   detail: string
@@ -172,6 +173,9 @@ class AppStore {
   /* 分身抽屉：当前打开的分身与待定位的决策卡（通知跳转用） */
   activeForkId = $state('')
   jumpDecision = $state('')
+  /* 通知跳转主时间线锚点（ChatView effect 消费滚动后清空；tick 依赖供
+  跨分支切换后块加载完成重试） */
+  jumpMain = $state('')
   /* 画板：开合/画板底图（编辑附件时为原 File）与待回流产物。
      boardSeq 在每次"从关到开"时递增（Panel 用 {#key} 重建画板=新画布）；
      pendingBoardFile 由 ChatView 消费进附件列表（tag 为编辑目标下标） */
@@ -230,6 +234,8 @@ class AppStore {
     await this.loadHistory()
     this.unsub?.()
     this.unsub = subscribe(this.activeId, (ev) => this.apply(ev))
+    this.refreshNotices()
+    setInterval(() => this.refreshNotices(), 3000)
   }
 
   async refreshStatus() {
@@ -257,7 +263,6 @@ class AppStore {
   private async loadHistory() {
     this.blocks = []
     this.forks = {}
-    this.notices = []
     this.activeForkId = ''
     this.busy = false
     this.lastStatus = ''
@@ -665,15 +670,11 @@ class AppStore {
     }
   }
 
-  /* ── 决策回传（时间线卡 + 通知联动） ── */
+  /* ── 决策回传（时间线卡） ── */
 
-  private resolveNotice(id: string, resolution: string) {
-    const n = this.notices.find((x) => x.id === id)
-    if (n && n.status === 'pending') {
-      n.status = 'done'
-      n.resolution = resolution
-    }
-    // 对应工具卡打决策徽标（与 decisions.jsonl 重建同源）；分身工具卡在分身块数组里
+  /* markToolDecision 对应工具卡打决策徽标（与 decisions.jsonl 重建同源）；
+  分身工具卡在分身块数组里。通知栏条目由全局轮询收敛，不在此处理。 */
+  private markToolDecision(id: string, resolution: string) {
     for (const bs of [this.blocks, ...Object.values(this.forks).map((f) => f.blocks)]) {
       const t = bs.find((b) => b.kind === 'tool' && b.id === id)
       if (t && t.kind === 'tool') {
@@ -683,20 +684,11 @@ class AppStore {
     }
   }
 
-  /* 关闭通知：仅已处理/过期可关，pending 保留待处理 */
-  dismissNotice(id: string) {
-    const n = this.notices.find((x) => x.id === id)
-    if (n && n.status === 'done') {
-      this.notices = this.notices.filter((x) => x.id !== id)
-    }
-  }
-
   async decideApprove(block: DecisionData, approve: boolean, reason: string) {
     if (!this.activeId) return
     block.resolved = true
     block.resolution = approve ? '已批准' : reason ? `已拒绝：${reason}` : '已拒绝'
-    this.resolveNotice(block.id, block.resolution)
-    this.settleNotice(block.id)
+    this.markToolDecision(block.id, block.resolution)
     this.removeResolvedDecisions(block.id)
     await api.decideApprove(this.activeId, block.id, approve, reason).catch(() => {})
   }
@@ -705,15 +697,9 @@ class AppStore {
     if (!this.activeId) return
     block.resolved = true
     block.resolution = input || '(未回答)'
-    this.resolveNotice(block.id, block.resolution)
-    this.settleNotice(block.id)
+    this.markToolDecision(block.id, block.resolution)
     this.removeResolvedDecisions(block.id)
     await api.decideAnswer(this.activeId, block.id, input).catch(() => {})
-  }
-
-  /* settleNotice 决策完成后立即移除通知条目（结果已在决策卡上可见，通知不留副本）。 */
-  private settleNotice(id: string) {
-    this.notices = this.notices.filter((x) => x.id !== id)
   }
 
   /* removeResolvedDecisions 已决决策卡整体移除：审批结果以工具卡徽标呈现，
@@ -725,6 +711,73 @@ class AppStore {
     }
     strip(this.blocks)
     for (const f of Object.values(this.forks)) strip(f.blocks)
+  }
+
+  /* ── 全局通知（跨分支轮询：服务端 pending 是唯一真相，全量替换） ── */
+
+  /* refreshNotices 拉取全分支未决请求重建通知栏（3s 轮询 + 决策后手动刷）。 */
+  async refreshNotices() {
+    try {
+      const groups = await api.listNotifications()
+      const out: NoticeData[] = []
+      for (const g of groups) {
+        const name = this.branches.find((b) => b.id === g.rootId)?.title || ''
+        for (const it of g.items) {
+          let question = ''
+          try {
+            const a = it.args ? JSON.parse(it.args) : {}
+            question = a.question || ''
+          } catch {
+            /* 非法 JSON 忽略 */
+          }
+          out.push({
+            id: it.callId,
+            rootId: g.rootId,
+            kind: it.kind,
+            source: it.forkId ? '分身' : name || 'agent',
+            forkId: it.forkId || '',
+            title: it.tool,
+            detail: question,
+            time: new Date(it.ts || Date.now()).toTimeString().slice(0, 5),
+            status: 'pending',
+            resolution: '',
+            target: `decision-${it.callId}`,
+          })
+        }
+      }
+      this.notices = out
+    } catch {
+      /* 后端不可达静默（下一轮重试） */
+    }
+  }
+
+  /* resolveNoticeGlobal 通知栏内联决策：按通知携带的分支直接回传（不依赖
+  当前分支的时间线），成功后本地移除 + 立即刷新（乐观更新，轮询自洽）。 */
+  async resolveNoticeGlobal(n: NoticeData, action: string, input?: string) {
+    try {
+      if (n.kind === 'approve') await api.decideApprove(n.rootId, n.id, action === 'approve', '')
+      else await api.decideAnswer(n.rootId, n.id, input ?? '')
+    } catch {
+      return
+    }
+    this.notices = this.notices.filter((x) => !(x.id === n.id && x.rootId === n.rootId))
+    void this.refreshNotices()
+  }
+
+  /* jumpToNotice 跳转到通知来源：跨分支先切换（等待历史加载），分身请求
+  打开抽屉定位，主时间线经 jumpMain 锚点由 ChatView 滚动。 */
+  async jumpToNotice(n: NoticeData) {
+    if (!n.target) return
+    if (n.rootId && n.rootId !== this.activeId) await this.switchBranch(n.rootId)
+    if (n.forkId) {
+      this.openFork(n.forkId, n.id)
+      return
+    }
+    this.jumpMain = n.target
+  }
+
+  dismissNotice(id: string) {
+    this.notices = this.notices.filter((x) => x.id !== id)
   }
 
   /* ── 事件归约 ── */
@@ -773,10 +826,11 @@ class AppStore {
         break
       }
       case 'decision.resolved': {
-        // 回放纠正：已决决策卡直接移除（结果在工具卡上可见），通知与徽标同步
+        // 回放纠正：已决决策卡直接移除（结果在工具卡上可见），徽标同步；
+        // 通知栏由全局轮询收敛，不经此路径
         const d = ev.data || {}
         if (d.id) {
-          this.resolveNotice(d.id, d.resolution || '')
+          this.markToolDecision(d.id, d.resolution || '')
           this.removeResolvedDecisions(d.id)
         }
         // term_* 审批通过 → 现在才拉开终端抽屉（拒绝则什么都不做）
@@ -975,23 +1029,12 @@ class AppStore {
           resolved: false,
           resolution: '',
         }
-        // 决策卡紧跟对应工具卡成组展示；无对应工具卡时兜底追加末尾
+        // 决策卡紧跟对应工具卡成组展示；无对应工具卡时兜底追加末尾；
+        // 通知栏由全局轮询驱动（含后台分支），不经当前分支事件流
         const ti = bs.findIndex((b) => b.kind === 'tool' && b.id === id)
         if (ti >= 0) bs.splice(ti + 1, 0, card)
         else bs.push(card)
-        // 通知栏同步：fork 内请求带 fork 标识，跳转打开分身抽屉定位决策卡；最新在最前
-        this.notices.unshift({
-          id,
-          kind: dtype,
-          source: ev.forkId || 'agent',
-          forkId: ev.forkId || '',
-          title: d.name || '',
-          detail: question || '',
-          time: nowHM(),
-          status: 'pending',
-          resolution: '',
-          target: `decision-${id}`,
-        })
+        void this.refreshNotices()
         break
       }
       case 'error': {

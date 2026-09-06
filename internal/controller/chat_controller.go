@@ -156,6 +156,22 @@ func (c *ChatController) DecideApprove(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+/* Notifications GET /api/notifications：全分支未决人机请求汇总（通知栏
+全局轮询数据源；纯读无状态，后台分支的请求也在此可达）。 */
+func (c *ChatController) Notifications(g *gin.Context) {
+	type noticeGroup struct {
+		RootID string                 `json:"rootId"`
+		Items  []domain.PendingNotice `json:"items"`
+	}
+	out := []noticeGroup{}
+	for _, s := range c.Svc.Hub.Sessions() {
+		if items := s.PendingNotices(); len(items) > 0 {
+			out = append(out, noticeGroup{RootID: s.Root(), Items: items})
+		}
+	}
+	g.JSON(http.StatusOK, out)
+}
+
 /* DecideAnswer POST /api/sessions/:id/decisions/answer（:id=分支根 ID）。 */
 func (c *ChatController) DecideAnswer(g *gin.Context) {
 	var body struct {

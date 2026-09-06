@@ -392,6 +392,40 @@ func (s *Session) PendingFrames() [][]byte {
 	return out
 }
 
+/* PendingNotice 是通知栏全局条目（GET /api/notifications 的域模型）。 */
+type PendingNotice struct {
+	CallID string `json:"callId"`
+	ForkID string `json:"forkId,omitempty"`
+	Kind   string `json:"kind"` // approve | ask
+	Tool   string `json:"tool"`
+	Args   string `json:"args,omitempty"`
+	Ts     int64  `json:"ts"`
+}
+
+/* PendingNotices 返回未决人机请求快照（通知栏跨分支轮询数据源）。 */
+func (s *Session) PendingNotices() []PendingNotice {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]PendingNotice, 0, len(s.pending))
+	for _, e := range s.pending {
+		kind := ""
+		switch e.Type {
+		case "approve.request":
+			kind = "approve"
+		case "askuser.request":
+			kind = "ask"
+		default:
+			continue
+		}
+		var d ToolStartData
+		if json.Unmarshal(e.Data, &d) != nil || d.ID == "" {
+			continue
+		}
+		out = append(out, PendingNotice{CallID: d.ID, ForkID: e.ForkID, Kind: kind, Tool: d.Name, Args: string(d.Args), Ts: e.Ts})
+	}
+	return out
+}
+
 /*
 ReplayFrames 返回 SSE 建立时的重放帧：轮进行中回放整轮聚合帧
 （user 输入/模型回复/工具卡/决策——刷新后时间线完整重建；已决
