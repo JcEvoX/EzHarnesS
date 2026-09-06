@@ -8,7 +8,8 @@ window 是桌面窗口壳（Wails v3，跨平台）：无边框窗口 + 系统�
 - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
   （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
 - 托盘常驻：左键切换窗口显示，右键菜单（打开/退出）。
-- 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘，关 = 正常退出。
+- 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘不弹窗；关 = 弹窗
+  询问退出（选「最小化到托盘」即持久化设置，之后不再询问）。
 */
 package main
 
@@ -94,12 +95,49 @@ func openWindow(a *app) {
 	// quitting 是托盘退出意图：Quit() 会触发关窗流程，若仍走 CloseToTray
 	// 拦截会把退出取消掉（这是"托盘退出退不出"的另一半根因）
 	var quitting atomic.Bool
+	var prompting atomic.Bool // 关闭询问弹窗进行中（防连点 X 重复弹）
+	// shutdown 退出流程：置 quitting 让关窗放行 → 同步收尾（取消运行轮并
+	// 落盘；无轮时毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底
+	shutdown := func() {
+		quitting.Store(true)
+		a.stop()
+		wailsApp.Quit()
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	}
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if quitting.Load() || !domain.LoadSettings(osfs.OS{}).CloseToTray {
+		if quitting.Load() {
 			return
 		}
-		win.Hide()
+		// 已配置最小化到托盘：直接隐藏，不弹窗
+		if domain.LoadSettings(osfs.OS{}).CloseToTray {
+			win.Hide()
+			e.Cancel()
+			return
+		}
+		// 默认：弹窗询问退出意向（选「最小化到托盘」即持久化，之后不再弹）
 		e.Cancel()
+		if !prompting.CompareAndSwap(false, true) {
+			return
+		}
+		dlg := wailsApp.Dialog.Question().
+			SetTitle("ezharness").
+			SetMessage("退出 ezharness？").
+			AttachToWindow(win)
+		dlg.AddButton("退出").SetAsDefault().OnClick(func() { go shutdown() })
+		dlg.AddButton("最小化到托盘（以后不再询问）").OnClick(func() {
+			if st := domain.LoadSettings(osfs.OS{}); !st.CloseToTray {
+				st.CloseToTray = true
+				_ = domain.SaveSettings(osfs.OS{}, st)
+			}
+			prompting.Store(false)
+			win.Hide()
+		})
+		dlg.AddButton("取消").SetAsCancel().OnClick(func() { prompting.Store(false) })
+		go func() {
+			dlg.Show()
+			prompting.Store(false)
+		}()
 	})
 	a.winCtl.Set(wailsWindow{wailsApp: wailsApp, win: win, port: func() int { return a.snapshot().Port }})
 
@@ -119,17 +157,7 @@ func openWindow(a *app) {
 		win.Show()
 		win.Focus()
 	})
-	// 退出：置 quitting 让关窗放行 → 同步收尾（取消运行轮并落盘；无轮时
-	// 毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底（数据已在盘上）
-	menu.Add("退出").OnClick(func(*application.Context) {
-		go func() {
-			quitting.Store(true)
-			a.stop()
-			wailsApp.Quit()
-			time.Sleep(5 * time.Second)
-			os.Exit(0)
-		}()
-	})
+	menu.Add("退出").OnClick(func(*application.Context) { go shutdown() })
 	tray.SetMenu(menu)
 
 	log.Printf("窗口装配完成（启动后 %.1fs），初始化 WebView", time.Since(appStart).Seconds())

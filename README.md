@@ -41,7 +41,7 @@ ezharness.exe
 
 ## 用户安装
 
-从 [Releases](https://github.com/) 下载，两种方式任选其一（exe 在哪运行，配置与数据就在哪生成）：
+从 [Releases](https://github.com/xuanlv2002/ezharness/releases) 下载，两种方式任选其一（exe 在哪运行，配置与数据就在哪生成）：
 
 **方式一：绿色版（下载 exe）**
 

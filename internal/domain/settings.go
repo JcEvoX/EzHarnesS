@@ -161,12 +161,12 @@ type Settings struct {
 }
 
 /* DefaultSettings 给出出厂值（水位 75%：窗口自适应，留足摘要提前量；
-桌面端关闭默认进托盘而非退出）。 */
+点关闭默认弹窗询问退出，选「最小化到托盘」后即常驻托盘）。 */
 func DefaultSettings() Settings {
 	return Settings{
 		SystemExtra: "",
 		TrimPercent: 75,
-		CloseToTray: true,
+		CloseToTray: false,
 	}
 }
 
