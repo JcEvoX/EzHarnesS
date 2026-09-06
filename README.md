@@ -39,45 +39,43 @@ ezharness.exe
 - 页面一律走本进程真实网络地址（不经 wails 资产桥），桌面窗口与浏览器行为完全一致。
 - 通信 REST + SSE：事件流单向推送，决策（审批/回答）POST 回传。
 
-## 安装
+## 用户安装
 
-两种安装方式，任选其一（exe 在哪运行，配置与数据就在哪生成）：
+从 [Releases](https://github.com/) 下载，两种方式任选其一（exe 在哪运行，配置与数据就在哪生成）：
 
-**方式一：绿色版（exe + 环境变量）**
+**方式一：绿色版（下载 exe）**
 
 1. 下载 `ezharness.exe`，放入任意文件夹（如 `D:\ezharness`）；
 2. 将该文件夹加入 PATH 环境变量；
 3. 任意终端输入 `ezharness` 即可启动。首次运行在同目录自动生成 `ezharness.json` 与 `data/`。
 
-**方式二：安装包**
+**方式二：安装包（下载 installer.exe）**
 
 1. 下载安装包，双击运行；
-2. 按引导选择安装目录，自动创建开始菜单与桌面快捷方式。
+2. 按引导选择安装目录，自动创建开始菜单与桌面快捷方式，可选「添加到 PATH」。
 
-## 构建
+首次启动到「模型」页填 apiKey 后即可对话。
 
-前置依赖：[Go](https://go.dev/dl/)、[Node.js](https://nodejs.org/)（npm）、wails3 CLI：
+## 开发
+
+两个脚本（[script/](script/)），从任意目录调用均可：
+
+```sh
+script\dev.bat           # 开发调试：npm run build -> go build -> 启动 exe
+script\release.bat       # 发布：出 build\dist\ezharness.exe + bin\installer.exe
+```
+
+直接使用 wails3 任务（前置依赖：[Go](https://go.dev/dl/)、[Node.js](https://nodejs.org/)、wails3 CLI、NSIS）：
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-```
-
-构建（产物在 `build/dist/`，图标与版本信息自动嵌入 exe）：
-
-```sh
-wails3 task build        # 当前平台
+wails3 task build        # 当前平台（图标/版本信息自动嵌入 exe）
 wails3 task build GOOS=darwin GOARCH=arm64   # 交叉编译
-wails3 package           # 出安装包（Windows NSIS / macOS .app）
-```
-
-## 快速启动
-
-```sh
-dev.bat                  # 开发：npm run build -> go build -> 启动 exe
+wails3 package           # 安装包（Windows NSIS / macOS .app）
 wails3 task run          # 构建产物运行
 ```
 
-- 应用根 = exe 所在目录：首次启动自动创建 `ezharness.json`（结构配置：端口/数据目录）与 `data/` 数据目录，零配置可用；到「模型」页填 apiKey 后即可对话。
+- 应用根 = exe 所在目录：首次启动自动创建 `ezharness.json`（结构配置：监听/端口/数据目录）与 `data/` 数据目录，零配置可用。
 - 纯 server 形态（无窗口，浏览器访问）：`EZHARNESS_NO_WINDOW=1` 启动后访问 `http://127.0.0.1:<port>`。
 
 ## 文档

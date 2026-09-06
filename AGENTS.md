@@ -90,9 +90,10 @@ main 是唯一对话模型（Vision 开关决定图片进上下文还是落盘�
 
 - 构建走 wails3 Taskfile 体系（根 Taskfile.yml + build/ 下平台 Taskfile，
   CLI beta.12）：`wails3 task build`（产物 **build/dist/**，图标/版本信息
-  自动嵌入 exe）、`wails3 package`（NSIS/.app 安装包）、`wails3 task run`。
-  开发直跑用根目录 **dev.bat**（npm run build → go build → 启动 exe），
-  无热重载/dev server——已彻底移除 dev 模式
+  自动嵌入 exe）、`wails3 package`（NSIS/.app 安装包，默认 user 作用域）、
+  `wails3 task run`。脚本在 **script/**：dev.bat（开发直跑：npm run build →
+  go build → 启动 exe）、release.bat（发布：wails3 task package 出
+  exe+installer）。无热重载/dev server——已彻底移除 dev 模式
 - 前端恒内嵌（embed.go，无 build tag 开关；frontend/dist 缺失则 go build
   直接报错，dev.bat/task build 先跑 npm run build 保证产物在）。build:frontend
   **无 generate:bindings 依赖**（前端手写 fetch 层不用 wails bindings），改回需慎重

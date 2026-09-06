@@ -1,8 +1,8 @@
 @echo off
 rem dev: npm run build -> go build (frontend embedded) -> run exe
-rem release: wails3 task build / wails3 package (icon, version info, installer)
+rem release: script\release.bat (exe + installer via wails3 task)
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 cd frontend
 call npm run build || goto :err
