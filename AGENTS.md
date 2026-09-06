@@ -88,6 +88,18 @@ main 是唯一对话模型（Vision 开关决定图片进上下文还是落盘�
 
 ## 构建/运行陷阱
 
+- 构建走 wails3 Taskfile 体系（根 Taskfile.yml + build/ 下平台 Taskfile，
+  CLI beta.12）：`wails3 task build`（产物 **build/dist/**，图标/版本信息
+  自动嵌入 exe）、`wails3 package`（NSIS/.app 安装包）、`wails3 task run`、
+  `wails3 dev`（热重载，前端 dev server 9245）
+- 前端嵌入开关是 **production** tag（embed.go/embed_dev.go，wails3 约定；
+  原为 release 已改）。build:frontend **无 generate:bindings 依赖**（前端
+  手写 fetch 层不用 wails bindings），改回需慎重
+- 产物在 build/dist 不在项目根：**运行须设 `EZHARNESS_ROOT` 指回项目根**
+  （各平台 run 任务已注入 env；手动跑 dist 里 exe 记得带上），否则
+  config Root() 按 exe 位置找不到 ezharness.json 回落默认配置
+- 图标源头是 `build/appicon.png`（ezloop 光子轨道）；改动后
+  `wails3 task common:generate:icons` 重生成，下次 build 自动嵌入
 - `go run .` 会把 exe 放 go-build 临时目录，config 按 exe 位置找不到
   ezharness.json → 回落默认端口 5260 + 空数据目录。**验证须 `go build -o xxx.exe .`
   后在 ezharness/ 目录下运行**

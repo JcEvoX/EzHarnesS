@@ -1,4 +1,4 @@
-//go:build !release
+//go:build !production
 
 /* dev 模式：不服务静态资源，前端走 Vite dev server（proxy /api）。 */
 package main

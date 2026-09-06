@@ -7,7 +7,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/gin-gonic/gin v1.12.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.12
-	github.com/xuanlv2002/ezloop v0.0.0
+	github.com/xuanlv2002/ezloop v1.3.5
 )
 
 require (
@@ -56,5 +56,3 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
-
-replace github.com/xuanlv2002/ezloop => ../ezloop

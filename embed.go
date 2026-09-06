@@ -1,7 +1,7 @@
-//go:build release
+//go:build production
 
 /*
-release 模式：前端产物嵌入单二进制（make build 时 -tags release）。
+production 模式：前端产物嵌入单二进制（wails3 build，-tags production）。
 dev 模式不编译本文件，避免 frontend/dist 缺失报错。
 */
 package main

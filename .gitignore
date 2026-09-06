@@ -2,8 +2,12 @@
 .env
 
 # 构建产物
+build/dist/
+.task/
 ezharness.exe
 ezharness-dev.exe
+ezharness
+ezharness-dev
 *.exe
 
 # 系统垃圾
