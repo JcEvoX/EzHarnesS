@@ -14,7 +14,6 @@
   import SettingsView from './components/SettingsView.svelte'
   import Panel from './components/board/Panel.svelte'
   import TerminalDrawer from './components/board/TerminalDrawer.svelte'
-  import NoticePanel from './components/NoticePanel.svelte'
 
   let view = $state<'chat' | 'models' | 'memory' | 'knowledge' | 'tools' | 'mcp' | 'security' | 'settings'>('chat')
   let expanded = $state(false)
@@ -78,19 +77,6 @@
 <Panel />
 <TerminalDrawer />
 
-<!-- 全局通知栏（fixed 右上，标题栏之下）：跨分支人机请求，所有视图可见 -->
-<div class="notice-float">
-  <NoticePanel
-    notices={store.notices}
-    onResolve={(id, action, input) => {
-      const n = store.notices.find((x) => x.id === id)
-      if (n) void store.resolveNoticeGlobal(n, action, input)
-    }}
-    onJump={(n) => void store.jumpToNotice(n)}
-    onDismiss={(id) => store.dismissNotice(id)}
-  />
-</div>
-
 <style>
   .shell {
     display: flex;
@@ -112,21 +98,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-  }
-  /* 全局通知栏：fixed 右上（标题栏 34px 之下），不参与视图切换 */
-  .notice-float {
-    position: fixed;
-    top: 42px;
-    right: 12px;
-    width: 280px;
-    max-height: calc(100vh - 96px);
-    z-index: 60;
-    display: flex;
-    flex-direction: column;
-    pointer-events: none;
-  }
-  .notice-float > :global(*) {
-    pointer-events: auto;
   }
   .brand-foot {
     position: fixed;

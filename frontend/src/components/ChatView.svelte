@@ -2,6 +2,7 @@
   import Timeline from './Timeline.svelte'
   import InputBar from './InputBar.svelte'
   import StatusCard from './StatusCard.svelte'
+  import NoticePanel from './NoticePanel.svelte'
   import ForkPanel from './ForkPanel.svelte'
   import BranchPanel from './BranchPanel.svelte'
   import { store } from '../lib/store.svelte'
@@ -104,6 +105,16 @@
   </aside>
   <aside class="side">
     <StatusCard />
+    <!-- 全局通知栏（数据跨分支轮询）：保持侧栏一列布局 -->
+    <NoticePanel
+      notices={store.notices}
+      onResolve={(id, action, input) => {
+        const n = store.notices.find((x) => x.id === id)
+        if (n) void store.resolveNoticeGlobal(n, action, input)
+      }}
+      onJump={(n) => void store.jumpToNotice(n)}
+      onDismiss={(id) => store.dismissNotice(id)}
+    />
     <div class="entries">
       <button class="entry" onclick={() => store.toggleTermDrawer()} title="共享终端（用户与 AI 共写）">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

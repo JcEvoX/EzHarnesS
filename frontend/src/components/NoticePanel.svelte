@@ -324,21 +324,20 @@
     font-size: 11.5px;
     font-weight: 550;
     color: var(--fg);
-    display: flex;
-    align-items: center;
-    gap: 5px;
     overflow-wrap: anywhere;
   }
   .src {
-    flex: none;
     font-style: normal;
     font-size: 9px;
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 4px;
+    margin-left: 5px;
+    white-space: nowrap;
   }
   .detail {
+    min-width: 0;
     font-size: 10.5px;
     color: var(--faint);
     display: -webkit-box;
