@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { api, type HistoryMessage, type MemoryConfig, type SessionNode } from '../lib/api'
+  import { api, type HistoryMessage, type MemoryConfig, type MemorySkillEntry, type SessionNode } from '../lib/api'
   import { store } from '../lib/store.svelte'
 
   /*
@@ -77,6 +77,78 @@
     if (n < 1024) return `${n} B`
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
     return `${(n / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  /* 技能管理：启停（乐观更新，失败回滚）与删除（confirm 后物理删目录） */
+  async function toggleSkill(s: MemorySkillEntry) {
+    const next = !s.enabled
+    s.enabled = next
+    try {
+      await api.toggleSkill(s.id, next)
+    } catch (e) {
+      s.enabled = !next
+      message = `技能启停失败：${errText(e)}`
+    }
+  }
+
+  /* 删除确认弹窗：原生 confirm 在 WebView 里贴顶，自制居中确认框 */
+  let delTarget = $state<MemorySkillEntry | null>(null)
+
+  async function doDeleteSkill() {
+    const s = delTarget
+    delTarget = null
+    if (!s) return
+    try {
+      await api.deleteSkill(s.id)
+      if (cfg) cfg.skills.items = cfg.skills.items.filter((x) => x.id !== s.id)
+    } catch (e) {
+      message = `删除技能失败：${errText(e)}`
+    }
+  }
+
+  /* 新建技能弹窗：选 zip 直接上传（技能名由后端从压缩包推导） */
+  let skillModal = $state(false)
+  let skZip = $state<{ name: string; size: number; data: string } | null>(null)
+  let skBusy = $state(false)
+  let skErr = $state('')
+  let zipInput = $state<HTMLInputElement | null>(null)
+
+  function openSkillModal() {
+    skillModal = true
+    skZip = null
+    skErr = ''
+  }
+
+  function pickZip(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0]
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => {
+      const url = String(r.result || '')
+      skZip = { name: f.name, size: f.size, data: url.slice(url.indexOf(',') + 1) }
+    }
+    r.readAsDataURL(f)
+  }
+
+  async function createSkill() {
+    if (!skZip) return
+    skBusy = true
+    skErr = ''
+    try {
+      await api.createSkill(skZip.data)
+      skillModal = false
+      cfg = await api.getMemoryConfig()
+    } catch (e) {
+      skErr = errText(e)
+    } finally {
+      skBusy = false
+    }
+  }
+
+  /* 从 "400: {"error":"xx"}" 形态的报错里提取后端信息 */
+  function errText(e: unknown): string {
+    const m = /\{"error":"([^"]*)"/.exec((e as Error).message)
+    return m ? m[1] : (e as Error).message
   }
 
   /* 会话树（目录式，节点树模型）：
@@ -163,7 +235,6 @@
         <h2>长期记忆</h2>
         <p class="hint">harness.md 索引随上下文初始加载，其余文件由 agent 按需检索。</p>
       </div>
-      <button class="new" disabled>+ 新建文件</button>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.longterm.dir : '—'}</p>
     <div class="list">
@@ -206,15 +277,30 @@
                   <path d="M12 3l1.9 5.6L20 10l-5 3.6L16.5 20 12 16.6 7.5 20 9 13.6 4 10l6.1-1.4L12 3z" />
                 </svg>
               </div>
-              <span class="toggle" class:on={s.enabled} role="switch" aria-checked={s.enabled} tabindex="0">
-                <i></i>
-              </span>
+              <div class="card-ops">
+                <button class="del" title="删除技能" onclick={() => (delTarget = s)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
+                  </svg>
+                </button>
+                <span
+                  class="toggle"
+                  class:on={s.enabled}
+                  role="switch"
+                  aria-checked={s.enabled}
+                  tabindex="0"
+                  onclick={() => toggleSkill(s)}
+                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSkill(s)}
+                  title={s.enabled ? '禁用技能' : '启用技能'}>
+                  <i></i>
+                </span>
+              </div>
             </div>
             <h3>{s.name}</h3>
             <p class="card-desc">{s.desc}</p>
           </div>
         {/each}
-        <div class="card ghost">
+        <button class="card ghost newskill" onclick={openSkillModal}>
           <div class="card-top">
             <div class="glyph ghost-glyph">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -223,10 +309,10 @@
             </div>
           </div>
           <h3>新建技能</h3>
-          <p class="card-desc">把重复性工作流沉淀为可复用的能力。</p>
-        </div>
+          <p class="card-desc">上传 zip 压缩包，把重复性工作流沉淀为可复用的能力。</p>
+        </button>
       {:else}
-        <div class="card ghost">
+        <button class="card ghost newskill" onclick={openSkillModal}>
           <div class="card-top">
             <div class="glyph ghost-glyph">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -235,8 +321,8 @@
             </div>
           </div>
           <h3>暂无技能</h3>
-          <p class="card-desc">重复性工作流可沉淀为 skill。</p>
-        </div>
+          <p class="card-desc">上传 zip 新建技能，重复性工作流可沉淀为 skill。</p>
+        </button>
       {/if}
     </div>
   </section>
@@ -340,6 +426,49 @@
   </aside>
 {/if}
 
+<!-- 新建技能弹窗：选 zip 直接上传（技能名由后端从压缩包推导） -->
+{#if skillModal}
+  <div class="drawer-mask" onclick={() => (skillModal = false)}></div>
+  <div class="modal">
+    <header>
+      <h3>新建技能</h3>
+      <button class="dclose" onclick={() => (skillModal = false)} title="关闭">✕</button>
+    </header>
+    <div class="fld">
+      <span>压缩包（.zip）</span>
+      <button class="zipbtn" onclick={() => zipInput?.click()}>
+        {skZip ? `${skZip.name} · ${fmtSize(skZip.size)}` : '点击选择 zip 文件'}
+      </button>
+      <input type="file" accept=".zip,application/zip" hidden bind:this={zipInput} onchange={pickZip} />
+    </div>
+    <p class="modal-hint">
+      zip 需含根级 SKILL.md，scripts 等子资源一并解压。技能名自动确定：单文件夹压缩取文件夹名，平铺取 SKILL.md 里 frontmatter 的 name。
+    </p>
+    {#if skErr}
+      <p class="modal-hint err">{skErr}</p>
+    {/if}
+    <footer>
+      <button class="btn" disabled={skBusy} onclick={() => (skillModal = false)}>取消</button>
+      <button class="btn primary" disabled={!skZip || skBusy} onclick={createSkill}>
+        {skBusy ? '创建中…' : '创建'}
+      </button>
+    </footer>
+  </div>
+{/if}
+
+<!-- 删除技能确认弹窗（居中） -->
+{#if delTarget}
+  <div class="drawer-mask" onclick={() => (delTarget = null)}></div>
+  <div class="modal confirm">
+    <h3>删除技能</h3>
+    <p class="modal-hint">确定删除「{delTarget.name}」？技能目录与脚本将一并删除，不可恢复。</p>
+    <footer>
+      <button class="btn" onclick={() => (delTarget = null)}>取消</button>
+      <button class="btn danger" onclick={doDeleteSkill}>删除</button>
+    </footer>
+  </div>
+{/if}
+
 <style>
   .page {
     flex: 1;
@@ -385,26 +514,6 @@
     font-size: 11px;
     color: var(--faint);
     margin-top: 2px;
-  }
-  .new {
-    flex: none;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--muted);
-    border-radius: 8px;
-    padding: 5px 12px;
-    font-size: 11.5px;
-    transition:
-      border-color var(--dur-fast) var(--ease-out),
-      color var(--dur-fast) var(--ease-out);
-  }
-  .new:not(:disabled):hover {
-    border-color: var(--line-strong);
-    color: var(--fg);
-  }
-  .new:disabled {
-    opacity: 0.45;
-    cursor: default;
   }
   .dir {
     font-family: var(--font-mono);
@@ -543,6 +652,48 @@
   .card.ghost h3 {
     color: var(--muted);
   }
+  .card.newskill {
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+  }
+  .card.newskill:hover {
+    border-color: var(--line-strong);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 7%);
+    transform: translateY(-2px);
+  }
+  .card-ops {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .del {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    color: var(--faint);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .del svg {
+    width: 14px;
+    height: 14px;
+  }
+  .card:hover .del {
+    opacity: 1;
+  }
+  .del:hover {
+    background: color-mix(in srgb, #c0392b 10%, var(--bg));
+    color: #c0392b;
+  }
   .toggle {
     position: relative;
     width: 30px;
@@ -550,6 +701,8 @@
     border-radius: 9px;
     background: var(--line);
     transition: background var(--dur-fast) var(--ease-out);
+    cursor: pointer;
+    flex: none;
   }
   .toggle i {
     position: absolute;
@@ -567,6 +720,110 @@
   }
   .toggle.on i {
     transform: translateX(13px);
+  }
+
+  /* ── 新建技能弹窗 ── */
+  .modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 59;
+    width: min(400px, 92vw);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgb(0 0 0 / 18%);
+    padding: 18px 20px;
+  }
+  .modal header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .fld {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .fld > span {
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .zipbtn {
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    padding: 9px 10px;
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .zipbtn:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .modal-hint {
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--faint);
+  }
+  .modal-hint.err {
+    color: #c0392b;
+  }
+  .modal footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .btn {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    padding: 7px 16px;
+    cursor: pointer;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .btn:not(:disabled):hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn.danger {
+    background: #c0392b;
+    border-color: #c0392b;
+    color: #fff;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .modal.confirm {
+    width: min(340px, 92vw);
+    gap: 12px;
   }
 
   /* 话题记忆：会话行 */

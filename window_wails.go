@@ -2,13 +2,15 @@
 window 是桌面窗口壳（Wails v3，跨平台）：无边框窗口 + 系统托盘 +
 关闭最小化到托盘。
 
-- 页面一律走本进程 gin 的真实网络地址（release=http://127.0.0.1:<port>，
-  dev=Vite dev server）：不经 wails 资产桥——该桥在 Windows 上缓冲整个
-  响应，SSE 等流式无法工作；走网络后桌面端与浏览器访问行为完全一致。
+- 页面一律走本进程 gin 的真实网络地址（http://127.0.0.1:<port>）：
+  不经 wails 资产桥——该桥在 Windows 上缓冲整个响应，SSE 等流式无法
+  工作；走网络后桌面端与浏览器访问行为完全一致。
 - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
   （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
 - 托盘常驻：左键切换窗口显示，右键菜单（打开/退出）。
-- 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘，关 = 正常退出。
+- 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘不弹窗；关 = 前端
+  关闭询问（页面 modal，勾选「以后最小化到托盘」即持久化）。Alt+F4/
+  任务栏关闭走系统惯例直接退出。
 */
 package main
 
@@ -18,21 +20,16 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-
-	"ezharness/internal/domain"
-	"ezharness/internal/osfs"
 )
 
 //go:embed assets/icon.png
 var trayIcon []byte
-
-// devURL dev 模式前端在 Vite dev server（proxy /api 到本进程）。
-const devURL = "http://localhost:5173/?desktop=1"
 
 var appWinSeq atomic.Int64 // 快应用子窗口命名序号
 
@@ -68,11 +65,7 @@ func openWindow(a *app) {
 			WebView2CompositionHosting: true,
 		},
 	}
-	if distFS() != nil { // release：gin 直出内嵌前端
-		opts.URL = fmt.Sprintf("http://127.0.0.1:%d/?desktop=1", a.cfg.Port)
-	} else { // dev：前端在 Vite dev server
-		opts.URL = devURL
-	}
+	opts.URL = fmt.Sprintf("http://127.0.0.1:%d/?desktop=1", a.cfg.Port)
 	wailsApp := application.New(application.Options{Name: "ezharness"})
 	win := wailsApp.Window.NewWithOptions(opts)
 
@@ -97,17 +90,33 @@ func openWindow(a *app) {
 	time.AfterFunc(2*time.Second, show)
 
 	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）。
-	// quitting 是托盘退出意图：Quit() 会触发关窗流程，若仍走 CloseToTray
-	// 拦截会把退出取消掉（这是"托盘退出退不出"的另一半根因）
+	// quitting 是退出意图（托盘退出/前端确认退出）：Quit() 会触发关窗流程，
+	// 若仍走 CloseToTray 拦截会把退出取消掉（这是"托盘退出退不出"的另一
+	// 半根因）。标题栏 X 的询问弹窗在前端（页面 modal），Alt+F4/任务栏
+	// 关闭走系统惯例直接退出。
 	var quitting atomic.Bool
+	// shutdown 退出流程：置 quitting 让关窗放行 → 同步收尾（取消运行轮并
+	// 落盘；无轮时毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底
+	shutdown := func() {
+		quitting.Store(true)
+		a.stop()
+		wailsApp.Quit()
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
+	}
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if quitting.Load() || !domain.LoadSettings(osfs.OS{}).CloseToTray {
+		if quitting.Load() || !a.hub.SettingsSnapshot().CloseToTray {
 			return
 		}
 		win.Hide()
 		e.Cancel()
 	})
-	a.winCtl.Set(wailsWindow{wailsApp: wailsApp, win: win, port: func() int { return a.snapshot().Port }})
+	a.winCtl.Set(wailsWindow{
+		wailsApp: wailsApp,
+		win:      win,
+		port:     func() int { return a.snapshot().Port },
+		quit:     shutdown,
+	})
 
 	tray := wailsApp.SystemTray.New()
 	tray.SetIcon(trayIcon)
@@ -125,17 +134,7 @@ func openWindow(a *app) {
 		win.Show()
 		win.Focus()
 	})
-	// 退出：置 quitting 让关窗放行 → 同步收尾（取消运行轮并落盘；无轮时
-	// 毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底（数据已在盘上）
-	menu.Add("退出").OnClick(func(*application.Context) {
-		go func() {
-			quitting.Store(true)
-			a.stop()
-			wailsApp.Quit()
-			time.Sleep(5 * time.Second)
-			os.Exit(0)
-		}()
-	})
+	menu.Add("退出").OnClick(func(*application.Context) { go shutdown() })
 	tray.SetMenu(menu)
 
 	log.Printf("窗口装配完成（启动后 %.1fs），初始化 WebView", time.Since(appStart).Seconds())
@@ -147,23 +146,36 @@ type wailsWindow struct {
 	wailsApp *application.App
 	win      *application.WebviewWindow
 	port     func() int
+	quit     func() // 退出流程（收尾落盘 + Quit；openWindow 闭包注入）
 }
 
 func (a wailsWindow) Minimise()         { a.win.Minimise() }
 func (a wailsWindow) ToggleMaximise()   { a.win.ToggleMaximise() }
 func (a wailsWindow) IsMaximised() bool { return a.win.IsMaximised() }
-func (a wailsWindow) Close()            { a.win.Close() }
+func (a wailsWindow) Hide()             { a.win.Hide() }
 
+/* RequestQuit 真退出（前端关闭询问确认后调用）：quitting 置位让关窗
+钩子放行，再走完整收尾退出流程。 */
+func (a wailsWindow) RequestQuit() {
+	if a.quit != nil {
+		go a.quit()
+	}
+}
 /* OpenAppWindow 为快应用开独立子窗口：页面走本进程 gin 直出的绝对 URL
-（release 与 dev 一致；wails 资产域只服务主窗口相对路径）。带系统标题栏。 */
+（release 与 dev 一致；wails 资产域只服务主窗口相对路径）。带系统标题栏。
+path 为完整 http(s) URL 时直接加载（看板浏览器的"独立窗口"，绕开 iframe
+内嵌限制）。 */
 func (a wailsWindow) OpenAppWindow(path, title string) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", a.port(), path)
+	url := path
+	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
+		url = fmt.Sprintf("http://127.0.0.1:%d%s", a.port(), path)
+	}
 	opts := application.WebviewWindowOptions{
 		Name:   fmt.Sprintf("app-%d", appWinSeq.Add(1)),
 		Title:  title,
 		URL:    url,
-		Width:  960,
-		Height: 640,
+		Width:  1100,
+		Height: 720,
 		Hidden: true,
 	}
 	w := a.wailsApp.Window.NewWithOptions(opts)

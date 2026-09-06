@@ -5,6 +5,7 @@
   /* 设置页 = 应用结构配置（服务端）+ 上下文管理 + 数据/配置文件路径。 */
   let cfg = $state<AppConfig | null>(null)
   let port = $state<number | ''>('')
+  let listen = $state('')
   let dataDir = $state('')
   let restarting = $state(false)
   let restartErr = $state('')
@@ -28,10 +29,17 @@
   let closeToTray = $state(false)
   let savingTray = $state(false)
 
+  /* 单轮最大迭代次数（模型工具循环上限；0 = 默认 12，随 Reassemble 生效） */
+  let iters = $state<number | ''>('')
+  let origIters = $state<number | null>(null)
+  let savingIters = $state(false)
+  let itersMsg = $state('')
+
   onMount(async () => {
     try {
       cfg = await api.appConfig()
       port = cfg.port
+      listen = cfg.listen
       dataDir = cfg.dataDir
       appChanged = false
     } catch {
@@ -45,6 +53,8 @@
       origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
       closeToTray = st.closeToTray ?? false
+      iters = st.maxIterations ?? 12
+      origIters = st.maxIterations ?? 12
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
     }
@@ -63,7 +73,11 @@
   }
 
   function checkChanged() {
-    appChanged = !!cfg && (String(port) !== String(cfg.port) || dataDir.trim() !== cfg.dataDir)
+    appChanged =
+      !!cfg &&
+      (String(port) !== String(cfg.port) ||
+        listen.trim() !== cfg.listen ||
+        dataDir.trim() !== cfg.dataDir)
   }
 
   async function saveThreshold() {
@@ -81,6 +95,22 @@
       thresholdMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
     } finally {
       savingThreshold = false
+    }
+  }
+
+  async function saveIters() {
+    savingIters = true
+    itersMsg = ''
+    try {
+      const v = Math.min(Math.max(Number(iters) || 0, 0), 50)
+      await api.saveSettings({ systemExtra: origExtra, maxIterations: v })
+      iters = v
+      origIters = v
+      itersMsg = '已保存（下个对话轮生效）'
+    } catch (e) {
+      itersMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      savingIters = false
     }
   }
 
@@ -102,8 +132,9 @@
     restarting = true
     restartErr = ''
     try {
-      const req: { port?: number; dataDir?: string } = {}
+      const req: { port?: number; listen?: string; dataDir?: string } = {}
       if (String(port) !== String(cfg?.port)) req.port = Number(port)
+      if (listen.trim() !== cfg?.listen) req.listen = listen.trim()
       if (dataDir.trim() !== cfg?.dataDir) req.dataDir = dataDir.trim()
       const res = await api.appRestart(req)
       for (let i = 0; i < 60; i++) {
@@ -137,8 +168,12 @@
 
   <section>
     <h2>服务端配置</h2>
-    <p class="hint">端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。</p>
+    <p class="hint">监听、端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。监听 127.0.0.1 = 仅本机访问（默认，无防火墙弹窗），0.0.0.0 = 局域网可达（会触发防火墙授权）。</p>
     <div class="grid2">
+      <label class="field">
+        <span>监听地址</span>
+        <input type="text" bind:value={listen} oninput={checkChanged} placeholder={cfg?.listen ?? '127.0.0.1'} />
+      </label>
       <label class="field">
         <span>端口</span>
         <input type="number" bind:value={port} oninput={checkChanged} min="1" max="65535" />
@@ -164,12 +199,10 @@
       （如 128K 窗口 × 75% = 96000）；0 表示关闭自动整理（模型仍可主动调用
       trim_context 工具）。话题归档（总结归档开新会话）请用分支面板的「归档」按钮。
     </p>
-    <div class="grid2">
-      <label class="field">
-        <span>整理水位（窗口百分比）</span>
-        <input type="number" bind:value={percent} min="0" max="100" />
-      </label>
-    </div>
+    <label class="field">
+      <span>整理水位（窗口百分比）</span>
+      <input type="number" bind:value={percent} min="0" max="100" />
+    </label>
     <button
       class="primary"
       disabled={savingThreshold || Number(percent) === origPercent}
@@ -177,8 +210,22 @@
     >
       {savingThreshold ? '保存中…' : '保存水位'}
     </button>
+    <label class="field">
+      <span>单轮最大迭代次数（0 = 默认 12）</span>
+      <input type="number" bind:value={iters} min="0" max="50" />
+    </label>
+    <button
+      class="primary"
+      disabled={savingIters || Number(iters) === origIters}
+      onclick={saveIters}
+    >
+      {savingIters ? '保存中…' : '保存迭代次数'}
+    </button>
     {#if thresholdMsg}
       <p class="msg">{thresholdMsg}</p>
+    {/if}
+    {#if itersMsg}
+      <p class="msg">{itersMsg}</p>
     {/if}
   </section>
 

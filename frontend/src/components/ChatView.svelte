@@ -3,21 +3,15 @@
   import InputBar from './InputBar.svelte'
   import StatusCard from './StatusCard.svelte'
   import NoticePanel from './NoticePanel.svelte'
-  import MagicBoard from './MagicBoard.svelte'
   import ForkPanel from './ForkPanel.svelte'
   import BranchPanel from './BranchPanel.svelte'
   import { store } from '../lib/store.svelte'
-  import type { Notice } from './NoticePanel.svelte'
 
   /* 拖拽附件：整个对话页是热区（dragenter/leave 计数防子元素抖动）。
   图片附件随消息多模态直发（粘贴/画板同路），非图片暂不支持。 */
   let files = $state<File[]>([])
   let dragging = $state(false)
   let depth = 0
-
-  /* 魔法画板：editing 为编辑中的附件下标，null = 空白创作 */
-  let boardOpen = $state(false)
-  let editing: number | null = $state(null)
 
   function onDragEnter(e: DragEvent) {
     if (!e.dataTransfer?.types.includes('Files')) return
@@ -58,45 +52,34 @@
     files = []
   }
 
-  function openBoard(i: number | null) {
-    editing = i
-    boardOpen = true
-  }
-
-  function boardDone(f: File) {
-    if (editing !== null) {
+  /* 画板产物回流：tag 为编辑目标的下标且原附件未变时替换，否则追加
+  （编辑期间附件被删/换了页面则降级追加）。本页未挂载时产物积压在
+  store，回对话页后首跑消费，跨页不丢。 */
+  $effect(() => {
+    const p = store.pendingBoardFile
+    if (!p) return
+    store.pendingBoardFile = null
+    const i = /^\d+$/.test(p.tag) ? Number(p.tag) : -1
+    if (i >= 0 && files[i] === p.source) {
       const next = [...files]
-      next[editing] = f
+      next[i] = p.file
       files = next
     } else {
-      files = [...files, f]
+      files = [...files, p.file]
     }
-    boardOpen = false
-  }
+  })
 
-  /* 通知内联操作 → 决策回传（联动时间线卡/分身抽屉卡与通知状态） */
-  function resolveNotice(id: string, action: string, input?: string) {
-    const n = store.notices.find((x) => x.id === id)
-    const block = [store.blocks, ...Object.values(store.forks).map((f) => f.blocks)]
-      .flatMap((bs) => bs)
-      .find((b) => b.kind === 'decision' && b.id === id)
-    if (!n || !block || block.kind !== 'decision') return
-    if (n.kind === 'approve') {
-      void store.decideApprove(block, action === 'approve', '')
-    } else if (n.kind === 'ask') {
-      void store.decideAnswer(block, input ?? '')
+  /* 通知跳转主时间线锚点：jumpMain 置位后滚动到目标卡（跨分支切换后
+  历史异步加载，tick 依赖让块到达后重试；找到即滚动并清空） */
+  $effect(() => {
+    if (!store.jumpMain) return
+    store.tick
+    const el = document.getElementById(store.jumpMain)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      store.jumpMain = ''
     }
-  }
-
-  /* 通知跳转：分身请求打开分身抽屉定位决策卡；主请求滚动时间线 */
-  function jumpToNotice(n: Notice) {
-    if (!n.target) return
-    if (n.forkId) {
-      store.openFork(n.forkId, n.target)
-      return
-    }
-    document.getElementById(n.target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+  })
 </script>
 
 <div
@@ -112,8 +95,7 @@
     <InputBar
       {files}
       onRemove={removeFile}
-      onEditImage={(i) => openBoard(i)}
-      onOpenBoard={() => openBoard(null)}
+      onEditImage={(i) => store.openBoard(files[i] ?? null, String(i))}
       onAddFiles={addFiles}
       onClearFiles={clearFiles}
     />
@@ -123,11 +105,27 @@
   </aside>
   <aside class="side">
     <StatusCard />
-    <NoticePanel notices={store.notices} onResolve={resolveNotice} onJump={jumpToNotice} onDismiss={(id) => store.dismissNotice(id)} />
+    <!-- 全局通知栏（数据跨分支轮询）：保持侧栏一列布局 -->
+    <NoticePanel
+      notices={store.notices}
+      onResolve={(id, action, input) => {
+        const n = store.notices.find((x) => x.id === id)
+        if (n) void store.resolveNoticeGlobal(n, action, input)
+      }}
+      onJump={(n) => void store.jumpToNotice(n)}
+      onDismiss={(id) => store.dismissNotice(id)}
+    />
+    <div class="entries">
+      <button class="entry" onclick={() => store.toggleTermDrawer()} title="共享终端（用户与 AI 共写）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 8l4 4-4 4" />
+          <path d="M12 16.5h7" />
+        </svg>
+      </button>
+    </div>
   </aside>
   <ForkPanel />
-  {#if dragging}
-    <div class="dropzone">
+  {#if dragging}    <div class="dropzone">
       <div class="hint-box">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 16V5" />
@@ -139,10 +137,6 @@
     </div>
   {/if}
 </div>
-
-{#if boardOpen}
-  <MagicBoard source={editing !== null ? (files[editing] ?? null) : null} onDone={boardDone} onClose={() => (boardOpen = false)} />
-{/if}
 
 <style>
   .chat {
@@ -205,6 +199,35 @@
   }
   .side > :global(.panel) {
     min-height: 0; /* 通知过多时收缩，列表内部滚动 */
+  }
+  /* 终端抽屉入口：右列通知下方，方形图标钮（与卡片同视觉语言） */
+  .entries {
+    align-self: flex-end;
+    display: flex;
+    gap: 8px;
+  }
+  .entry {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    border-radius: 10px;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .entry:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+    border-color: var(--line-strong);
+  }
+  .entry svg {
+    width: 16px;
+    height: 16px;
   }
   .dropzone {
     position: absolute;

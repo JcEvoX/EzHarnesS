@@ -147,9 +147,19 @@ func mapTaskEvent(out *Event, e event.Event) {
 	}
 }
 
+/* ReplaySync 构造 SSE 建连首帧：告知前端当前是否有运行中的轮——
+turnActive=false 时前端据此复位 busy（轮在断线窗口内结束会错过
+turn_end 而卡"运行中"），turnActive=true 时前端截断本地本轮块，
+让随后的整轮回放帧干净重建（防 user/回复块重复）。 */
+func ReplaySync(turnActive bool) Event {
+	type syncData struct {
+		TurnActive bool `json:"turnActive"`
+	}
+	return Event{Type: "replay.sync", Ts: time.Now().UnixMilli(), Data: raw(syncData{TurnActive: turnActive})}
+}
+
 /* TurnEnd 构造合成的 turn_end 帧。 */
-func TurnEnd(stop string, iterations int, usage *types.Usage, err error, elapsedMs int64) Event {
-	d := TurnEndData{StopReason: stop, Iterations: iterations, ElapsedMs: elapsedMs, Usage: usage}
+func TurnEnd(stop string, iterations int, usage *types.Usage, err error, elapsedMs int64) Event {	d := TurnEndData{StopReason: stop, Iterations: iterations, ElapsedMs: elapsedMs, Usage: usage}
 	if err != nil {
 		d.Err = err.Error()
 		if d.StopReason == "" {

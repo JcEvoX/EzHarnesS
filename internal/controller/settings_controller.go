@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"encoding/base64"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -100,6 +101,52 @@ func (c *SettingsController) SaveMemory(g *gin.Context) {
 	}
 	if err := c.Memory.SaveMemory(body.Content); err != nil {
 		g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+/* CreateSkill POST /api/memory/skills（zip base64 新建技能，名称自动推导）。 */
+func (c *SettingsController) CreateSkill(g *gin.Context) {
+	var body struct {
+		Data string `json:"data"`
+	}
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(body.Data)
+	if err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "data 不是有效的 base64"})
+		return
+	}
+	if err := c.Memory.CreateSkill(data); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+/* DeleteSkill DELETE /api/memory/skills/:id。 */
+func (c *SettingsController) DeleteSkill(g *gin.Context) {
+	if err := c.Memory.DeleteSkill(g.Param("id")); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+/* ToggleSkill POST /api/memory/skills/:id/enabled（启停技能）。 */
+func (c *SettingsController) ToggleSkill(g *gin.Context) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := c.Memory.ToggleSkill(g.Param("id"), body.Enabled); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	g.JSON(http.StatusOK, gin.H{"ok": true})

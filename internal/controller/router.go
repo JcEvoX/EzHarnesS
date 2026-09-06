@@ -23,6 +23,7 @@ type Controllers struct {
 	Apps     *AppsController
 	App      *AppController
 	Window   *WindowController
+	Terminal *TerminalController
 }
 
 /* NewRouter 装配 gin engine 与全部路由。dist 非 nil 时服务前端静态资源。 */
@@ -43,6 +44,7 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.GET("/sessions/:id/prev", c.Session.Prev)
 		api.GET("/sessions/:id/forks/:fid", c.Session.Fork)
 		api.GET("/sessions/:id/events", c.Chat.Events)
+		api.GET("/notifications", c.Chat.Notifications)
 		api.POST("/sessions/:id/messages", c.Chat.SendMessage)
 		api.POST("/sessions/:id/cancel", c.Chat.CancelTurn)
 		api.POST("/sessions/:id/summary", c.Session.Summary)
@@ -57,6 +59,9 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.GET("/memory", c.Settings.GetMemory)
 		api.POST("/memory", c.Settings.SaveMemory)
 		api.GET("/memory/config", c.Settings.GetMemoryConfig)
+		api.POST("/memory/skills", c.Settings.CreateSkill)         // zip base64 新建技能
+		api.DELETE("/memory/skills/:id", c.Settings.DeleteSkill)   // 删除技能目录
+		api.POST("/memory/skills/:id/enabled", c.Settings.ToggleSkill) // 启停技能
 
 		api.GET("/topics", c.Topics.List)
 		api.GET("/topics/:id", c.Topics.Get)
@@ -78,10 +83,19 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.GET("/apps", c.Apps.List)
 		api.POST("/apps/open", c.Apps.Open)
 
+		/* 魔法看板·共享终端：WS 多路复用 + REST 管理 */
+		api.GET("/terminal/ws", c.Terminal.Ws)
+		api.GET("/terminal/list", c.Terminal.List)
+		api.POST("/terminal/create", c.Terminal.Create)
+		api.POST("/terminal/close", c.Terminal.Close)
+
 		api.POST("/window/min", c.Window.Minimise)
 		api.POST("/window/max", c.Window.ToggleMaximise)
 		api.GET("/window/state", c.Window.State)
 		api.POST("/window/close", c.Window.Close)
+		api.POST("/window/close-decision", c.Window.CloseDecision)
+		api.POST("/window/open-url", c.Window.OpenURL)
+		api.POST("/window/open-web", c.Window.OpenWeb)
 
 		api.POST("/sessions/:id/decisions/approve", c.Chat.DecideApprove)
 		api.POST("/sessions/:id/decisions/answer", c.Chat.DecideAnswer)

@@ -7,14 +7,12 @@
     files = [],
     onRemove,
     onEditImage,
-    onOpenBoard,
     onAddFiles,
     onClearFiles,
   }: {
     files?: File[]
     onRemove?: (i: number) => void
     onEditImage?: (i: number) => void
-    onOpenBoard?: () => void
     onAddFiles?: (fs: File[]) => void
     onClearFiles?: () => void
   } = $props()
@@ -57,6 +55,9 @@
       store.lastStatus = `图片最多 ${MAX_IMAGES} 张，多余的未发送`
     }
     const sendImgs = imgs.slice(0, MAX_IMAGES)
+    if (sendImgs.length && store.status && !store.status.modelVision) {
+      store.lastStatus = '当前主模型未开启视觉支持，图片将省略（可在设置·模型勾选"支持视觉"）'
+    }
     text = ''
     try {
       const compressed = await Promise.all(sendImgs.map((f) => compressImage(f)))
@@ -143,12 +144,10 @@
       oninput={autoResize}
       disabled={!store.activeId}
     ></textarea>
-    <button class="board-btn" onclick={() => onOpenBoard?.()} title="魔法画板">
+    <button class="board-btn" onclick={() => store.openBoard()} title="打开画板（画图/标注后发送）">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 19l7-7 3 3-7 7-3-3z" />
-        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
-        <path d="M2 2l7.586 7.586" />
-        <circle cx="11" cy="11" r="2" />
+        <path d="M12 19l7-7a4.95 4.95 0 1 0-7-7l-7 7v7h7z" />
+        <path d="M16 8l1.5 1.5" />
       </svg>
     </button>
     {#if store.busy}
@@ -304,28 +303,6 @@
     width: 13px;
     height: 13px;
   }
-  .board-btn {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border: none;
-    background: transparent;
-    border-radius: 10px;
-    color: var(--faint);
-    transition:
-      background var(--dur-fast) var(--ease-out),
-      color var(--dur-fast) var(--ease-out);
-  }
-  .board-btn svg {
-    width: 16px;
-    height: 16px;
-  }
-  .board-btn:hover {
-    background: var(--line);
-    color: var(--fg);
-  }
   .box {
     display: flex;
     gap: 8px;
@@ -377,6 +354,31 @@
     transition: opacity var(--dur-fast) var(--ease-out);
   }
   .send svg {
+    width: 15px;
+    height: 15px;
+  }
+  /* 画板入口：发送键旁的弱化图标钮 */
+  .board-btn {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .board-btn:hover {
+    background: var(--bg);
+    color: var(--fg);
+    border-color: var(--line-strong);
+  }
+  .board-btn svg {
     width: 15px;
     height: 15px;
   }

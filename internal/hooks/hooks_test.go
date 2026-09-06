@@ -200,7 +200,7 @@ func TestSkillToolLoad(t *testing.T) {
 	_ = fsys.Write(ctx, "memory/skills/pdf/scripts/extract.py", []byte("print(1)"))
 	_ = fsys.Write(ctx, "memory/skills/pdf/references/api.md", []byte("api 文档"))
 
-	h := NewSkillTool(fsys, "memory/skills")
+	h := NewSkillTool(fsys, "memory/skills", nil)
 	state := newTestState(nil)
 	if err := h.OnStart(ctx, state); err != nil {
 		t.Fatal(err)
@@ -231,5 +231,49 @@ func TestSkillToolLoad(t *testing.T) {
 	})
 	if !strings.Contains(action.Result, "pdf") {
 		t.Fatalf("unknown skill should list available: %q", action.Result)
+	}
+}
+
+/* 终端变更 diff:新增(报来源)/退出/修改(名称·来源)/关闭。 */
+func TestDiffTerms(t *testing.T) {
+	oldS := []string{
+		"t1|build|false|用户",
+		"t2|logs|false|AI",
+		"t3|watch|true|AI",
+	}
+	newS := []string{
+		"t1|build-server|false|用户", // 名称变化 → 修改
+		"t2|logs|false|AI",          // 不变
+		"t4|deploy|false|AI",        // 新增
+	}
+	got := diffTerms(oldS, newS)
+	joined := strings.Join(got, ";")
+	for _, want := range []string{
+		"终端 t1 已修改（名称 \"build\"→\"build-server\"）",
+		"新增终端 t4(deploy)，AI 创建",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("diffTerms 缺少 %q, got %q", want, joined)
+		}
+	}
+	// t3 消失 → 已关闭
+	if !strings.Contains(joined, "终端 t3(watch) 已关闭") {
+		t.Errorf("diffTerms 缺少 t3 已关闭, got %q", joined)
+	}
+	// t2 无任何变更记录
+	if strings.Contains(joined, "t2") {
+		t.Errorf("t2 无变化不应出现, got %q", joined)
+	}
+}
+
+/* 退出态翻转报"已退出"(修改的特例,专项文案)。 */
+func TestDiffTermsExited(t *testing.T) {
+	got := diffTerms([]string{"t1|build|false|AI"}, []string{"t1|build|true|AI"})
+	joined := strings.Join(got, ";")
+	if !strings.Contains(joined, "终端 t1(build) 已退出") {
+		t.Errorf("缺少退出记录, got %q", joined)
+	}
+	if strings.Contains(joined, "已修改") {
+		t.Errorf("纯退出不应报修改, got %q", joined)
 	}
 }

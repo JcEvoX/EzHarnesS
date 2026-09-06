@@ -12,10 +12,13 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/core"
@@ -34,17 +37,20 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/warp/tool/safetool"
 	"github.com/xuanlv2002/ezloop/provider"
 	"github.com/xuanlv2002/ezloop/types"
+	"github.com/xuanlv2002/ezloop/warp"
 
 	"ezharness/internal/domain"
 	"ezharness/internal/hooks"
 	"ezharness/internal/osfs"
 	"ezharness/internal/tools"
 	"ezharness/internal/warp/modeldump"
+	"ezharness/internal/warp/stripimage"
 )
 
 /* AgentService 装配领域会话的运行时。 */
 type AgentService struct {
-	Hub *domain.Hub
+	Hub  *domain.Hub
+	Term *TerminalService // 共享终端（魔法看板），可空：term_* 工具与状态注入的前提
 }
 
 /*
@@ -95,7 +101,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	} else if snap := s.Snapshot(); snap != nil {
 		sys = hooks.NewSysPrompt(snap.SystemBase, snap.SummaryBlock)
 	} else {
-		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys), "")
+		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys, main.Vision), "")
 	}
 	s.SetSysP(sys)
 	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
@@ -109,10 +115,13 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		window = 128000 // 旧 models.json 无 contextWindow 字段的兜底
 	}
 	s.Sess.BindCtx(func() (int, int) { return s.CtxTokens(), window })
+	disabledSkills := func() []string { return a.Hub.SettingsSnapshot().DisabledSkills }
 	statusHook := hooks.NewStatus(s.Fsys, s.Sess,
 		func() int { return s.CtxTokens() },
 		window,
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
+		termReportFn(a.Term),
+		disabledSkills,
 	)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
@@ -120,28 +129,51 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		window, // 模型窗口（整理提示展示水位比例用）
 	)
 
+	// 能力槽启用态：图片识别槽启用 → agent 获得图片识别工具
+	visionOn := visionModel(a.Hub) != nil
+
+	// 主模型未开视觉（ModelEntry.Vision=false）时挂图片落盘装饰器：带图
+	// 请求（含历史残留）的图片存到工作目录 images/ 并替换为路径与引导
+	// 说明（有识别工具则引导 image_recognize），防 VLM 400 卡死会话
+	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp()}
+	if main != nil && !main.Vision {
+		modelWarps = append(modelWarps, stripimage.Warp(s.Fsys, ResolveWorkDir(st.WorkDir), visionOn))
+	}
+	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
+	if visionOn {
+		agentTools = append(agentTools, tools.ImageRecognize(a)...)
+	}
+	toolNames := []string{
+		"read_file", "write_file", "edit_file", "terminal", "save_app",
+		askuser.ToolName, task.ToolName,
+		"mcp_router", hooks.TrimTool, hooks.SkillTool,
+		"term_start", "term_send", "term_read", "term_list", "term_close",
+	}
+	if visionOn {
+		toolNames = append(toolNames, tools.ImageRecognizeTool)
+	}
 	agent := core.NewAgent(provider,
-		core.WithModelWarp(modeldump.Warp(), modelretry.Warp()),
+		core.WithModelWarp(modelWarps...),
 		core.WithToolWarp(limit.Warp(4), safetool.Warp()),
-		core.WithTools(tools.SaveApp(s.Fsys)...),
+		core.WithTools(agentTools...),
 		core.WithHooks(
 			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
-			filetools.New(s.Fsys, filetools.WithWorkDir(resolveWorkDir(st.WorkDir))),
-			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir),
+			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir))),
+			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir, disabledSkills),
 			statusHook,
 			approver,
 			asker,
 			task.New(),
 			NewMcpHook(s.Fsys),
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName), offload.WithReplayTool("read_file")),
+			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, hooks.SkillTool), offload.WithReplayTool("read_file")), // load_skill 返回的指令集是后续行动依据,卸载再回读纯浪费
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			trimHook, // OnLoop 回边水位整理（就地截断，立即生效），OnToolStart 拦模型主动整理
 			traceHook,
 			hooks.NewEndNote(), // 每轮收尾补 <end_reason>（轮次/时长/结束时间/原因），须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
 		),
-		core.WithLoopParams(core.LoopParams{MaxIterations: 12}),
+		core.WithLoopParams(core.LoopParams{MaxIterations: maxIters(st)}),
 		core.WithStreaming(true),
 	)
 
@@ -151,12 +183,73 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		ApproveCh: approveCh,
 		AnswerCh:  answerCh,
 		Trace:     traceHook,
-		ToolNames: []string{
-			"read_file", "write_file", "edit_file", "bash", "save_app",
-			askuser.ToolName, task.ToolName,
-			"mcp_router", hooks.TrimTool, hooks.SkillTool,
-		},
+		ToolNames: toolNames,
 	})
+}
+
+/* maxIters 单轮最大模型迭代次数（设置页可配；0/负数回落默认 12）。 */
+func maxIters(st domain.Settings) int {
+	if st.MaxIterations <= 0 {
+		return 12
+	}
+	return st.MaxIterations
+}
+
+/* visionModel 返回图片识别槽的启用条目（无则 nil）。 */
+func visionModel(h *domain.Hub) *domain.ModelEntry {
+	for i := range h.ModelsSnapshot().Vision {
+		if h.ModelsSnapshot().Vision[i].Enabled {
+			return &h.ModelsSnapshot().Vision[i]
+		}
+	}
+	return nil
+}
+
+/*
+RecognizeImage 用图片识别槽模型识别一张图片（image_recognize 工具的
+后端）。question 为识别侧重点（空 = 通用描述），由调用方按任务语境给定。
+槽模型与启用态每次实时读取——设置变更即生效，无需重建 agent。
+*/
+func (a *AgentService) RecognizeImage(ctx context.Context, path, question string) (string, error) {
+	m := visionModel(a.Hub)
+	if m == nil || m.APIKey == "" {
+		return "", errors.New("图片识别模型未启用（设置·模型·图片识别）")
+	}
+	data, err := a.Hub.Fsys.Read(ctx, path)
+	if err != nil {
+		return "", fmt.Errorf("读取图片失败: %w", err)
+	}
+	prompt := question
+	if prompt == "" {
+		prompt = "识别这张图片的内容：先概述是什么，再按需提取其中的文字、数据、代码或关键细节。"
+	}
+	prompt += "\n输出将直接交给另一个 agent 使用，请客观、结构化，不要寒暄。"
+	prov := buildProvider(m)
+	resp, err := prov.Invoke(ctx, &types.ModelRequest{Messages: []types.Message{{
+		Role: types.RoleUser,
+		Content: prompt,
+		Images: []types.ImagePart{{
+			MimeType: mimeOf(path),
+			Data:     base64.StdEncoding.EncodeToString(data),
+		}},
+	}}})
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
+}
+
+/* mimeOf 按扩展名推图片 MIME（识别模型通用要求 image/*）。 */
+func mimeOf(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	}
+	return "image/jpeg"
 }
 
 /* Reassemble 重建全部存活分支的 agent（配置变更后；运行中的分支
@@ -199,7 +292,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		}
 		name = "mcp.*" // tool_call 按 server.tool 名单走四档
 	}
-	rules := a.Hub.SettingsSnapshot().ToolRules
+	rules := a.Hub.ToolRulesSnapshot()
 	var rule *domain.ToolRule
 	for i := range rules {
 		if rules[i].Tool == name {
@@ -231,7 +324,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 	key := ""
 	switch ruleTool {
-	case "terminal":
+	case "terminal", "term_start", "term_send": // 共享终端执行与独立进程命令共用命令词匹配
 		var a struct {
 			Command string `json:"command"`
 		}
@@ -261,13 +354,13 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 		if key == e {
 			return true
 		}
-		if ruleTool == "terminal" && strings.HasPrefix(key, e+" ") {
+		if (ruleTool == "terminal" || ruleTool == "term_start" || ruleTool == "term_send") && strings.HasPrefix(key, e+" ") {
 			return true // 命令词边界
 		}
 		if ruleTool == "mcp.*" && strings.HasPrefix(key, e+".") {
 			return true // server 前缀放行整站（点边界：time 不误命中 timeX）
 		}
-		if ruleTool != "terminal" && ruleTool != "mcp.*" && strings.HasPrefix(key, e) {
+		if ruleTool != "terminal" && ruleTool != "term_start" && ruleTool != "term_send" && ruleTool != "mcp.*" && strings.HasPrefix(key, e) {
 			return true // 路径前缀
 		}
 	}
@@ -275,11 +368,11 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 }
 
 /*
-resolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/
+ResolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/
 （模型草稿与命令产物落这里，不与 models.json/sessions/ 等数据文件混放），
-相对 = 相对数据目录；目录不存在则创建（terminal 的执行目录必须存在）。
+相对 = 相对数据目录；目录不存在则创建（terminal 与共享终端的执行目录必须存在）。
 */
-func resolveWorkDir(spec string) string {
+func ResolveWorkDir(spec string) string {
 	wd, err := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
 	if err != nil {
 		wd = "."
@@ -305,22 +398,30 @@ buildSystemBase 组装 session 的 system 基础段：人格 + SystemExtra +
 skill 全文与记忆细节不注入（模型按需用文件工具读取），列表变更要等
 下个 session 才进 system，过渡期靠 agent_status 状态栏告知模型。
 */
-func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) string {
+func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mainVision bool) string {
 	var b strings.Builder
+	visionLine := "用户消息可直接携带图片，你能直接看到并理解。"
+	if !mainVision {
+		visionLine = "用户消息携带的图片会自动存为文件并在正文给出路径——你无法直接看图，按正文引导识别。"
+	}
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
-		"能用工具就用工具，回答简洁。" +
-		"用户消息可直接携带图片，你能直接看到并理解，无需借助任何工具。" +
+		"能用工具就用工具，回答简洁。" + visionLine +
 		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动。" +
 		"重要的用户偏好与事实可写入长期记忆（结构见 <memory> 块）。")
 	if st.SystemExtra != "" {
 		b.WriteString("\n\n" + st.SystemExtra)
 	}
 	dataDir, _ := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
-	workDir := resolveWorkDir(st.WorkDir)
+	workDir := ResolveWorkDir(st.WorkDir)
 	p := func(rel string) string { return filepath.ToSlash(filepath.Join(dataDir, rel)) }
+	imagesLine := ""
+	if !mainVision {
+		imagesLine = "# " + filepath.ToSlash(filepath.Join(workDir, "images")) + "   图片落盘处（用户图片存这里，正文会带路径与识别引导）\n"
+	}
 	b.WriteString("\n\n<workspace>\n" +
 		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
 		"# " + p("workspace") + "          工作目录，草稿/脚本/命令产物放这里，自由读写（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）\n" +
+		imagesLine +
 		"# " + p("memory/longterm") + "    长期记忆，可写：harness.md 是索引（已注入上下文），主题文件按需新建，沉淀用户偏好与重要事实\n" +
 		"# " + p("memory/skills") + "      技能库，可写：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
 		"# " + p("apps") + "               快应用目录，由 save_app 工具写入，一般不手动改\n" +
@@ -330,6 +431,11 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"# " + p("settings.json") + " / " + p("models.json") + " / " + p("stats.json") + " / " + p("topics.json") + "：应用配置与索引，由设置页和应用自身管理，不要直接改写\n" +
 		"# 规则：terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，不要依赖当前目录；\n" +
 		"# 工作目录之外的临时文件不要随手乱放。\n" +
+		"# 共享终端（term_start/term_send 等）：魔法看板里的多终端，用户与你实时共见同一屏幕，全局共享（所有会话可用同一批终端）；" +
+		"term_list 查看全部（含用户手开的），term_start 新建（带描述，可附带首条命令）；\n" +
+		"# term_send 发命令并等输出静默返回（也用于应答交互/发 \\u0003 中断），term_read 游标式续读（只返回新增），term_close 关闭；\n" +
+		"# 需要交互式应答/状态保留/长驻程序/想让用户看到过程时用 term_* 系列，一次性无状态命令仍用 terminal；\n" +
+		"# 用户手动在终端里的操作会出现在每轮 agent_status，留意并在需要时接续。\n" +
 		"</workspace>")
 	memRoot := filepath.ToSlash(filepath.Join(dataDir, "memory"))
 	b.WriteString("\n\n<memory>\n" +
@@ -341,7 +447,17 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"# 索引 harness.md 全文\n" +
 		hooks.EnsureHarnessMd(ctx, fsys) +
 		"\n</memory>")
-	if skills, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir); err == nil && len(skills) > 0 {
+	skills, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir)
+	if err == nil && len(st.DisabledSkills) > 0 {
+		kept := skills[:0]
+		for _, sk := range skills {
+			if !slices.Contains(st.DisabledSkills, hooks.SkillDirOf(sk.Path)) {
+				kept = append(kept, sk)
+			}
+		}
+		skills = kept
+	}
+	if len(skills) > 0 {
 		b.WriteString("\n\n<skills>\n（本清单由系统运行时生成，不在任何文件里；技能正文在 " +
 			memRoot+"/skills/<名>/SKILL.md，可用文件工具编辑，改动下个 session 生效；"+
 			"使用前先调用 load_skill 获取完整指令与脚本路径）")
@@ -373,6 +489,26 @@ func mcpListLines(fsys osfs.OS) []string {
 		}
 	}
 	return out
+}
+
+/* termReportFn 共享终端状态面（agent_status 注入：终端清单变更 + 用户
+手动输入）；nil 服务返回 nil。终端全局共享，清单实时全量——各会话的
+ResSnapshot 基线独立对比（A 会话首轮见到 B 会话开的终端同样报"新增"，
+模型各自知悉全局终端水位）。 */
+func termReportFn(t *TerminalService) func() hooks.TermReport {
+	if t == nil {
+		return nil
+	}
+	return func() hooks.TermReport {
+		var rep hooks.TermReport
+		for _, info := range t.List() {
+			rep.Terms = append(rep.Terms, hooks.StatusTerm{ID: info.ID, Name: info.Name, Exited: info.Exited, Origin: info.Origin})
+		}
+		for _, l := range t.CollectUserActivity() {
+			rep.Lines = append(rep.Lines, hooks.UserAction{ID: l.ID, Line: l.Line})
+		}
+		return rep
+	}
 }
 
 /* mcpStatusList 返回状态栏 MCP 清单（描述前 8 字）。 */

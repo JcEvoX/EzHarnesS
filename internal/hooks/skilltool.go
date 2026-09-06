@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -32,13 +33,14 @@ const SkillTool = "load_skill"
 
 /* SkillToolHook 实现 load_skill 拦截。 */
 type SkillToolHook struct {
-	fsys fs.FileSystem
-	dir  string
+	fsys     fs.FileSystem
+	dir      string
+	disabled func() []string // 返回禁用技能目录名（实时读取设置快照）
 }
 
-/* NewSkillTool 创建技能加载工具 hook。 */
-func NewSkillTool(fsys fs.FileSystem, dir string) *SkillToolHook {
-	return &SkillToolHook{fsys: fsys, dir: dir}
+/* NewSkillTool 创建技能加载工具 hook。disabled 可空：无启停机制时不过滤。 */
+func NewSkillTool(fsys fs.FileSystem, dir string, disabled func() []string) *SkillToolHook {
+	return &SkillToolHook{fsys: fsys, dir: dir, disabled: disabled}
 }
 
 func (h *SkillToolHook) Name() string { return "skilltool" }
@@ -64,6 +66,19 @@ func (h *SkillToolHook) OnToolStart(ctx context.Context, state *types.LoopState,
 	_ = json.Unmarshal(call.Args, &args)
 
 	skills, _ := skill.LoadDir(ctx, h.fsys, h.dir)
+	var off []string
+	if h.disabled != nil {
+		off = h.disabled()
+	}
+	if len(off) > 0 {
+		kept := skills[:0]
+		for _, s := range skills {
+			if !slices.Contains(off, SkillDirOf(s.Path)) {
+				kept = append(kept, s)
+			}
+		}
+		skills = kept
+	}
 	for _, s := range skills {
 		if s.Name == args.Name {
 			return ezhook.Skip(h.render(ctx, s)), nil

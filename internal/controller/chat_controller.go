@@ -2,9 +2,11 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -104,6 +106,11 @@ func (c *ChatController) Events(g *gin.Context) {
 	g.Header("Connection", "keep-alive")
 	fmt.Fprint(g.Writer, ": connected\n\n")
 
+	/* 建连首帧：当前轮运行态（前端复位 busy / 截断本地本轮块，配合
+	随后的整轮回放干净重建——防断线重连导致的重复块与卡死） */
+	if data, err := json.Marshal(domain.ReplaySync(sess.TurnActive())); err == nil {
+		fmt.Fprintf(g.Writer, "data: %s\n\n", data)
+	}
 	for _, frame := range sess.ReplayFrames() {
 		fmt.Fprintf(g.Writer, "data: %s\n\n", frame)
 	}
@@ -148,6 +155,26 @@ func (c *ChatController) DecideApprove(g *gin.Context) {
 	}
 	c.Svc.DecideApprove(g.Param("id"), body.CallID, body.Approve, body.Reason)
 	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+/* Notifications GET /api/notifications：全分支未决人机请求汇总（通知栏
+全局轮询数据源；纯读无状态，后台分支的请求也在此可达）。组间按最新
+请求时间排序（Hub.Sessions 遍历序随机），保证轮询结果顺序稳定。 */
+func (c *ChatController) Notifications(g *gin.Context) {
+	type noticeGroup struct {
+		RootID string                 `json:"rootId"`
+		Items  []domain.PendingNotice `json:"items"`
+	}
+	out := []noticeGroup{}
+	for _, s := range c.Svc.Hub.Sessions() {
+		if items := s.PendingNotices(); len(items) > 0 {
+			out = append(out, noticeGroup{RootID: s.Root(), Items: items})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Items[0].Ts > out[j].Items[0].Ts
+	})
+	g.JSON(http.StatusOK, out)
 }
 
 /* DecideAnswer POST /api/sessions/:id/decisions/answer（:id=分支根 ID）。 */

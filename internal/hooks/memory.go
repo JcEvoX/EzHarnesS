@@ -26,6 +26,21 @@ const (
 const MemoryFile = HarnessMd
 
 /*
+SkillDirOf 从 SKILL.md 的 FS 路径提取技能目录名。目录名是技能的
+稳定身份（frontmatter name 可与目录名不同），启停名单与删除都按它定位。
+*/
+func SkillDirOf(path string) string {
+	i := strings.LastIndex(path, "/")
+	if i < 0 {
+		return ""
+	}
+	if j := strings.LastIndex(path[:i], "/"); j >= 0 {
+		return path[j+1 : i]
+	}
+	return path[:i]
+}
+
+/*
 DefaultHarnessMd 是索引文件的初始模板：首次访问（文件缺失）时落盘，
 此后完全归 agent 维护。
 */

@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
@@ -68,6 +69,7 @@ type HistoryData struct {
 /* Status 是右栏状态卡数据（命中率与用量为本会话口径，切会话/重启清零）。 */
 type Status struct {
 	Model            string   `json:"model"`
+	ModelVision      bool     `json:"modelVision"` // 主模型是否支持视觉输入（false 时带图发送前端提示省略）
 	SessionID        string   `json:"sessionId"`
 	RootID           string   `json:"rootId"`
 	SessionMsgs      int      `json:"sessionMsgs"`
@@ -116,12 +118,21 @@ func (s *SessionService) Snapshot() Status {
 	ctxTokens, ctxWindow := sess.Sess.CtxInfo()
 	skills := []string{}
 	if entries, err := skill.LoadDir(context.Background(), s.Hub.Fsys, hooks.SkillsDir); err == nil {
+		disabled := s.Hub.SettingsSnapshot().DisabledSkills
 		for _, e := range entries {
+			if slices.Contains(disabled, hooks.SkillDirOf(e.Path)) {
+				continue
+			}
 			skills = append(skills, e.Name)
 		}
 	}
+	vision := false
+	if m := s.Hub.ModelsSnapshot().ActiveMain(); m != nil {
+		vision = m.Vision
+	}
 	return Status{
 		Model:            mainModelName(s.Hub),
+		ModelVision:      vision,
 		SessionID:        sess.ID,
 		RootID:           sess.RootID,
 		SessionMsgs:      len(sess.History()),

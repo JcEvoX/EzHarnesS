@@ -30,7 +30,15 @@ type app struct {
 	hub    *domain.Hub // 当前代领域根（换代重建；退出/换代收尾用）
 	srv    *http.Server
 	winCtl *controller.WindowController
-	boot   atomic.Int64 // 服务代际（换代重启递增，跨代共享）
+	term   *service.TerminalService // 当前代共享终端（换代重建；收尾杀全部 shell）
+	boot   atomic.Int64             // 服务代际（换代重启递增，跨代共享）
+}
+
+/* setTerm 记录当前代共享终端（buildRouter 装配时调用）。 */
+func (a *app) setTerm(t *service.TerminalService) {
+	a.mu.Lock()
+	a.term = t
+	a.mu.Unlock()
 }
 
 /* newApp 创建应用并切到数据目录（进程 cwd 即数据根）。 */
@@ -74,7 +82,7 @@ func adoptLegacy(dataDir string) {
 /* start 启动第一代 server（端口占用失败即退出）。 */
 func (a *app) start() error {
 	cfg := a.snapshot()
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	ln, err := net.Listen("tcp", config.ListenAddr(cfg.Listen, cfg.Port))
 	if err != nil {
 		return err
 	}
@@ -94,14 +102,14 @@ func (a *app) snapshot() config.Config {
 	return a.cfg
 }
 
-func (a *app) addr() string { return fmt.Sprintf(":%d", a.cfg.Port) }
+func (a *app) addr() string { return config.ListenAddr(a.cfg.Listen, a.cfg.Port) }
 
 /*
 restart 换代重启（由 AppService 异步调用，此刻 HTTP 响应已写完，
 Shutdown 不会与活跃 handler 死锁）。ln 非 nil 时是预占的新端口 listener。
 先收尾旧代（轮落盘到旧目录后，才切数据目录——否则旧轮 OnEnd 会写进新库）。
 */
-func (a *app) restart(port int, dataDir string, ln net.Listener) {
+func (a *app) restart(port int, listen, dataDir string, ln net.Listener) {
 	a.mu.Lock()
 	hub := a.hub
 	a.mu.Unlock()
@@ -115,7 +123,7 @@ func (a *app) restart(port int, dataDir string, ln net.Listener) {
 	engine := a.buildRouter()
 	srv := &http.Server{Handler: engine}
 	a.mu.Lock()
-	a.cfg.Port, a.cfg.DataDir = port, dataDir
+	a.cfg.Port, a.cfg.Listen, a.cfg.DataDir = port, listen, dataDir
 	a.srv = srv
 	a.mu.Unlock()
 	if ln == nil {
@@ -140,9 +148,13 @@ OnEnd 落盘，不等待直接退出会丢整轮），再直接 Close 关 HTTP�
 */
 func (a *app) shutdownGeneration() {
 	a.mu.Lock()
-	hub, srv := a.hub, a.srv
+	hub, srv, term := a.hub, a.srv, a.term
 	a.srv = nil
+	a.term = nil
 	a.mu.Unlock()
+	if term != nil {
+		term.Shutdown(3 * time.Second) // 换代=换数据目录:杀全部终端 shell
+	}
 	if hub != nil {
 		hub.Active.Shutdown(5 * time.Second)
 		// 后台分支的运行轮同样只在 OnEnd 落盘：逐个收尾，不等待直接退出会丢轮

@@ -98,6 +98,7 @@ export interface PathEntry {
 
 export interface AppConfig {
   port: number
+  listen: string
   dataDir: string
   boot: number
   paths: PathEntry[]
@@ -109,6 +110,7 @@ export interface Settings {
   trimPercent?: number | null
   workDir?: string
   closeToTray?: boolean
+  maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 12）
 }
 
 export interface ModelEntry {
@@ -117,6 +119,7 @@ export interface ModelEntry {
   apiKey: string
   headers?: Record<string, string>
   enabled: boolean
+  vision?: boolean // 支持多模态视觉输入；false 时带图请求自动省略图片
   tokens: number
   cost: number
   contextWindow?: number
@@ -132,6 +135,7 @@ export interface ModelsConfig {
 
 export interface Status {
   model: string
+  modelVision: boolean
   sessionId: string
   sessionMsgs: number
   busy: boolean
@@ -166,6 +170,12 @@ export interface TopicEntry {
   msgs: number
   kind?: 'new' | 'fork' | string
   origin?: ForkOrigin
+}
+
+/* 全分支未决人机请求（GET /api/notifications，通知栏轮询数据源） */
+export interface NotificationGroup {
+  rootId: string
+  items: { callId: string; forkId?: string; kind: 'approve' | 'ask'; tool: string; args?: string; ts: number }[]
 }
 
 /* 分支面板条目（GET /api/topics 响应，含运行态合成） */
@@ -296,6 +306,8 @@ export const api = {
   decideAnswer: (id: string, callId: string, input: string) =>
     post<{ ok: boolean }>(`/api/sessions/${id}/decisions/answer`, { callId, input }),
 
+  listNotifications: () => fetch('/api/notifications').then(json<NotificationGroup[]>),
+
   summarize: (id: string) => post<{ text: string }>(`/api/sessions/${id}/summary`),
 
   getSettings: () => fetch('/api/settings').then(json<Settings>),
@@ -325,6 +337,15 @@ export const api = {
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
 
   getMemoryConfig: () => fetch('/api/memory/config').then(json<MemoryConfig>),
+
+  /* 技能管理：zip(base64) 上传新建（名称自动推导） / 删除目录 / 启停（即时生效于 load_skill 与状态面板） */
+  createSkill: (data: string) => post<{ ok: boolean }>('/api/memory/skills', { data }),
+
+  deleteSkill: (id: string) =>
+    fetch(`/api/memory/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
+
+  toggleSkill: (id: string, enabled: boolean) =>
+    post<{ ok: boolean }>(`/api/memory/skills/${encodeURIComponent(id)}/enabled`, { enabled }),
 
   /* 完整会话树（全部世代与分叉，记忆页渲染） */
   getMemoryTree: () => fetch('/api/memory/tree').then(json<SessionNode[]>),
@@ -364,7 +385,7 @@ export const api = {
 
   appConfig: () => fetch('/api/app/config').then(json<AppConfig>),
 
-  appRestart: (req: { port?: number; dataDir?: string }) =>
+  appRestart: (req: { port?: number; listen?: string; dataDir?: string }) =>
     post<{ url: string; boot: number }>('/api/app/restart', req),
 
   appHealth: (base = '') => fetch(`${base}/api/app/health`).then(json<{ ok: boolean; boot: number }>),

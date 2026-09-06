@@ -264,13 +264,26 @@ func (s *Session) FinishRun(state *types.LoopState, runErr error) {
 	s.mu.Unlock()
 }
 
-/* Cancel 取消当前轮。 */
+/* Cancel 取消当前轮；无运行轮时补发一帧 turn_end（幂等纠正——轮在
+SSE 断线窗口内结束时前端会错过 turn_end 而卡在"运行中"，取消操作
+借此自愈）。 */
 func (s *Session) Cancel() {
 	s.mu.Lock()
+	idle := s.cur == nil
 	if s.cur != nil {
 		s.cur.cancel()
 	}
 	s.mu.Unlock()
+	if idle {
+		s.Publish(TurnEnd("cancelled", 0, nil, nil, 0))
+	}
+}
+
+/* TurnActive 返回是否有轮在运行（SSE 建连 replay.sync 用）。 */
+func (s *Session) TurnActive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cur != nil
 }
 
 /* Shutdown 收尾运行中的轮：取消并等待轮结束落盘（带超时，进程退出/
@@ -379,6 +392,43 @@ func (s *Session) PendingFrames() [][]byte {
 	return out
 }
 
+/* PendingNotice 是通知栏全局条目（GET /api/notifications 的域模型）。 */
+type PendingNotice struct {
+	CallID string `json:"callId"`
+	ForkID string `json:"forkId,omitempty"`
+	Kind   string `json:"kind"` // approve | ask
+	Tool   string `json:"tool"`
+	Args   string `json:"args,omitempty"`
+	Ts     int64  `json:"ts"`
+}
+
+/* PendingNotices 返回未决人机请求快照（通知栏跨分支轮询数据源）。
+按请求时间降序（新在前）——pending 是 map，遍历序随机，固定排序保证
+轮询结果稳定不抖动。 */
+func (s *Session) PendingNotices() []PendingNotice {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]PendingNotice, 0, len(s.pending))
+	for _, e := range s.pending {
+		kind := ""
+		switch e.Type {
+		case "approve.request":
+			kind = "approve"
+		case "askuser.request":
+			kind = "ask"
+		default:
+			continue
+		}
+		var d ToolStartData
+		if json.Unmarshal(e.Data, &d) != nil || d.ID == "" {
+			continue
+		}
+		out = append(out, PendingNotice{CallID: d.ID, ForkID: e.ForkID, Kind: kind, Tool: d.Name, Args: string(d.Args), Ts: e.Ts})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ts > out[j].Ts })
+	return out
+}
+
 /*
 ReplayFrames 返回 SSE 建立时的重放帧：轮进行中回放整轮聚合帧
 （user 输入/模型回复/工具卡/决策——刷新后时间线完整重建；已决
@@ -426,14 +476,15 @@ func decisionCallID(e Event) (string, bool) {
 /* Hub 管理应用级单例状态。Active 是当前分支；branches 按线根 ID 注册
 存活分支（阶段一线间并发：后台分支的轮继续跑，事件进各自 turnFrames）。 */
 type Hub struct {
-	mu       sync.Mutex
-	Models   ModelsConfig
-	Fsys     osfs.OS
-	Settings Settings
-	Stats    *Stats
-	Topics   *hooks.Topics
-	Active   *Session
-	branches map[string]*Session
+	mu        sync.Mutex
+	Models    ModelsConfig
+	Fsys      osfs.OS
+	Settings  Settings
+	ToolRules []ToolRule
+	Stats     *Stats
+	Topics    *hooks.Topics
+	Active    *Session
+	branches  map[string]*Session
 }
 
 /* NewHub 创建领域根：加载配置记录（缺失文件自动创建默认）与累计生命体征，
@@ -442,6 +493,7 @@ func NewHub() *Hub {
 	h := &Hub{Fsys: osfs.OS{}, branches: map[string]*Session{}}
 	h.Models = ensureModelsConfig(h.Fsys)
 	h.Settings = ensureSettings(h.Fsys)
+	h.ToolRules = ensureToolRules(h.Fsys)
 	h.Stats = NewStats(h.Fsys)
 	migrateLegacyMemory(h.Fsys)
 	h.Topics = hooks.NewTopics(h.Fsys)
@@ -522,6 +574,16 @@ func ensureSettings(fsys osfs.OS) Settings {
 		return st
 	}
 	return LoadSettings(fsys)
+}
+
+/* ensureToolRules 加载 toolRules.json，文件不存在则写盘默认。 */
+func ensureToolRules(fsys osfs.OS) []ToolRule {
+	if _, err := fsys.Read(context.Background(), "toolRules.json"); err != nil {
+		rules := DefaultToolRules()
+		_ = SaveToolRules(fsys, rules)
+		return rules
+	}
+	return LoadToolRules(fsys)
 }
 
 /*
@@ -666,6 +728,20 @@ func (h *Hub) SettingsSnapshot() Settings {
 func (h *Hub) ApplySettings(s Settings) {
 	h.mu.Lock()
 	h.Settings = s
+	h.mu.Unlock()
+}
+
+/* ToolRulesSnapshot 返回当前审批策略快照。 */
+func (h *Hub) ToolRulesSnapshot() []ToolRule {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.ToolRules
+}
+
+/* ApplyToolRules 更新审批策略（持久化由 service 层完成）。 */
+func (h *Hub) ApplyToolRules(rules []ToolRule) {
+	h.mu.Lock()
+	h.ToolRules = rules
 	h.mu.Unlock()
 }
 

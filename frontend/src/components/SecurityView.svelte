@@ -30,13 +30,21 @@
     noList?: boolean // 不支持名单档（如 task：分身继承主 agent 策略）
   }
 
-  /* 展示元数据（说明/名单类型/约束）；档位与名单以后端下发为准 */
+  /* 展示元数据（说明/名单类型/约束）；档位与名单以后端下发为准
+  （后端会把内置默认与用户档合并，全部工具都会出现在清单里） */
   const meta: Record<string, { desc: string; kind: ListKind; noList?: boolean }> = {
     read_file: { desc: '读取任意文件', kind: 'path' },
     write_file: { desc: '写入 / 创建文件', kind: 'path' },
     edit_file: { desc: '精确替换文件内容', kind: 'path' },
-    bash: { desc: '执行命令', kind: 'command' },
+    terminal: { desc: '执行命令（独立进程一次性）', kind: 'command' },
+    term_start: { desc: '新建共享终端（可带首条命令）', kind: 'command' },
+    term_send: { desc: '向共享终端发送命令 / 控制键', kind: 'command' },
+    term_read: { desc: '读取共享终端新输出', kind: 'tool' },
+    term_list: { desc: '列出共享终端', kind: 'tool' },
+    term_close: { desc: '关闭共享终端', kind: 'tool' },
+    image_recognize: { desc: '图片识别（识别槽模型驱动，只读）', kind: 'tool' },
     task: { desc: 'fork 分身执行子任务（分身继承主 agent 策略）', kind: 'tool', noList: true },
+    save_app: { desc: '保存快应用 html', kind: 'tool' },
     'mcp.*': {
       desc: 'MCP 工具调用，名单填 server 或 server.tool（如 time.getCurrentTime）；mcp_list/tool_list 恒免审',
       kind: 'tool',
@@ -123,7 +131,7 @@
     {#if !loaded}
       <p class="hint">加载中…</p>
     {:else if !rules.length}
-      <p class="hint">策略为空（后端将按内置默认执行：未知工具一律审批）。</p>
+      <p class="hint">策略为空（后端将按内置默认执行：未配置工具一律审批）。</p>
     {/if}
     <div class="list">
       {#each rules as r (r.tool)}
