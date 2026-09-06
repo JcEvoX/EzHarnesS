@@ -82,14 +82,6 @@
     <span class="label">缓存命中率</span>
     <span class="value">{hit}</span>
   </div>
-  <div class="row">
-    <span class="label">累计输入</span>
-    <span class="value">{s && s.promptTokens > 0 ? fmtK(s.promptTokens) : '-'}</span>
-  </div>
-  <div class="row">
-    <span class="label">累计输出</span>
-    <span class="value">{s && s.completionTokens > 0 ? fmtK(s.completionTokens) : '-'}</span>
-  </div>
   <div class="caps">
     <span class="label">工具</span>
     {#if tools.length}

@@ -236,6 +236,7 @@ func (a *AgentService) RecognizeImage(ctx context.Context, path, question string
 	if err != nil {
 		return "", err
 	}
+	a.Hub.RecordVisionUsage(&resp.Usage)
 	return resp.Content, nil
 }
 
