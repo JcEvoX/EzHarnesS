@@ -101,7 +101,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	} else if snap := s.Snapshot(); snap != nil {
 		sys = hooks.NewSysPrompt(snap.SystemBase, snap.SummaryBlock)
 	} else {
-		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys, main.Vision), "")
+		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys), "")
 	}
 	s.SetSysP(sys)
 	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
@@ -398,14 +398,10 @@ buildSystemBase 组装 session 的 system 基础段：人格 + SystemExtra +
 skill 全文与记忆细节不注入（模型按需用文件工具读取），列表变更要等
 下个 session 才进 system，过渡期靠 agent_status 状态栏告知模型。
 */
-func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mainVision bool) string {
+func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) string {
 	var b strings.Builder
-	visionLine := "用户消息可直接携带图片，你能直接看到并理解。"
-	if !mainVision {
-		visionLine = "用户消息携带的图片会自动存为文件并在正文给出路径——你无法直接看图，按正文引导识别。"
-	}
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
-		"能用工具就用工具，回答简洁。" + visionLine +
+		"能用工具就用工具，回答简洁。" +
 		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动。" +
 		"重要的用户偏好与事实可写入长期记忆（结构见 <memory> 块）。")
 	if st.SystemExtra != "" {
@@ -414,14 +410,9 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, main
 	dataDir, _ := os.Getwd() // 进程 cwd 即数据目录（启动时 chdir）
 	workDir := ResolveWorkDir(st.WorkDir)
 	p := func(rel string) string { return filepath.ToSlash(filepath.Join(dataDir, rel)) }
-	imagesLine := ""
-	if !mainVision {
-		imagesLine = "# " + filepath.ToSlash(filepath.Join(workDir, "images")) + "   图片落盘处（用户图片存这里，正文会带路径与识别引导）\n"
-	}
 	b.WriteString("\n\n<workspace>\n" +
 		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
 		"# " + p("workspace") + "          工作目录，草稿/脚本/命令产物放这里，自由读写（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）\n" +
-		imagesLine +
 		"# " + p("memory/longterm") + "    长期记忆，可写：harness.md 是索引（已注入上下文），主题文件按需新建，沉淀用户偏好与重要事实\n" +
 		"# " + p("memory/skills") + "      技能库，可写：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
 		"# " + p("apps") + "               快应用目录，由 save_app 工具写入，一般不手动改\n" +
