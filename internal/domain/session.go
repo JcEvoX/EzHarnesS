@@ -402,7 +402,9 @@ type PendingNotice struct {
 	Ts     int64  `json:"ts"`
 }
 
-/* PendingNotices 返回未决人机请求快照（通知栏跨分支轮询数据源）。 */
+/* PendingNotices 返回未决人机请求快照（通知栏跨分支轮询数据源）。
+按请求时间降序（新在前）——pending 是 map，遍历序随机，固定排序保证
+轮询结果稳定不抖动。 */
 func (s *Session) PendingNotices() []PendingNotice {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -423,6 +425,7 @@ func (s *Session) PendingNotices() []PendingNotice {
 		}
 		out = append(out, PendingNotice{CallID: d.ID, ForkID: e.ForkID, Kind: kind, Tool: d.Name, Args: string(d.Args), Ts: e.Ts})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ts > out[j].Ts })
 	return out
 }
 

@@ -715,7 +715,8 @@ class AppStore {
 
   /* ── 全局通知（跨分支轮询：服务端 pending 是唯一真相，全量替换） ── */
 
-  /* refreshNotices 拉取全分支未决请求重建通知栏（3s 轮询 + 决策后手动刷）。 */
+  /* refreshNotices 拉取全分支未决请求重建通知栏（3s 轮询 + 决策后手动刷）。
+  内容未变化时不替换数组引用——避免每轮 reconcile 引发的列表视觉抖动。 */
   async refreshNotices() {
     try {
       const groups = await api.listNotifications()
@@ -745,23 +746,28 @@ class AppStore {
           })
         }
       }
-      this.notices = out
+      const same =
+        out.length === this.notices.length &&
+        out.every((n, i) => {
+          const c = this.notices[i]
+          return c.id === n.id && c.rootId === n.rootId && c.detail === n.detail && c.time === n.time
+        })
+      if (!same) this.notices = out
     } catch {
       /* 后端不可达静默（下一轮重试） */
     }
   }
 
   /* resolveNoticeGlobal 通知栏内联决策：按通知携带的分支直接回传（不依赖
-  当前分支的时间线），成功后本地移除 + 立即刷新（乐观更新，轮询自洽）。 */
+  当前分支的时间线）。乐观移除在前（点击即消失），失败则刷新恢复真实状态。 */
   async resolveNoticeGlobal(n: NoticeData, action: string, input?: string) {
+    this.notices = this.notices.filter((x) => !(x.id === n.id && x.rootId === n.rootId))
     try {
       if (n.kind === 'approve') await api.decideApprove(n.rootId, n.id, action === 'approve', '')
       else await api.decideAnswer(n.rootId, n.id, input ?? '')
     } catch {
-      return
+      await this.refreshNotices()
     }
-    this.notices = this.notices.filter((x) => !(x.id === n.id && x.rootId === n.rootId))
-    void this.refreshNotices()
   }
 
   /* jumpToNotice 跳转到通知来源：跨分支先切换（等待历史加载），分身请求
