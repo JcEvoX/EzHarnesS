@@ -439,14 +439,15 @@ func decisionCallID(e Event) (string, bool) {
 /* Hub 管理应用级单例状态。Active 是当前分支；branches 按线根 ID 注册
 存活分支（阶段一线间并发：后台分支的轮继续跑，事件进各自 turnFrames）。 */
 type Hub struct {
-	mu       sync.Mutex
-	Models   ModelsConfig
-	Fsys     osfs.OS
-	Settings Settings
-	Stats    *Stats
-	Topics   *hooks.Topics
-	Active   *Session
-	branches map[string]*Session
+	mu        sync.Mutex
+	Models    ModelsConfig
+	Fsys      osfs.OS
+	Settings  Settings
+	ToolRules []ToolRule
+	Stats     *Stats
+	Topics    *hooks.Topics
+	Active    *Session
+	branches  map[string]*Session
 }
 
 /* NewHub 创建领域根：加载配置记录（缺失文件自动创建默认）与累计生命体征，
@@ -455,6 +456,7 @@ func NewHub() *Hub {
 	h := &Hub{Fsys: osfs.OS{}, branches: map[string]*Session{}}
 	h.Models = ensureModelsConfig(h.Fsys)
 	h.Settings = ensureSettings(h.Fsys)
+	h.ToolRules = ensureToolRules(h.Fsys)
 	h.Stats = NewStats(h.Fsys)
 	migrateLegacyMemory(h.Fsys)
 	h.Topics = hooks.NewTopics(h.Fsys)
@@ -535,6 +537,16 @@ func ensureSettings(fsys osfs.OS) Settings {
 		return st
 	}
 	return LoadSettings(fsys)
+}
+
+/* ensureToolRules 加载 toolRules.json，文件不存在则写盘默认。 */
+func ensureToolRules(fsys osfs.OS) []ToolRule {
+	if _, err := fsys.Read(context.Background(), "toolRules.json"); err != nil {
+		rules := DefaultToolRules()
+		_ = SaveToolRules(fsys, rules)
+		return rules
+	}
+	return LoadToolRules(fsys)
 }
 
 /*
@@ -679,6 +691,20 @@ func (h *Hub) SettingsSnapshot() Settings {
 func (h *Hub) ApplySettings(s Settings) {
 	h.mu.Lock()
 	h.Settings = s
+	h.mu.Unlock()
+}
+
+/* ToolRulesSnapshot 返回当前审批策略快照。 */
+func (h *Hub) ToolRulesSnapshot() []ToolRule {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.ToolRules
+}
+
+/* ApplyToolRules 更新审批策略（持久化由 service 层完成）。 */
+func (h *Hub) ApplyToolRules(rules []ToolRule) {
+	h.mu.Lock()
+	h.ToolRules = rules
 	h.mu.Unlock()
 }
 

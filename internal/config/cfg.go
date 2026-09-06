@@ -6,9 +6,9 @@ Package config 管理 ezharness 的结构配置（应用根 ezharness.json）：
 数据目录（models.json / settings.json / mcp.json / memory.md /
 sessions/），结构随数据建模独立演进。
 
-应用根 = EZHARNESS_ROOT 环境变量 > exe 所在目录（dev 时用前者指向
-项目目录）。数据目录 dataDir 启动即 chdir，ezloop 各 hook 的相对
-路径存储自动落入。文件不存在时自动创建默认（零配置可启动）。
+应用根 = exe 所在目录：exe 在哪运行，配置与数据就在哪生成（安装版
+与自编译同规则）。数据目录 dataDir 启动即 chdir，ezloop 各 hook 的
+相对路径存储自动落入。文件不存在时自动创建默认（零配置可启动）。
 */
 package config
 
@@ -52,18 +52,13 @@ var (
 	fileMu   sync.Mutex
 )
 
-/* Root 返回应用根目录（配置文件所在）。首次调用即锚定为绝对路径
-（在进程 chdir 到数据目录之前），此后不受 cwd 变化影响。 */
+/* Root 返回应用根目录（配置文件所在）= exe 所在目录。首次调用即锚定为
+绝对路径（在进程 chdir 到数据目录之前），此后不受 cwd 变化影响。 */
 func Root() string {
 	rootOnce.Do(func() {
-		v := os.Getenv("EZHARNESS_ROOT")
-		if v == "" {
-			exe, err := os.Executable()
-			if err != nil {
-				v = "."
-			} else {
-				v = filepath.Dir(exe)
-			}
+		v := "."
+		if exe, err := os.Executable(); err == nil {
+			v = filepath.Dir(exe)
 		}
 		if abs, err := filepath.Abs(v); err == nil {
 			rootAbs = abs

@@ -150,71 +150,23 @@ func (m ModelsConfig) ActiveMain() *ModelEntry {
 	return nil
 }
 
-/* Settings 是可热更的行为设置。 */
+/* Settings 是可热更的行为设置（审批策略独立于 toolRules.json）。 */
 type Settings struct {
-	SystemExtra    string     `json:"systemExtra"`
-	ToolRules      []ToolRule `json:"toolRules"`      // 审批策略（空 = 内置默认）
-	TrimPercent int        `json:"trimPercent"` // 上下文整理水位（模型窗口百分比，0=禁用自动整理）
+	SystemExtra string `json:"systemExtra"`
+	TrimPercent int    `json:"trimPercent"` // 上下文整理水位（模型窗口百分比，0=禁用自动整理）
 	WorkDir        string     `json:"workDir"`        // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
 	CloseToTray    bool       `json:"closeToTray"`    // 桌面端点关闭 = 最小化到托盘（关窗时实时读取，即改即生效）
 	DisabledSkills []string   `json:"disabledSkills"` // 已禁用 skill 的目录名（load_skill/状态面板实时读取，system 清单下个 session 生效）
 	MaxIterations  int        `json:"maxIterations"`  // 单轮对话的最大模型迭代次数（0 = 默认 12；随 Reassemble 生效）
 }
 
-/* Level 是审批策略档位。 */
-type Level string
-
-const (
-	LevelAsk   Level = "ask"   // 每次审批
-	LevelBlack Level = "black" // 黑名单审批：名单外放行
-	LevelWhite Level = "white" // 白名单免审：名单内放行
-	LevelAuto  Level = "auto"  // 全部免审
-)
-
-/* ToolRule 是单个工具的审批策略；list 语义随档位（黑=命中才审，白=命中即免）。 */
-type ToolRule struct {
-	Tool  string   `json:"tool"`
-	Level Level    `json:"level"`
-	List  []string `json:"list"`
-}
-
-/* DefaultToolRules 内置默认（等价旧 needsApprove 硬编码语义）。 */
-func DefaultToolRules() []ToolRule {
-	return []ToolRule{
-		{Tool: "read_file", Level: LevelAuto},
-		{Tool: "write_file", Level: LevelAsk},
-		{Tool: "edit_file", Level: LevelAsk},
-		{Tool: "terminal", Level: LevelWhite, List: []string{
-			"ls", "cat", "head", "tail", "pwd", // POSIX 只读
-			"dir", "type", "cd", "ver", // cmd 只读（Windows 原生 shell）
-			"git status", "git diff", "git log", "go test",
-		}},
-		/* 共享终端（魔法看板，按分支绑定）：send 与 terminal 白名单同集；
-		list/read 只读免审；close 是资源清理（杀本分支终端进程）免审 */
-		{Tool: "term_send", Level: LevelWhite, List: []string{
-			"ls", "cat", "head", "tail", "pwd",
-			"dir", "type", "cd", "ver",
-			"git status", "git diff", "git log", "go test",
-		}},
-		{Tool: "term_start", Level: LevelAsk},
-		{Tool: "term_list", Level: LevelAuto},
-		{Tool: "term_read", Level: LevelAuto},
-		{Tool: "term_close", Level: LevelAuto},
-		{Tool: "task", Level: LevelAsk},
-		{Tool: "save_app", Level: LevelAsk},
-		{Tool: "image_recognize", Level: LevelAuto}, // 图片识别（识别槽模型驱动，只读）
-		{Tool: "mcp.*", Level: LevelAsk},
-	}
-}
-
 /* DefaultSettings 给出出厂值（水位 75%：窗口自适应，留足摘要提前量；
 桌面端关闭默认进托盘而非退出）。 */
 func DefaultSettings() Settings {
 	return Settings{
-		SystemExtra:    "",
-		ToolRules:      DefaultToolRules(),
+		SystemExtra: "",
 		TrimPercent: 75,
-		CloseToTray:    true,
+		CloseToTray: true,
 	}
 }
 
@@ -226,11 +178,10 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 		return out
 	}
 	var s struct {
-		SystemExtra string     `json:"systemExtra"`
-		ToolRules   []ToolRule `json:"toolRules"`
-		TrimPercent *int       `json:"trimPercent"` // 指针：区分未提交与显式 0（禁用）
-		WorkDir     string     `json:"workDir"`
-		CloseToTray *bool      `json:"closeToTray"`
+		SystemExtra string `json:"systemExtra"`
+		TrimPercent *int   `json:"trimPercent"` // 指针：区分未提交与显式 0（禁用）
+		WorkDir     string `json:"workDir"`
+		CloseToTray *bool  `json:"closeToTray"`
 	}
 	if json.Unmarshal(data, &s) != nil {
 		return out
@@ -242,29 +193,6 @@ func LoadSettings(fsys fs.FileSystem) Settings {
 	}
 	if s.TrimPercent != nil {
 		out.TrimPercent = clamp(*s.TrimPercent, 0, 100)
-	}
-	if len(s.ToolRules) > 0 {
-		/* 旧存档工具名迁移：bash→terminal；term_run/term_write→term_send
-		（write 先到先得，后者丢弃避免双规则打架）；term_interrupt 并入
-		term_send 的控制字符能力，直接丢弃。 */
-		migrated := make([]ToolRule, 0, len(s.ToolRules))
-		hasSend := false
-		for _, r := range s.ToolRules {
-			switch r.Tool {
-			case "bash":
-				r.Tool = "terminal"
-			case "term_run", "term_write":
-				if hasSend {
-					continue
-				}
-				r.Tool = "term_send"
-				hasSend = true
-			case "term_interrupt":
-				continue
-			}
-			migrated = append(migrated, r)
-		}
-		out.ToolRules = migrated
 	}
 	return out
 }

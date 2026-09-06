@@ -60,7 +60,8 @@ EventSource('/api/...') ─┼─→ HTTP(TCP) → gin → controller → servic
 
 - 应用根 `ezharness.json`：{port, dataDir, windowWidth/Height}（结构配置，损坏自动备份重建）。
 - 数据目录（进程 cwd）＝一切记录与数据：models.json（主模型+能力槽）、settings.json、
-  mcp.json、sessions/、memory/ 三文件夹、topics.json、apps/（快应用 html）。
+  toolRules.json（审批策略）、mcp.json、sessions/、memory/ 三文件夹、topics.json、
+  apps/（快应用 html）。
 - 零配置可启动：apiKey 空照常起服务，UI 引导去模型页。
 
 ## 已知约束与踩坑备忘

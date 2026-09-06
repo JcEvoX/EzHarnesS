@@ -292,7 +292,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		}
 		name = "mcp.*" // tool_call 按 server.tool 名单走四档
 	}
-	rules := a.Hub.SettingsSnapshot().ToolRules
+	rules := a.Hub.ToolRulesSnapshot()
 	var rule *domain.ToolRule
 	for i := range rules {
 		if rules[i].Tool == name {

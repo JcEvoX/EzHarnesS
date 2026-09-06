@@ -163,9 +163,6 @@ tasks:
   run:
     cmds:
       - '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
-    env:
-      # 产物在 build/dist，不在项目根：指回根目录才能找到 ezharness.json/data
-      EZHARNESS_ROOT: '{{.ROOT_DIR}}'
 
   sign:
     summary: Signs the Windows executable

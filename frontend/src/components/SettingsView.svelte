@@ -188,16 +188,10 @@
       （如 128K 窗口 × 75% = 96000）；0 表示关闭自动整理（模型仍可主动调用
       trim_context 工具）。话题归档（总结归档开新会话）请用分支面板的「归档」按钮。
     </p>
-    <div class="grid2">
-      <label class="field">
-        <span>整理水位（窗口百分比）</span>
-        <input type="number" bind:value={percent} min="0" max="100" />
-      </label>
-      <label class="field">
-        <span>单轮最大迭代次数（0 = 默认 12）</span>
-        <input type="number" bind:value={iters} min="0" max="50" />
-      </label>
-    </div>
+    <label class="field">
+      <span>整理水位（窗口百分比）</span>
+      <input type="number" bind:value={percent} min="0" max="100" />
+    </label>
     <button
       class="primary"
       disabled={savingThreshold || Number(percent) === origPercent}
@@ -205,6 +199,10 @@
     >
       {savingThreshold ? '保存中…' : '保存水位'}
     </button>
+    <label class="field">
+      <span>单轮最大迭代次数（0 = 默认 12）</span>
+      <input type="number" bind:value={iters} min="0" max="50" />
+    </label>
     <button
       class="primary"
       disabled={savingIters || Number(iters) === origIters}

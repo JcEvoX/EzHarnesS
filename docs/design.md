@@ -69,7 +69,7 @@ ezharness 是基于 [ezloop](https://github.com/xuanlv2002/ezloop) 内核的产�
 **结构配置与配置记录分离；零配置可启动。**
 
 ```
-应用根/                        ← exe 首次执行所在文件夹（EZHARNESS_ROOT 可覆盖，dev 用）
+应用根/                        ← exe 所在目录（exe 在哪运行配置与数据就在哪生成）
   ezharness.json              ← 结构配置：{ "port": 5260, "dataDir": "data" }
                                  缺失自动创建默认；损坏备份 .bak 后重建；config 包内 mutex
   data/                        ← 数据目录（一切配置记录与数据，chdir 至此）
@@ -83,7 +83,7 @@ ezharness 是基于 [ezloop](https://github.com/xuanlv2002/ezloop) 内核的产�
 ```
 
 - **零配置启动**：apiKey 空照常起服务，UI 横幅引导到设置页；`Send/Summarize` 预检返回 400「未配置 API Key」。
-- **.env/dotenv 机制已废除**；环境变量仅保留 `EZHARNESS_ROOT`（dev 锚定应用根）。
+- **.env/dotenv 机制已废除**；应用根无环境变量覆盖，恒为 exe 所在目录。
 - 配置记录文件的结构随后续数据建模独立演进。
 
 ## 5. 页面规格

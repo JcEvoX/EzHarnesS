@@ -59,11 +59,10 @@ wails3 package           # 出安装包（Windows NSIS / macOS .app）
 
 ```sh
 dev.bat                  # 开发：npm run build -> go build -> 启动 exe
-wails3 task run          # 构建产物运行（自动设 EZHARNESS_ROOT 指回项目根）
+wails3 task run          # 构建产物运行
 ```
 
-- 首次启动自动创建 `ezharness.json`（结构配置：端口/数据目录）与 `data/` 数据目录，零配置可用；到「模型」页填 apiKey 后即可对话。
-- 手动运行 `build/dist/` 里的二进制时需设 `EZHARNESS_ROOT` 指向项目根，否则回落默认配置（端口 5260 + 空数据目录）。
+- 应用根 = exe 所在目录：首次启动自动创建 `ezharness.json`（结构配置：端口/数据目录）与 `data/` 数据目录，零配置可用；到「模型」页填 apiKey 后即可对话。
 - 纯 server 形态（无窗口，浏览器访问）：`EZHARNESS_NO_WINDOW=1` 启动后访问 `http://127.0.0.1:<port>`。
 
 ## 文档

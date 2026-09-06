@@ -10,7 +10,6 @@ cd ..
 
 go build -o build\dist\ezharness.exe . || goto :err
 
-set EZHARNESS_ROOT=%~dp0
 build\dist\ezharness.exe
 goto :eof
 

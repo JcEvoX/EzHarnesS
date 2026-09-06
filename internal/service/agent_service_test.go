@@ -9,7 +9,7 @@ import (
 )
 
 func newApproveService(rules []domain.ToolRule) *AgentService {
-	return &AgentService{Hub: &domain.Hub{Settings: domain.Settings{ToolRules: rules}}}
+	return &AgentService{Hub: &domain.Hub{ToolRules: rules}}
 }
 
 func mcpCall(action, server, tool string) *types.ToolCall {

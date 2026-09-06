@@ -96,9 +96,9 @@ main 是唯一对话模型（Vision 开关决定图片进上下文还是落盘�
 - 前端恒内嵌（embed.go，无 build tag 开关；frontend/dist 缺失则 go build
   直接报错，dev.bat/task build 先跑 npm run build 保证产物在）。build:frontend
   **无 generate:bindings 依赖**（前端手写 fetch 层不用 wails bindings），改回需慎重
-- 产物在 build/dist 不在项目根：**运行须设 `EZHARNESS_ROOT` 指回项目根**
-  （各平台 run 任务已注入 env；手动跑 dist 里 exe 记得带上），否则
-  config Root() 按 exe 位置找不到 ezharness.json 回落默认配置
+- 应用根 = **exe 所在目录**（config Root()，无环境变量覆盖）：ezharness.json
+  与 data/ 就地生成，安装版与自编译同规则。开发数据因此落在
+  **build/dist/**（dev.bat 产物运行处），不在项目根
 - 图标源头是 `build/appicon.png`（ezloop 光子轨道）；改动后
   `wails3 task common:generate:icons` 重生成，下次 build 自动嵌入
 - `go run .` 会把 exe 放 go-build 临时目录，config 按 exe 位置找不到

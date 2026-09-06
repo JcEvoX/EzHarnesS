@@ -142,15 +142,12 @@ func (s *SettingsService) UpdateModels(m domain.ModelsConfig) error {
 }
 
 /* SecurityRules 返回当前审批策略：用户档为准，DefaultToolRules 补缺
-（旧档/精简档没覆盖的新工具按内置默认档出现，安全页可配全部工具）。 */
+（精简档没覆盖的新工具按内置默认档出现，安全页可配全部工具）。 */
 func (s *SettingsService) SecurityRules() []domain.ToolRule {
-	st := s.Hub.SettingsSnapshot()
-	if len(st.ToolRules) == 0 {
-		return domain.DefaultToolRules()
-	}
+	rules := s.Hub.ToolRulesSnapshot()
 	seen := map[string]bool{}
-	out := make([]domain.ToolRule, 0, len(st.ToolRules)+4)
-	for _, r := range st.ToolRules {
+	out := make([]domain.ToolRule, 0, len(rules)+4)
+	for _, r := range rules {
 		out = append(out, r)
 		seen[r.Tool] = true
 	}
@@ -176,12 +173,10 @@ func (s *SettingsService) UpdateSecurity(rules []domain.ToolRule) error {
 			return errors.New("task 只支持 审批/免审（分身继承主 agent 策略）")
 		}
 	}
-	st := s.Hub.SettingsSnapshot()
-	st.ToolRules = rules
-	if err := domain.SaveSettings(s.Hub.Fsys, st); err != nil {
+	if err := domain.SaveToolRules(s.Hub.Fsys, rules); err != nil {
 		return err
 	}
-	s.Hub.ApplySettings(st)
+	s.Hub.ApplyToolRules(rules)
 	return nil
 }
 
