@@ -1,35 +1,97 @@
+<div align="center">
+
+<img src="docs/logo.svg" width="150" alt="ezharness logo">
+
 # ezharness
 
-> 开源的助手类 harness。核心理念：**为用户提供最简单的交互方案**。
+**简单，交给用户。**
 
-## 理念
+一个 exe · 三重角色 · 零配置 —— 为用户提供最简单交互方案的桌面智能体 harness
 
-ezharness 认为一个 harness 只需做好三件事：
+[![Go Version](https://img.shields.io/badge/go-1.25%2B-00ADD8?logo=go)](https://go.dev)
+[![Frontend](https://img.shields.io/badge/frontend-Svelte%205-ff3e00?logo=svelte)](https://svelte.dev)
+[![Desktop](https://img.shields.io/badge/desktop-wails%20v3-00add8)](https://v3alpha.wails.io)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue?logo=windows)](https://github.com/xuanlv2002/ezharness/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-1. **上下文工程** —— 什么进上下文、何时折叠、如何让模型始终知道自己是谁、在哪、用户最近干了什么
-2. **工具封装** —— 把系统能力（文件、终端、画板、MCP…）封装成安全可控、即取即用的工具
-3. **产品交互方案设计** —— 人机协同的交互面：决策、通知、共享终端，对话之外的通道
+*上下文工程管模型看什么，工具封装管 agent 能做什么，人机交互管用户怎么省心。*
 
-一切设计都面向用户简化：零配置可启动、文件夹即存储、桌面窗口与浏览器同一份页面、agent 需要人时跨分支把通知送到眼前。
+</div>
 
-ezharness 与 [ezloop](https://github.com/xuanlv2002/ezloop) 分工：ezloop 是精简的 agent loop 框架，只负责核心循环；ezharness 在其上做**会话管理、上下文工程设计、工具封装、人机交互设计**。
+---
 
-## 快速开始（用户）
+## 设计理念
 
-从 [Releases](https://github.com/xuanlv2002/ezharness/releases) 下载，两种方式任选其一（exe 在哪运行，配置与数据就在哪生成）：
+ezharness 认为一个助手类 harness 只需做好三件事，其余一切设计都面向用户简化：
+
+| 支柱 | 关注点 |
+|---|---|
+| **上下文工程** | 什么进上下文、何时折叠、如何让模型始终知道自己是谁、在哪、用户最近干了什么 |
+| **工具封装** | 把系统能力（文件、终端、画板、MCP…）封装成安全可控、即取即用的工具 |
+| **产品交互方案设计** | 人机协同的交互面：决策、通知、共享终端——对话之外的通道 |
+
+```mermaid
+flowchart TB
+    U(["👤 用户"]) --> UI
+
+    subgraph EZH["ezharness · harness 层（本仓库）"]
+        UI["🖥 人机交互<br/>决策卡 · 全局通知 · 共享终端 · 托盘"]
+        SESS["🌳 会话管理<br/>树状 session · 分叉 · 归档换代"]
+        CTX["🧠 上下文工程<br/>system 组装 · trim · 轮首快照"]
+        TOOL["🔧 工具封装<br/>文件 · 终端 · 画板 · MCP · 快应用"]
+    end
+
+    subgraph EZL["ezloop · loop 引擎（姊妹仓库）"]
+        CORE["model ↔ tool 循环<br/>hook / warp / fork 分身"]
+    end
+
+    UI & SESS & CTX & TOOL --> CORE
+```
+
+与 [ezloop](https://github.com/xuanlv2002/ezloop) 的分工：ezloop 是精简的 agent loop 框架，只负责核心循环；ezharness 在其上做**会话管理、上下文工程设计、工具封装、人机交互设计**。
+
+三条产品原则：
+
+1. **对话不是唯一的通道** —— 决策、观察、操作各有专门的产品面；通知全局可达，数据不绑视图。
+2. **状态即消息** —— 会话的全部状态是可落盘的消息库与 system；重启即恢复，上下文折叠不丢档。
+3. **一切面向用户简化** —— 零配置可启动、文件夹即存储、桌面窗口与浏览器同一份页面、agent 需要人时跨分支把通知送到眼前。
+
+## 快速开始
+
+从 [Releases](https://github.com/xuanlv2002/ezharness/releases) 下载，两种方式任选其一（**exe 在哪运行，配置与数据就在哪生成**）：
 
 **方式一：绿色版（下载 exe）**
 
 1. 下载 `ezharness.exe`，放入任意文件夹（如 `D:\ezharness`）；
 2. 将该文件夹加入 PATH 环境变量；
-3. 任意终端输入 `ezharness` 启动。首次运行在同目录自动生成 `ezharness.json` 与 `data/`。
+3. 任意终端输入 `ezharness` 启动。首次运行在同目录自动生成 `ezharness.json` 与 `data\`。
 
 **方式二：安装包（下载 installer.exe）**
 
 1. 下载安装包，双击运行；
 2. 按引导选择安装目录，自动创建开始菜单与桌面快捷方式，可选「添加到 PATH」。
 
-首次启动到「模型」页填 apiKey 后即可对话。
+首次启动到「模型」页填 apiKey 后即可对话。纯 server 形态（无窗口，浏览器访问）：`EZHARNESS_NO_WINDOW=1` 启动后访问 `http://127.0.0.1:<port>`——与桌面窗口同一份页面。
+
+## 架构
+
+单二进制，一进程三角色；桌面窗口与浏览器访问的是同一个服务，行为完全一致：
+
+```mermaid
+flowchart TB
+    subgraph EXE["ezharness.exe · 单二进制 · 一进程三角色"]
+        W["wails 窗口壳<br/>无边框主窗 · 快应用子窗 · 托盘"]
+        G["gin server<br/>静态资源 · /api/* · SSE 事件流 · /apps/*"]
+        A["agent 引擎<br/>ezloop core · 随会话装配"]
+    end
+    BR["🌐 浏览器"] --> G
+    W -- "真实网络地址 · SSE 可用" --> G
+    G --> A
+```
+
+- 后端 Go + gin，三层 MVC（controller → service → domain）；前端 Svelte 5 + Vite + TypeScript
+- 通信 REST + SSE（事件流）+ WebSocket（终端）
+- 前端恒内嵌单二进制，无 dev server；监听默认 `127.0.0.1`（不触发防火墙弹窗）
 
 ## 核心能力
 
@@ -44,6 +106,42 @@ ezharness 与 [ezloop](https://github.com/xuanlv2002/ezloop) 分工：ezloop 是
 | 快应用 | agent 生成的小工具（html 等）一键启动为子窗口 |
 | MCP | 外部工具服务器：http/stdio，探活、启停、热加载 |
 | 魔法画板 | 对象模型白板：标注截图、白板创作，所见即所得回填为附件 |
+
+## 深入设计
+
+### 树状会话（[docs/sessions.md](docs/sessions.md)）
+
+会话数据组织成一颗树：**节点是 session（一次换代内的完整对话库），线是用户视角的「会话」**。树对用户只露两个操作——
+
+```mermaid
+flowchart LR
+    S1["S₁ 第一代"] -- "fork（copy 语义）<br/>从消息 ③ 分叉" --> S3["S₃ 新线"]
+    S1 -- "compress（compact 换代）<br/>摘要封存 · 空库新 system" --> S2["S₂ 新一代<br/>同一条线"]
+    S2 -. "上翻懒加载 · 沿 compress 链" .-> S1
+```
+
+- **fork 分叉**：复制 `[0, anchor]` 前缀为完整副本开新线，删源不伤分叉
+- **compact 换代**：摘要模型生成前情（2 分钟预算，原子锁防并发）→ 旧库封存只读 → 新库空消息 + 摘要 system → 内存热切换，前端无感
+- **线间并发**：切线不取消后台分支的运行轮，切回时重建现场
+- trim 是模型侧上下文整理（就地折叠不换库），archive 是用户侧会话树管理（换代封存）
+
+### 上下文工程（[docs/context.md](docs/context.md)）
+
+一条线同一时刻只有一个活跃上下文（system + 消息库视图）：
+
+- **system 两段式**：`base`（人格 + workspace 架构 + 记忆索引 + skills / mcp 清单）+ `identity`（会话 ID 与存档路径——trim 折叠后模型的回忆入口），每 session 组装一次并固定
+- **trim 双触发**：水位自动（超窗口 75%，可配）+ 模型主动 `trim_context` 工具；摘要折叠段 → `[head, tail, marker]` 截断，孤儿 tool 前移保证配对完整
+- **agent_status 轮首快照**：每轮注入时间、水位、建议 compact、资源变更（用户在终端干了什么）——不是状态机，是快照记录
+- **guard 兜底**：按窗口余量动态卸载放不下的工具结果，trim 没来得及跑也不会溢出
+
+### 人机交互（[docs/interaction.md](docs/interaction.md)）
+
+把人机协同交互工具**外置**——不塞进对话流硬凑，做成独立的产品面：
+
+- **决策链路**：四档审批策略（ask/black/white/auto，人机与内部工具恒免审），DecisionCard 嵌时间线，断线可重放
+- **全局通知栏**：汇总所有分支（含后台分支与分身）的未决请求——agent 需要人时一定能找到人；内联直接决策
+- **共享终端**：人机共用同一个真实 shell（ConPTY 全局池），`readMark` 单游标读即消费；用户手敲的命令进 agent_status——agent 每轮知道你在终端干了什么
+- **路线图**：同样的「真实实例 + 单游标 + 人机双写」模式后续扩展到浏览器
 
 ## 开发
 
@@ -60,30 +158,22 @@ script\dev.bat           # 开发调试：npm run build -> go build -> 启动 ex
 script\release.bat       # 发布：出 build\dist\ezharness.exe + bin\installer.exe
 ```
 
-- 应用根 = exe 所在目录：首次启动自动创建 `ezharness.json` 与 `data/`，零配置可用；前端恒内嵌单二进制，无 dev server。
-- 纯 server 形态（无窗口，浏览器访问）：`EZHARNESS_NO_WINDOW=1` 启动后访问 `http://127.0.0.1:<port>`。
-
-## 架构
-
-单二进制，一进程三角色：
-
-```
-ezharness.exe
-├─ gin server        前端静态资源 + /api/* + SSE 事件流 + /apps/*
-├─ wails 窗口壳      无边框主窗口 + 快应用子窗口 + 托盘
-└─ agent 引擎        ezloop core，随会话装配
-```
-
-后端 Go + gin，三层 MVC（controller → service → domain）；前端 Svelte 5 + Vite + TypeScript；通信 REST + SSE。
+- 应用根 = exe 所在目录：首次启动自动创建 `ezharness.json` 与 `data/`，零配置可用；开发数据因此落在 `build/dist/`，与产品行为完全一致
+- 设置页改端口/数据目录后进程内换代重启：收尾运行轮落盘 → chdir → 重建 Hub/Router
 
 ## 文档
 
+- **[docs/index.html](docs/index.html)** — 项目主页（设计理念 · 树状会话 · 上下文工程 · 人机交互 · 架构与构建）
 - [docs/sessions.md](docs/sessions.md) — 树状 session 管理
 - [docs/context.md](docs/context.md) — 单上下文管理（trim / agent_status / 事件流）
 - [docs/interaction.md](docs/interaction.md) — 以人为核心的人机交互设计
 - [docs/build.md](docs/build.md) — 构建方案设计
 - [AGENTS.md](AGENTS.md) — 开发备忘与踩坑清单
 
-## License
+---
 
-Apache-2.0
+<div align="center">
+
+**ezharness** — 简单，交给用户。
+
+</div>
