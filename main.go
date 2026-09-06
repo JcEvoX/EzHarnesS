@@ -72,6 +72,7 @@ func (a *app) buildRouter() *gin.Engine {
 	a.mu.Lock()
 	a.hub = hub
 	a.mu.Unlock()
+	a.winCtl.Hub = hub // 关闭询问与设置页共用设置源（内存+磁盘同步）
 
 	// 共享终端(魔法看板):workDir 与 agent shell 一致;换代随 shutdownGeneration 重建
 	termSvc := service.NewTerminalService(service.ResolveWorkDir(hub.SettingsSnapshot().WorkDir))

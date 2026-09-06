@@ -1126,13 +1126,15 @@ class AppStore {
             if (b.kind === 'assistant' && b.streaming) b.streaming = false
           }
         }
-        // 轮已结束：残留 pending 决策的回传会被后端丢弃，标记过期
+        // 本轮已结束：当前分支残留的 pending 决策回传会被后端丢弃，标记过期；
+        // 其他分支的通知不受此分支轮结束影响（全局通知，轮询各自收敛）
         for (const n of this.notices) {
-          if (n.status === 'pending') {
+          if (n.status === 'pending' && n.rootId === this.activeId) {
             n.status = 'done'
             n.resolution = '已过期'
           }
         }
+        void this.refreshNotices()
         const d = ev.data || {}
         const u = d.usage
         if (u) {

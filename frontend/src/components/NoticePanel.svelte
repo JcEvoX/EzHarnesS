@@ -42,9 +42,9 @@
   const collapsedKey = 'ezh.noticePanel.collapsed'
   let collapsed = $state((() => {
     try {
-      return localStorage.getItem(collapsedKey) === '1'
+      return localStorage.getItem(collapsedKey) !== '0' // 无记录默认折叠
     } catch {
-      return false
+      return true
     }
   })())
   function fold(v: boolean) {
@@ -100,7 +100,7 @@
             </span>
             <div class="info">
               <span class="title">
-                {n.title}
+                <span class="t">{n.title}</span>
                 {#if n.source !== 'agent'}
                   <i class="src">{n.source}</i>
                 {/if}
@@ -261,6 +261,8 @@
     /* 两侧留 6px：pending 态负边距（-6px）恰好贴到 padding box 边缘，
        既保留左侧通栏高亮又不产生横向溢出 */
     padding: 0 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
   }
   .notice {
     display: flex;
@@ -318,35 +320,52 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 3px;
   }
+  /* 行数恒定防换行抖动：标题单行截断、详情固定两行高度（max-height
+  替代 -webkit-line-clamp——后者在文本更新时换行计算会出错，hover
+  重绘才恢复）。 */
   .title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    overflow: hidden;
     font-size: 11.5px;
     font-weight: 550;
     color: var(--fg);
-    overflow-wrap: anywhere;
   }
+  .title .t {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 会话名标签不收缩（截断让位给工具名 .t），保持完整可读 */
   .src {
+    flex: none;
     font-style: normal;
     font-size: 9px;
+    line-height: 1.5;
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 4px;
-    margin-left: 5px;
     white-space: nowrap;
   }
   .detail {
     min-width: 0;
     font-size: 10.5px;
-    color: var(--faint);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    line-height: 1.4;
+    max-height: 2.8em;
     overflow: hidden;
+    color: var(--faint);
   }
   .time {
     flex: none;
+    min-width: 34px;
+    text-align: right;
     font-family: var(--font-mono);
     font-size: 9.5px;
     color: var(--faint);

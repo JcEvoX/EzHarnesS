@@ -93,6 +93,7 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 		api.POST("/window/max", c.Window.ToggleMaximise)
 		api.GET("/window/state", c.Window.State)
 		api.POST("/window/close", c.Window.Close)
+		api.POST("/window/close-decision", c.Window.CloseDecision)
 		api.POST("/window/open-url", c.Window.OpenURL)
 		api.POST("/window/open-web", c.Window.OpenWeb)
 

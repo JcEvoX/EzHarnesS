@@ -13,6 +13,9 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+
+	"ezharness/internal/domain"
+	"ezharness/internal/osfs"
 )
 
 /* WindowControl 是桌面窗口的最小控制面（main 侧适配原生窗口）。 */
@@ -20,13 +23,15 @@ type WindowControl interface {
 	Minimise()
 	ToggleMaximise()
 	IsMaximised() bool
-	Close()
+	Hide()        // 最小化到托盘
+	RequestQuit() // 真退出（收尾落盘后 Quit；关窗钩子放行）
 	OpenAppWindow(path, title string) // 快应用独立子窗口
 }
 
 type WindowController struct {
 	mu  sync.RWMutex
 	win WindowControl
+	Hub *domain.Hub // buildRouter 装配时注入（winCtl 创建早于 Hub，无法构造注入）
 }
 
 /* Set 注入当前窗口（openWindow 时）。 */
@@ -68,13 +73,56 @@ func (c *WindowController) State(g *gin.Context) {
 	g.Status(http.StatusServiceUnavailable)
 }
 
+/*
+Close POST /api/window/close：标题栏 X。已配置最小化到托盘 → 直接隐藏；
+未配置 → 返回 prompt=true，由前端弹关闭询问（页面 modal，含「以后最小化
+到托盘」勾选）。Alt+F4/任务栏关闭不经此端点，走窗口钩子（系统惯例退出）。
+*/
 func (c *WindowController) Close(g *gin.Context) {
-	if w := c.current(); w != nil {
-		w.Close() // 关闭行为（托盘隐藏/退出）由窗口壳的 WindowClosing 钩子统一裁决
+	w := c.current()
+	if w == nil {
+		g.Status(http.StatusServiceUnavailable)
+		return
+	}
+	if c.Hub.SettingsSnapshot().CloseToTray {
+		w.Hide()
+		g.JSON(http.StatusOK, gin.H{"hidden": true})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"prompt": true})
+}
+
+/* CloseDecision POST /api/window/close-decision：关闭询问的决定。
+tray=本次最小化到托盘（remember 同时持久化，以后点 X 不再询问）；
+tray=false=退出。设置经 Hub（内存与磁盘同步，设置页同源联动）。 */
+func (c *WindowController) CloseDecision(g *gin.Context) {
+	var body struct {
+		Tray     bool `json:"tray"`
+		Remember bool `json:"remember"`
+	}
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	w := c.current()
+	if w == nil {
+		g.Status(http.StatusServiceUnavailable)
+		return
+	}
+	if body.Tray {
+		if body.Remember && c.Hub != nil {
+			if st := c.Hub.SettingsSnapshot(); !st.CloseToTray {
+				st.CloseToTray = true
+				_ = domain.SaveSettings(osfs.OS{}, st)
+				c.Hub.ApplySettings(st)
+			}
+		}
+		w.Hide()
 		g.Status(http.StatusNoContent)
 		return
 	}
-	g.Status(http.StatusServiceUnavailable)
+	w.RequestQuit()
+	g.Status(http.StatusNoContent)
 }
 
 /* OpenApp POST /api/apps/open：桌面壳为快应用开子窗口（path 形如 /apps/x.html）。 */

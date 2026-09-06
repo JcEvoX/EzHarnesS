@@ -8,8 +8,9 @@ window 是桌面窗口壳（Wails v3，跨平台）：无边框窗口 + 系统�
 - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
   （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
 - 托盘常驻：左键切换窗口显示，右键菜单（打开/退出）。
-- 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘不弹窗；关 = 弹窗
-  询问退出（选「最小化到托盘」即持久化设置，之后不再询问）。
+- 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘不弹窗；关 = 前端
+  关闭询问（页面 modal，勾选「以后最小化到托盘」即持久化）。Alt+F4/
+  任务栏关闭走系统惯例直接退出。
 */
 package main
 
@@ -25,9 +26,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
-
-	"ezharness/internal/domain"
-	"ezharness/internal/osfs"
 )
 
 //go:embed assets/icon.png
@@ -92,10 +90,11 @@ func openWindow(a *app) {
 	time.AfterFunc(2*time.Second, show)
 
 	// 关闭拦截：实时读设置决定隐藏或放行（CloseToTray 运行时生效）。
-	// quitting 是托盘退出意图：Quit() 会触发关窗流程，若仍走 CloseToTray
-	// 拦截会把退出取消掉（这是"托盘退出退不出"的另一半根因）
+	// quitting 是退出意图（托盘退出/前端确认退出）：Quit() 会触发关窗流程，
+	// 若仍走 CloseToTray 拦截会把退出取消掉（这是"托盘退出退不出"的另一
+	// 半根因）。标题栏 X 的询问弹窗在前端（页面 modal），Alt+F4/任务栏
+	// 关闭走系统惯例直接退出。
 	var quitting atomic.Bool
-	var prompting atomic.Bool // 关闭询问弹窗进行中（防连点 X 重复弹）
 	// shutdown 退出流程：置 quitting 让关窗放行 → 同步收尾（取消运行轮并
 	// 落盘；无轮时毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底
 	shutdown := func() {
@@ -106,40 +105,18 @@ func openWindow(a *app) {
 		os.Exit(0)
 	}
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		if quitting.Load() {
+		if quitting.Load() || !a.hub.SettingsSnapshot().CloseToTray {
 			return
 		}
-		// 已配置最小化到托盘：直接隐藏，不弹窗
-		if domain.LoadSettings(osfs.OS{}).CloseToTray {
-			win.Hide()
-			e.Cancel()
-			return
-		}
-		// 默认：弹窗询问退出意向（选「最小化到托盘」即持久化，之后不再弹）
+		win.Hide()
 		e.Cancel()
-		if !prompting.CompareAndSwap(false, true) {
-			return
-		}
-		dlg := wailsApp.Dialog.Question().
-			SetTitle("ezharness").
-			SetMessage("退出 ezharness？").
-			AttachToWindow(win)
-		dlg.AddButton("退出").SetAsDefault().OnClick(func() { go shutdown() })
-		dlg.AddButton("最小化到托盘（以后不再询问）").OnClick(func() {
-			if st := domain.LoadSettings(osfs.OS{}); !st.CloseToTray {
-				st.CloseToTray = true
-				_ = domain.SaveSettings(osfs.OS{}, st)
-			}
-			prompting.Store(false)
-			win.Hide()
-		})
-		dlg.AddButton("取消").SetAsCancel().OnClick(func() { prompting.Store(false) })
-		go func() {
-			dlg.Show()
-			prompting.Store(false)
-		}()
 	})
-	a.winCtl.Set(wailsWindow{wailsApp: wailsApp, win: win, port: func() int { return a.snapshot().Port }})
+	a.winCtl.Set(wailsWindow{
+		wailsApp: wailsApp,
+		win:      win,
+		port:     func() int { return a.snapshot().Port },
+		quit:     shutdown,
+	})
 
 	tray := wailsApp.SystemTray.New()
 	tray.SetIcon(trayIcon)
@@ -169,13 +146,21 @@ type wailsWindow struct {
 	wailsApp *application.App
 	win      *application.WebviewWindow
 	port     func() int
+	quit     func() // 退出流程（收尾落盘 + Quit；openWindow 闭包注入）
 }
 
 func (a wailsWindow) Minimise()         { a.win.Minimise() }
 func (a wailsWindow) ToggleMaximise()   { a.win.ToggleMaximise() }
 func (a wailsWindow) IsMaximised() bool { return a.win.IsMaximised() }
-func (a wailsWindow) Close()            { a.win.Close() }
+func (a wailsWindow) Hide()             { a.win.Hide() }
 
+/* RequestQuit 真退出（前端关闭询问确认后调用）：quitting 置位让关窗
+钩子放行，再走完整收尾退出流程。 */
+func (a wailsWindow) RequestQuit() {
+	if a.quit != nil {
+		go a.quit()
+	}
+}
 /* OpenAppWindow 为快应用开独立子窗口：页面走本进程 gin 直出的绝对 URL
 （release 与 dev 一致；wails 资产域只服务主窗口相对路径）。带系统标题栏。
 path 为完整 http(s) URL 时直接加载（看板浏览器的"独立窗口"，绕开 iframe
