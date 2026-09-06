@@ -2,9 +2,9 @@
 window 是桌面窗口壳（Wails v3，跨平台）：无边框窗口 + 系统托盘 +
 关闭最小化到托盘。
 
-- 页面一律走本进程 gin 的真实网络地址（release=http://127.0.0.1:<port>，
-  dev=Vite dev server）：不经 wails 资产桥——该桥在 Windows 上缓冲整个
-  响应，SSE 等流式无法工作；走网络后桌面端与浏览器访问行为完全一致。
+- 页面一律走本进程 gin 的真实网络地址（http://127.0.0.1:<port>）：
+  不经 wails 资产桥——该桥在 Windows 上缓冲整个响应，SSE 等流式无法
+  工作；走网络后桌面端与浏览器访问行为完全一致。
 - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
   （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
 - 托盘常驻：左键切换窗口显示，右键菜单（打开/退出）。
@@ -31,9 +31,6 @@ import (
 
 //go:embed assets/icon.png
 var trayIcon []byte
-
-// devURL dev 模式前端在 Vite dev server（proxy /api 到本进程）。
-const devURL = "http://localhost:5173/?desktop=1"
 
 var appWinSeq atomic.Int64 // 快应用子窗口命名序号
 
@@ -69,11 +66,7 @@ func openWindow(a *app) {
 			WebView2CompositionHosting: true,
 		},
 	}
-	if distFS() != nil { // release：gin 直出内嵌前端
-		opts.URL = fmt.Sprintf("http://127.0.0.1:%d/?desktop=1", a.cfg.Port)
-	} else { // dev：前端在 Vite dev server
-		opts.URL = devURL
-	}
+	opts.URL = fmt.Sprintf("http://127.0.0.1:%d/?desktop=1", a.cfg.Port)
 	wailsApp := application.New(application.Options{Name: "ezharness"})
 	win := wailsApp.Window.NewWithOptions(opts)
 

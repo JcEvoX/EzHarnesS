@@ -1,8 +1,6 @@
-//go:build production
-
 /*
-production 模式：前端产物嵌入单二进制（wails3 build，-tags production）。
-dev 模式不编译本文件，避免 frontend/dist 缺失报错。
+前端产物嵌入单二进制（wails3 task build / dev.bat 都先 npm run build
+产出 frontend/dist 再编译；目录缺失则 go build 直接报错）。
 */
 package main
 

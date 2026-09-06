@@ -58,8 +58,8 @@ wails3 package           # 出安装包（Windows NSIS / macOS .app）
 ## 快速启动
 
 ```sh
+dev.bat                  # 开发：npm run build -> go build -> 启动 exe
 wails3 task run          # 构建产物运行（自动设 EZHARNESS_ROOT 指回项目根）
-wails3 dev               # 开发模式：热重载 + 前端 Vite dev server
 ```
 
 - 首次启动自动创建 `ezharness.json`（结构配置：端口/数据目录）与 `data/` 数据目录，零配置可用；到「模型」页填 apiKey 后即可对话。

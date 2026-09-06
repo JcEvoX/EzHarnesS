@@ -90,11 +90,12 @@ main 是唯一对话模型（Vision 开关决定图片进上下文还是落盘�
 
 - 构建走 wails3 Taskfile 体系（根 Taskfile.yml + build/ 下平台 Taskfile，
   CLI beta.12）：`wails3 task build`（产物 **build/dist/**，图标/版本信息
-  自动嵌入 exe）、`wails3 package`（NSIS/.app 安装包）、`wails3 task run`、
-  `wails3 dev`（热重载，前端 dev server 9245）
-- 前端嵌入开关是 **production** tag（embed.go/embed_dev.go，wails3 约定；
-  原为 release 已改）。build:frontend **无 generate:bindings 依赖**（前端
-  手写 fetch 层不用 wails bindings），改回需慎重
+  自动嵌入 exe）、`wails3 package`（NSIS/.app 安装包）、`wails3 task run`。
+  开发直跑用根目录 **dev.bat**（npm run build → go build → 启动 exe），
+  无热重载/dev server——已彻底移除 dev 模式
+- 前端恒内嵌（embed.go，无 build tag 开关；frontend/dist 缺失则 go build
+  直接报错，dev.bat/task build 先跑 npm run build 保证产物在）。build:frontend
+  **无 generate:bindings 依赖**（前端手写 fetch 层不用 wails bindings），改回需慎重
 - 产物在 build/dist 不在项目根：**运行须设 `EZHARNESS_ROOT` 指回项目根**
   （各平台 run 任务已注入 env；手动跑 dist 里 exe 记得带上），否则
   config Root() 按 exe 位置找不到 ezharness.json 回落默认配置
