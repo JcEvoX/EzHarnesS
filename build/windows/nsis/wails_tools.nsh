@@ -8,7 +8,7 @@
     !define INFO_PROJECTNAME "ezharness"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "ezloop"
+    !define INFO_COMPANYNAME "ezharness"
 !endif
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "ezharness"
@@ -17,7 +17,7 @@
     !define INFO_PRODUCTVERSION "0.1.0"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "(c) 2026, ezloop"
+    !define INFO_COPYRIGHT "(c) 2026, ezharness contributors"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"

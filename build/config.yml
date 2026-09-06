@@ -5,12 +5,12 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "ezloop" # The name of the company
+  companyName: "ezharness" # The name of the company
   productName: "ezharness" # The name of the application
-  productIdentifier: "com.ezloop.ezharness" # The unique product identifier
-  description: "ezloop harness 桌面应用" # The application description
-  copyright: "(c) 2026, ezloop" # Copyright text
-  comments: "powered by ezloop" # Comments
+  productIdentifier: "com.ezharness.app" # The unique product identifier
+  description: "ezharness 桌面应用" # The application description
+  copyright: "(c) 2026, ezharness contributors" # Copyright text
+  comments: "ezharness" # Comments
   version: "0.1.0" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension

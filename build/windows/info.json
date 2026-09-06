@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.1.0",
-			"CompanyName": "ezloop",
-			"FileDescription": "ezloop harness 桌面应用",
-			"LegalCopyright": "(c) 2026, ezloop",
+			"CompanyName": "ezharness",
+			"FileDescription": "ezharness 桌面应用",
+			"LegalCopyright": "(c) 2026, ezharness contributors",
 			"ProductName": "ezharness",
-			"Comments": "powered by ezloop"
+			"Comments": "ezharness"
 		}
 	}
 }

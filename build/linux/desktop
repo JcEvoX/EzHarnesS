@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
 Name=ezharness
-Comment=ezloop harness 桌面应用
+Comment=ezharness 桌面应用
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/ezharness %u
 Terminal=false
