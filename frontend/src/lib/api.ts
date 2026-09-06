@@ -120,8 +120,10 @@ export interface ModelEntry {
   headers?: Record<string, string>
   enabled: boolean
   vision?: boolean // 支持多模态视觉输入；false 时带图请求自动省略图片
-  tokens: number
-  cost: number
+  inTokens?: number // 累计输入 tokens（含缓存命中）
+  outTokens?: number // 累计输出 tokens
+  cacheTokens?: number // 累计缓存命中 tokens（输入子集）
+  cost?: number
   contextWindow?: number
   protocol?: string // '' | 'openai'（默认）| 'responses' | 'anthropic'
 }
@@ -144,7 +146,6 @@ export interface Status {
   trimPercent: number
   cacheHitRate: number
   promptTokens: number
-  completionTokens: number
   turns: number
   tools: string[]
   mcpServers: string[]

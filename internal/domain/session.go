@@ -703,18 +703,42 @@ func (h *Hub) ApplyModels(m ModelsConfig) {
 	h.mu.Unlock()
 }
 
-/* RecordUsage 累计一轮用量到主模型条目并落盘（tokens=prompt+completion）。 */
+/* RecordUsage 累计一轮主模型用量到启用条目并落盘（输入/输出/缓存分开记）。 */
 func (h *Hub) RecordUsage(u *types.Usage) {
 	if u == nil {
 		return
 	}
 	h.mu.Lock()
 	if e := h.Models.ActiveMain(); e != nil {
-		e.Tokens += u.PromptTokens + u.CompletionTokens
+		accumulateUsage(e, u)
 	}
 	models := h.Models
 	h.mu.Unlock()
 	_ = SaveModelsConfig(h.Fsys, models)
+}
+
+/* RecordVisionUsage 累计图片识别（image_recognize）用量到识别槽启用条目并落盘。 */
+func (h *Hub) RecordVisionUsage(u *types.Usage) {
+	if u == nil {
+		return
+	}
+	h.mu.Lock()
+	for i := range h.Models.Vision {
+		if h.Models.Vision[i].Enabled {
+			accumulateUsage(&h.Models.Vision[i], u)
+			break
+		}
+	}
+	models := h.Models
+	h.mu.Unlock()
+	_ = SaveModelsConfig(h.Fsys, models)
+}
+
+/* accumulateUsage 把一份用量按输入/输出/缓存累进条目。 */
+func accumulateUsage(e *ModelEntry, u *types.Usage) {
+	e.InTokens += u.PromptTokens
+	e.OutTokens += u.CompletionTokens
+	e.CacheTokens += u.CachedTokens
 }
 
 /* SettingsSnapshot 返回当前设置。 */

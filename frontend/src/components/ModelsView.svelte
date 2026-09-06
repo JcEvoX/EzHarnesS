@@ -98,8 +98,6 @@
         ...(Object.keys(headers).length ? { headers } : {}),
         enabled: cfg[slot].length === 0,
         ...(draft.vision ? { vision: true } : {}),
-        tokens: 0,
-        cost: 0,
         contextWindow: Number(draft.contextWindow) || 0,
         protocol: draft.protocol || 'openai',
       },
@@ -194,7 +192,7 @@
                   <span class="meta">{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
                 </div>
                 <div class="usage">
-                  <span class="tokens" title="累计用量">{m.tokens > 0 ? fmtTokens(m.tokens) : '0'} tokens</span>
+                  <span class="tokens" title="累计用量（输入/输出/缓存命中）">↑{fmtTokens(m.inTokens || 0)} ↓{fmtTokens(m.outTokens || 0)}{m.cacheTokens ? ` ⚡${fmtTokens(m.cacheTokens)}` : ''}</span>
                   <button class="del" onclick={() => editEntry(k.key, i)} title="编辑">编辑</button>
                   <button class="del" onclick={() => remove(k.key, i)} title="删除">删除</button>
                 </div>

@@ -28,7 +28,9 @@ type ModelEntry struct {
 	Headers       map[string]string `json:"headers,omitempty"`       // 自定义请求头（网关鉴权、组织 ID 等）
 	Enabled       bool              `json:"enabled"`                 // 每槽至多一条启用
 	Vision        bool              `json:"vision,omitempty"`        // 支持多模态视觉输入；false 时带图请求主动剥图（防 VLM 400 卡死会话）
-	Tokens        int               `json:"tokens"`                  // 累计用量（prompt+completion）
+	InTokens      int               `json:"inTokens,omitempty"`      // 累计输入 tokens（含缓存命中，对齐 openai 口径）
+	OutTokens     int               `json:"outTokens,omitempty"`     // 累计输出 tokens
+	CacheTokens   int               `json:"cacheTokens,omitempty"`   // 累计缓存命中 tokens（输入子集）
 	Cost          float64           `json:"cost"`                    // 累计花费（单价表后续接入）
 	ContextWindow int               `json:"contextWindow,omitempty"` // 上下文窗口（tokens，水位与压缩推荐用；0 未知)
 	Protocol      string            `json:"protocol,omitempty"`      // API 协议：openai（默认）| responses | anthropic

@@ -78,8 +78,7 @@ type Status struct {
 	ContextWindow    int      `json:"contextWindow"` // 主模型窗口（水位条分母）
 	TrimPercent      int      `json:"trimPercent"`   // 自动整理阈值（窗口百分比，水位条阈值线；0=禁用）
 	CacheHitRate     float64  `json:"cacheHitRate"`
-	PromptTokens     int      `json:"promptTokens"`     // 本会话累计输入
-	CompletionTokens int      `json:"completionTokens"` // 本会话累计输出
+	PromptTokens     int      `json:"promptTokens"` // 本会话累计输入（命中率分母）
 	Turns            int      `json:"turns"`
 	Tools            []string `json:"tools"`
 	McpServers       []string `json:"mcpServers"`
@@ -142,7 +141,6 @@ func (s *SessionService) Snapshot() Status {
 		TrimPercent:   s.Hub.SettingsSnapshot().TrimPercent,
 		CacheHitRate:     hit,
 		PromptTokens:     u.PromptTokens,
-		CompletionTokens: u.CompletionTokens,
 		Turns:            s.Hub.Stats.Turns(),
 		Tools:            tools,
 		McpServers:       mcp,
