@@ -23,13 +23,14 @@ import (
 服务代际计数）。 */
 type AppService struct {
 	Cfg       func() config.Config
-	RestartFn func(port int, dataDir string, ln net.Listener)
+	RestartFn func(port int, listen, dataDir string, ln net.Listener)
 	Boot      *atomic.Int64
 }
 
 /* AppStatus 是应用配置视图。 */
 type AppStatus struct {
 	Port    int    `json:"port"`
+	Listen  string `json:"listen"`
 	DataDir string `json:"dataDir"`
 	Boot    int64  `json:"boot"`
 }
@@ -37,7 +38,7 @@ type AppStatus struct {
 /* Status 返回当前配置与代际。 */
 func (s *AppService) Status() AppStatus {
 	c := s.Cfg()
-	return AppStatus{Port: c.Port, DataDir: c.DataDir, Boot: s.Boot.Load()}
+	return AppStatus{Port: c.Port, Listen: c.Listen, DataDir: c.DataDir, Boot: s.Boot.Load()}
 }
 
 /* PathEntry 是数据/配置文件路径条目（设置页路径区）。 */
@@ -47,9 +48,10 @@ type PathEntry struct {
 	Path  string `json:"path"`
 }
 
-/* AppConfigView 是设置页完整配置视图：端口、数据目录、路径清单、记忆三路径。 */
+/* AppConfigView 是设置页完整配置视图：端口、监听、数据目录、路径清单、记忆三路径。 */
 type AppConfigView struct {
 	Port    int              `json:"port"`
+	Listen  string           `json:"listen"`
 	DataDir string           `json:"dataDir"`
 	Boot    int64            `json:"boot"`
 	Paths   []PathEntry      `json:"paths"`
@@ -70,6 +72,7 @@ func (s *AppService) ConfigView() AppConfigView {
 	join := func(rel string) string { return filepath.Join(cwd, rel) }
 	return AppConfigView{
 		Port:    c.Port,
+		Listen:  c.Listen,
 		DataDir: c.DataDir,
 		Boot:    s.Boot.Load(),
 		Paths: []PathEntry{
@@ -93,8 +96,9 @@ func (s *AppService) ConfigView() AppConfigView {
 
 /* RestartRequest 是重启请求（字段为零值表示不改）。 */
 type RestartRequest struct {
-	Port    *int   `json:"port"`
-	DataDir string `json:"dataDir"`
+	Port    *int    `json:"port"`
+	Listen  *string `json:"listen"`
+	DataDir string  `json:"dataDir"`
 }
 
 /* RestartResult 是重启响应：前端轮询 health.boot === boot 后跳转 url。 */
@@ -116,6 +120,10 @@ func (s *AppService) Restart(req RestartRequest) (RestartResult, error) {
 		}
 		port = *req.Port
 	}
+	listen := cur.Listen
+	if req.Listen != nil {
+		listen = *req.Listen
+	}
 	dataDir := cur.DataDir
 	if req.DataDir != "" {
 		dataDir = config.ResolveDataDir(req.DataDir)
@@ -127,13 +135,13 @@ func (s *AppService) Restart(req RestartRequest) (RestartResult, error) {
 		}
 	}
 	var ln net.Listener
-	if port != cur.Port {
+	if port != cur.Port || listen != cur.Listen {
 		var err error
-		if ln, err = net.Listen("tcp", fmt.Sprintf(":%d", port)); err != nil {
-			return RestartResult{}, fmt.Errorf("端口 %d 监听失败: %w", port, err)
+		if ln, err = net.Listen("tcp", config.ListenAddr(listen, port)); err != nil {
+			return RestartResult{}, fmt.Errorf("%s:%d 监听失败: %w", listen, port, err)
 		}
 	}
-	if err := config.Save(config.Config{Port: port, DataDir: dataDir}); err != nil {
+	if err := config.Save(config.Config{Port: port, Listen: listen, DataDir: dataDir}); err != nil {
 		if ln != nil {
 			_ = ln.Close()
 		}
@@ -141,7 +149,8 @@ func (s *AppService) Restart(req RestartRequest) (RestartResult, error) {
 	}
 
 	next := s.Boot.Add(1)
-	go s.RestartFn(port, dataDir, ln)
+	go s.RestartFn(port, listen, dataDir, ln)
+	/* listen=0.0.0.0 时本机访问仍走 127.0.0.1，跳转地址不受影响 */
 	return RestartResult{URL: fmt.Sprintf("http://127.0.0.1:%d", port), Boot: next}, nil
 }
 

@@ -5,6 +5,7 @@
   /* 设置页 = 应用结构配置（服务端）+ 上下文管理 + 数据/配置文件路径。 */
   let cfg = $state<AppConfig | null>(null)
   let port = $state<number | ''>('')
+  let listen = $state('')
   let dataDir = $state('')
   let restarting = $state(false)
   let restartErr = $state('')
@@ -38,6 +39,7 @@
     try {
       cfg = await api.appConfig()
       port = cfg.port
+      listen = cfg.listen
       dataDir = cfg.dataDir
       appChanged = false
     } catch {
@@ -71,7 +73,11 @@
   }
 
   function checkChanged() {
-    appChanged = !!cfg && (String(port) !== String(cfg.port) || dataDir.trim() !== cfg.dataDir)
+    appChanged =
+      !!cfg &&
+      (String(port) !== String(cfg.port) ||
+        listen.trim() !== cfg.listen ||
+        dataDir.trim() !== cfg.dataDir)
   }
 
   async function saveThreshold() {
@@ -126,8 +132,9 @@
     restarting = true
     restartErr = ''
     try {
-      const req: { port?: number; dataDir?: string } = {}
+      const req: { port?: number; listen?: string; dataDir?: string } = {}
       if (String(port) !== String(cfg?.port)) req.port = Number(port)
+      if (listen.trim() !== cfg?.listen) req.listen = listen.trim()
       if (dataDir.trim() !== cfg?.dataDir) req.dataDir = dataDir.trim()
       const res = await api.appRestart(req)
       for (let i = 0; i < 60; i++) {
@@ -161,8 +168,12 @@
 
   <section>
     <h2>服务端配置</h2>
-    <p class="hint">端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。</p>
+    <p class="hint">监听、端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。监听 127.0.0.1 = 仅本机访问（默认，无防火墙弹窗），0.0.0.0 = 局域网可达（会触发防火墙授权）。</p>
     <div class="grid2">
+      <label class="field">
+        <span>监听地址</span>
+        <input type="text" bind:value={listen} oninput={checkChanged} placeholder={cfg?.listen ?? '127.0.0.1'} />
+      </label>
       <label class="field">
         <span>端口</span>
         <input type="number" bind:value={port} oninput={checkChanged} min="1" max="65535" />

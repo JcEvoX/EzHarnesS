@@ -98,6 +98,7 @@ export interface PathEntry {
 
 export interface AppConfig {
   port: number
+  listen: string
   dataDir: string
   boot: number
   paths: PathEntry[]
@@ -376,7 +377,7 @@ export const api = {
 
   appConfig: () => fetch('/api/app/config').then(json<AppConfig>),
 
-  appRestart: (req: { port?: number; dataDir?: string }) =>
+  appRestart: (req: { port?: number; listen?: string; dataDir?: string }) =>
     post<{ url: string; boot: number }>('/api/app/restart', req),
 
   appHealth: (base = '') => fetch(`${base}/api/app/health`).then(json<{ ok: boolean; boot: number }>),

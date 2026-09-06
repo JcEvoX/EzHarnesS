@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 
 ####
 ## Please note: Template replacements don't work in this file. They are provided with default defines like
@@ -50,6 +50,9 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 ManifestDPIAware true
 
 !include "MUI.nsh"
+!include "StrFunc.nsh"
+${StrStr}
+${UnStrRep}
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
@@ -59,6 +62,7 @@ ManifestDPIAware true
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
+!insertmacro MUI_PAGE_COMPONENTS # Which components to install page.
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
@@ -84,7 +88,8 @@ Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
 
-Section
+Section "ezharness" SEC_CORE
+    SectionIn RO # 主程序必装
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
@@ -102,7 +107,22 @@ Section
     !insertmacro wails.writeUninstaller
 SectionEnd
 
-Section "uninstall" 
+# 默认勾选可取消：写入用户 PATH，任意终端可运行 ezharness
+Section "添加到 PATH（任意终端运行 ezharness）" SEC_PATH
+    ReadRegStr $0 HKCU "Environment" "Path"
+    ${StrStr} $1 "$0" "$INSTDIR"
+    StrCmp $1 "" 0 path_done # 已含安装目录（重装/升级）不重复追加
+    StrCmp $0 "" 0 path_append
+    WriteRegStr HKCU "Environment" "Path" "$INSTDIR"
+    Goto path_broadcast
+path_append:
+    WriteRegStr HKCU "Environment" "Path" "$0;$INSTDIR"
+path_broadcast:
+    SendMessage 0xFFFF 0x1A 0 "STR:Environment" # 广播环境变量变更
+path_done:
+SectionEnd
+
+Section "uninstall"
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
@@ -111,6 +131,12 @@ Section "uninstall"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
+
+    ReadRegStr $0 HKCU "Environment" "Path"
+    ${UnStrRep} $1 "$0" "$INSTDIR;" "" # 头部形态
+    ${UnStrRep} $1 "$1" ";$INSTDIR" "" # 中部/尾部形态
+    WriteRegStr HKCU "Environment" "Path" "$1"
+    SendMessage 0xFFFF 0x1A 0 "STR:Environment"
 
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols

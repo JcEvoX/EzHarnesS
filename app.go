@@ -82,7 +82,7 @@ func adoptLegacy(dataDir string) {
 /* start 启动第一代 server（端口占用失败即退出）。 */
 func (a *app) start() error {
 	cfg := a.snapshot()
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	ln, err := net.Listen("tcp", config.ListenAddr(cfg.Listen, cfg.Port))
 	if err != nil {
 		return err
 	}
@@ -102,14 +102,14 @@ func (a *app) snapshot() config.Config {
 	return a.cfg
 }
 
-func (a *app) addr() string { return fmt.Sprintf(":%d", a.cfg.Port) }
+func (a *app) addr() string { return config.ListenAddr(a.cfg.Listen, a.cfg.Port) }
 
 /*
 restart 换代重启（由 AppService 异步调用，此刻 HTTP 响应已写完，
 Shutdown 不会与活跃 handler 死锁）。ln 非 nil 时是预占的新端口 listener。
 先收尾旧代（轮落盘到旧目录后，才切数据目录——否则旧轮 OnEnd 会写进新库）。
 */
-func (a *app) restart(port int, dataDir string, ln net.Listener) {
+func (a *app) restart(port int, listen, dataDir string, ln net.Listener) {
 	a.mu.Lock()
 	hub := a.hub
 	a.mu.Unlock()
@@ -123,7 +123,7 @@ func (a *app) restart(port int, dataDir string, ln net.Listener) {
 	engine := a.buildRouter()
 	srv := &http.Server{Handler: engine}
 	a.mu.Lock()
-	a.cfg.Port, a.cfg.DataDir = port, dataDir
+	a.cfg.Port, a.cfg.Listen, a.cfg.DataDir = port, listen, dataDir
 	a.srv = srv
 	a.mu.Unlock()
 	if ln == nil {

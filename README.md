@@ -39,6 +39,21 @@ ezharness.exe
 - 页面一律走本进程真实网络地址（不经 wails 资产桥），桌面窗口与浏览器行为完全一致。
 - 通信 REST + SSE：事件流单向推送，决策（审批/回答）POST 回传。
 
+## 安装
+
+两种安装方式，任选其一（exe 在哪运行，配置与数据就在哪生成）：
+
+**方式一：绿色版（exe + 环境变量）**
+
+1. 下载 `ezharness.exe`，放入任意文件夹（如 `D:\ezharness`）；
+2. 将该文件夹加入 PATH 环境变量；
+3. 任意终端输入 `ezharness` 即可启动。首次运行在同目录自动生成 `ezharness.json` 与 `data/`。
+
+**方式二：安装包**
+
+1. 下载安装包，双击运行；
+2. 按引导选择安装目录，自动创建开始菜单与桌面快捷方式。
+
 ## 构建
 
 前置依赖：[Go](https://go.dev/dl/)、[Node.js](https://nodejs.org/)（npm）、wails3 CLI：

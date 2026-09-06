@@ -27,6 +27,7 @@ const DefaultPort = 5260
 /* Config 是 ezharness 启动配置（结构配置）。 */
 type Config struct {
 	Port    int
+	Listen  string // 监听地址（127.0.0.1=仅本机，0.0.0.0=局域网可达；空 = 默认 127.0.0.1）
 	DataDir string // 绝对路径，进程 cwd 即此
 	WindowW int    // 主窗口默认宽（0 = 1280）
 	WindowH int    // 主窗口默认高（0 = 800）
@@ -41,6 +42,7 @@ const (
 /* appFile 是 ezharness.json 的落盘结构。 */
 type appFile struct {
 	Port    int    `json:"port"`
+	Listen  string `json:"listen,omitempty"`
 	DataDir string `json:"dataDir"`
 	WindowW int    `json:"windowWidth,omitempty"`
 	WindowH int    `json:"windowHeight,omitempty"`
@@ -110,7 +112,7 @@ func loadLocked() (Config, error) {
 	if h <= 200 {
 		h = DefaultWindowH
 	}
-	return Config{Port: port, DataDir: ResolveDataDir(af.DataDir), WindowW: w, WindowH: h}, nil
+	return Config{Port: port, Listen: normalizeListen(af.Listen), DataDir: ResolveDataDir(af.DataDir), WindowW: w, WindowH: h}, nil
 }
 
 /* Save 持久化结构配置到应用根的 ezharness.json。 */
@@ -122,7 +124,7 @@ func Save(c Config) error {
 
 func saveLocked(c Config) error {
 	data, err := json.MarshalIndent(appFile{
-		Port: c.Port, DataDir: c.DataDir, WindowW: c.WindowW, WindowH: c.WindowH,
+		Port: c.Port, Listen: normalizeListen(c.Listen), DataDir: c.DataDir, WindowW: c.WindowW, WindowH: c.WindowH,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -131,6 +133,20 @@ func saveLocked(c Config) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(Root(), "ezharness.json"), data, 0o644)
+}
+
+/* normalizeListen 归一监听地址：空 = 默认 127.0.0.1（仅本机，不触发
+防火墙公网放行弹窗）。 */
+func normalizeListen(listen string) string {
+	if strings.TrimSpace(listen) == "" {
+		return "127.0.0.1"
+	}
+	return strings.TrimSpace(listen)
+}
+
+/* ListenAddr 返回监听地址（listen 经 normalizeListen 归一）。 */
+func ListenAddr(listen string, port int) string {
+	return fmt.Sprintf("%s:%d", normalizeListen(listen), port)
 }
 
 /* ResolveDataDir 把 dataDir 配置解析为绝对路径：空 → 应用根下 data/，
