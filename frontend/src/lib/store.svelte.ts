@@ -1106,6 +1106,16 @@ class AppStore {
         bs.push({ kind: 'assistant', uid: this.nuid(), text: `⚠️ ${msg}`, reasoning: '', streaming: false })
         break
       }
+      case 'filetools.image_loaded': {
+        // read_file 图片进上下文（OnLoop 加载点推送）：实时渲染缩略图小行，
+        // 缩略图走工作目录文件服务（与历史 <image_loaded> 消息同款渲染）
+        const paths: string[] = Array.isArray(ev.data) ? ev.data : []
+        if (paths.length) {
+          const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+          bs.push({ kind: 'imgload', uid: this.nuid(), paths, images: [] })
+        }
+        break
+      }
       case 'status.snapshot': {
         // 分身状态快照不入主时间线、不碰主水位（分身上下文与主循环无关）
         if (ev.forkId) break

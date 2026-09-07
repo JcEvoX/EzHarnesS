@@ -55,25 +55,51 @@ type dumpTool struct {
 	ArgsSchema  json.RawMessage `json:"args_schema"`
 }
 
-/* dump 打印一行头部摘要 + 请求全量 JSON。 */
+/* dump 打印一行头部摘要 + 请求全量 JSON（图片 base64 截断，防日志爆炸）。 */
 func dump(req *types.ModelRequest) {
 	tools := make([]dumpTool, 0, len(req.Tools))
 	chars := 0
+	imgChars := 0
 	for _, m := range req.Messages {
 		chars += len(m.Content)
+		for _, img := range m.Images {
+			imgChars += len(img.Data)
+		}
 	}
 	for _, t := range req.Tools {
 		tools = append(tools, dumpTool{Name: t.Name(), Description: t.Description(), ArgsSchema: t.ArgsSchema()})
 	}
+	// 副本上截断图片数据（不污染真实请求）：只留 mime + 前 48 字符 + 总长
+	msgs := make([]types.Message, len(req.Messages))
+	copy(msgs, req.Messages)
+	for i := range msgs {
+		if len(msgs[i].Images) == 0 {
+			continue
+		}
+		imgs := make([]types.ImagePart, len(msgs[i].Images))
+		copy(imgs, msgs[i].Images)
+		for j := range imgs {
+			imgs[j].Data = truncData(imgs[j].Data)
+		}
+		msgs[i].Images = imgs
+	}
 	body, err := json.MarshalIndent(struct {
 		Messages []types.Message `json:"messages"`
 		Tools    []dumpTool      `json:"tools"`
-	}{req.Messages, tools}, "", "  ")
+	}{msgs, tools}, "", "  ")
 	if err != nil {
 		return
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	fmt.Printf("========== [model-dump #%d] %s · %d msgs · %d chars · %d tools ==========\n%s\n",
-		seq.Add(1), time.Now().Format("15:04:05"), len(req.Messages), chars, len(tools), body)
+	fmt.Printf("========== [model-dump #%d] %s · %d msgs · %d chars · %d img-chars · %d tools ==========\n%s\n",
+		seq.Add(1), time.Now().Format("15:04:05"), len(req.Messages), chars, imgChars, len(tools), body)
+}
+
+/* truncData 截断 base64（图片动辄 MB 级，日志只留指纹）。 */
+func truncData(s string) string {
+	if len(s) <= 48 {
+		return s
+	}
+	return s[:48] + fmt.Sprintf("…(%d chars)", len(s))
 }

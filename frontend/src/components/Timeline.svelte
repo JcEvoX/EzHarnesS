@@ -263,8 +263,14 @@
         </div>
       {:else if seg.b.kind === 'imgload'}
         <div class="imgload" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
-          {#each seg.b.images as img, i (i)}
-            <img src={`data:${img.mimeType};base64,${img.data}`} alt={seg.b.paths[i] || '已加载图片'} loading="lazy" />
+          {#each seg.b.paths as p, i (p)}
+            {#if seg.b.images[i]}
+              <img src={`data:${seg.b.images[i].mimeType};base64,${seg.b.images[i].data}`} alt={p} loading="lazy" />
+            {:else}
+              <!-- 实时路径：工具结果只有路径，缩略图走工作目录文件服务 -->
+              <img src={`/api/workspace/file?path=${encodeURIComponent(p)}`} alt={p} loading="lazy"
+                onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+            {/if}
           {/each}
           <span class="label">已加载上下文</span>
         </div>
