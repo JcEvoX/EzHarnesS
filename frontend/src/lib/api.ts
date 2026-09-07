@@ -18,8 +18,15 @@ export interface HistoryMessage {
   images?: ImagePayload[]
 }
 
-/* 多模态图片输入（内嵌 base64，后端 types.ImagePart） */
+/* 多模态图片输入（内嵌 base64，后端 types.ImagePart）——旧会话历史展示用 */
 export interface ImagePayload {
+  mimeType: string
+  data: string
+}
+
+/* 附件上传载荷（base64，后端 domain.Attachment；落盘暂存不进上下文） */
+export interface FilePayload {
+  name: string
   mimeType: string
   data: string
 }
@@ -296,8 +303,9 @@ export const api = {
       }),
     ),
 
-  send: (id: string, text: string, images?: ImagePayload[]) =>
-    post<{ ok: boolean }>(`/api/sessions/${id}/messages`, { text, images }),
+  /* 附件暂存上传（base64 落盘工作目录 tmp/，不进上下文）；响应回传落盘路径 */
+  send: (id: string, text: string, files?: FilePayload[]) =>
+    post<{ ok: boolean; files?: string[] }>(`/api/sessions/${id}/messages`, { text, files }),
 
   cancel: (id: string) => post<{ ok: boolean }>(`/api/sessions/${id}/cancel`),
 

@@ -15,15 +15,16 @@ import (
 
 /* Controllers 是路由依赖集合（main 装配）。 */
 type Controllers struct {
-	Session  *SessionController
-	Chat     *ChatController
-	Settings *SettingsController
-	Topics   *TopicController
-	Mcp      *McpController
-	Apps     *AppsController
-	App      *AppController
-	Window   *WindowController
-	Terminal *TerminalController
+	Session   *SessionController
+	Chat      *ChatController
+	Settings  *SettingsController
+	Topics    *TopicController
+	Mcp       *McpController
+	Apps      *AppsController
+	App       *AppController
+	Window    *WindowController
+	Terminal  *TerminalController
+	Workspace *WorkspaceController
 }
 
 /* NewRouter 装配 gin engine 与全部路由。dist 非 nil 时服务前端静态资源。 */
@@ -82,6 +83,8 @@ func NewRouter(c Controllers, dist fs.FS) *gin.Engine {
 
 		api.GET("/apps", c.Apps.List)
 		api.POST("/apps/open", c.Apps.Open)
+
+		api.GET("/workspace/file", c.Workspace.File) // 工作目录文件预览（附件 chips 源）
 
 		/* 魔法看板·共享终端：WS 多路复用 + REST 管理 */
 		api.GET("/terminal/ws", c.Terminal.Ws)

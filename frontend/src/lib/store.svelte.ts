@@ -5,6 +5,7 @@ import {
   subscribe,
   type BranchView,
   type DecisionRecord,
+  type FilePayload,
   type ForkSummary,
   type HistoryMessage,
   type ImagePayload,
@@ -67,7 +68,14 @@ export interface NoticeData {
 /* 消息锚点（分叉定位）：owner=消息所属 session ID（leaf 或上翻出的旧世代），
    msgIdx=该会话 messages 数组下标；分叉复制 [0, msgIdx]（含选中消息） */
 export type Block = { uid: number } & (
-  | { kind: 'user'; text: string; images?: ImagePayload[]; owner?: string; msgIdx?: number }
+  | {
+      kind: 'user'
+      text: string
+      images?: ImagePayload[]
+      files?: { name: string; path?: string }[]
+      owner?: string
+      msgIdx?: number
+    }
   | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean; owner?: string; msgIdx?: number }
   | { kind: 'tool' } & ToolBlockData
   | { kind: 'fork'; forkId: string }
@@ -85,6 +93,25 @@ export interface TotalUsage {
 
 function nowHM(): string {
   return new Date().toTimeString().slice(0, 5)
+}
+
+/* File 读成上传载荷（base64 不含 data: 前缀，与后端解码约定一致） */
+function fileToPayload(f: File): Promise<FilePayload> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => {
+      const s = String(r.result)
+      resolve({ name: f.name, mimeType: f.type || 'application/octet-stream', data: s.slice(s.indexOf(',') + 1) })
+    }
+    r.onerror = () => reject(r.error ?? new Error('read failed'))
+    r.readAsDataURL(f)
+  })
+}
+
+/* 路径取文件名（chips 展示用；兼容 / 与 \ 两种分隔符） */
+function baseName(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i >= 0 ? p.slice(i + 1) : p
 }
 
 /* 解析 <agent_status> 载荷（旧格式 JSON；新格式中文文本返回 null） */
@@ -351,6 +378,7 @@ class AppStore {
     const dmap = new Map((decisions || []).map((d) => [d.callId, d.resolution]))
     const forkQueue = [...(forks || [])]
     const out: Block[] = []
+    let pendingFiles: { name: string; path?: string }[] | undefined // <upload_file> 待挂到下一个 user 块
     for (let mi = 0; mi < messages.length; mi++) {
       const m = messages[mi]
       if (m.role === 'user') {
@@ -366,13 +394,18 @@ class AppStore {
           if (m.content.includes('整理上下文') || m.content.includes('资源变更')) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
           }
+        } else if (m.content.includes('<upload_file>')) {
+          // 附件路径记录：路径挂到紧跟其后的真实 user 块（chips 渲染）
+          const paths = [...m.content.matchAll(/^- (.+)$/gm)].map((x) => x[1].trim()).filter(Boolean)
+          if (paths.length) pendingFiles = paths.map((p) => ({ name: baseName(p), path: p }))
         } else if (m.content.includes('<end_reason>')) {
           const detail = endReasonText(m.content)
           out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })
         } else if (m.content.includes('<context_trim')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
         } else {
-          out.push({ kind: 'user', uid: this.nuid(), text: m.content, images: m.images, owner, msgIdx: mi })
+          out.push({ kind: 'user', uid: this.nuid(), text: m.content, images: m.images, files: pendingFiles, owner, msgIdx: mi })
+          pendingFiles = undefined
         }
       } else if (m.role === 'assistant') {
         if (m.content || m.reasoning) {
@@ -516,9 +549,10 @@ class AppStore {
   /* ── 发送 / 取消 ── */
 
   /* 打断式发送：运行中再来指令 = 先终止当前轮（等引擎真正退出，含工具树杀），
-     再执行新指令；等待超时则放弃并提示。图片为可选多模态输入。 */
-  async send(text: string, images?: ImagePayload[]) {
-    if (!this.activeId || (!text.trim() && !images?.length)) return
+     再执行新指令；等待超时则放弃并提示。附件先读 base64，落盘路径由响应
+     回传（chips 缩略图源）。 */
+  async send(text: string, files?: File[]) {
+    if (!this.activeId || (!text.trim() && !files?.length)) return
     if (this.busy) {
       this.lastStatus = '正在终止当前轮…'
       await this.cancel()
@@ -528,13 +562,27 @@ class AppStore {
       }
     }
     const uid = this.nuid()
-    this.blocks.push({ kind: 'user', uid, text, images })
+    this.blocks.push({
+      kind: 'user',
+      uid,
+      text,
+      files: files?.map((f) => ({ name: f.name })),
+    })
     this.pendingUserUid = uid
     this.pendingUserText = text
     this.busy = true
     this.lastStatus = ''
     try {
-      await api.send(this.activeId, text, images)
+      const payloads = files?.length ? await Promise.all(files.map(fileToPayload)) : undefined
+      const res = await api.send(this.activeId, text, payloads)
+      if (res?.files?.length) {
+        const b = this.blocks.find((x) => x.uid === uid)
+        if (b && b.kind === 'user') {
+          res.files.forEach((p, i) => {
+            if (b.files?.[i]) b.files[i].path = p
+          })
+        }
+      }
       void this.refreshBranches() // 首次发言落线索引 + 运行指示
     } catch (e) {
       this.busy = false

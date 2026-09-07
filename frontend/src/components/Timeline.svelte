@@ -227,6 +227,7 @@
           <MessageItem
             text={ub.text}
             images={ub.images}
+            files={ub.files}
             role="user"
             onFork={ub.owner && ub.msgIdx !== undefined ? () => void store.forkFrom(ub.owner!, ub.msgIdx!) : undefined}
           />
@@ -287,7 +288,7 @@
       {#each turns as t (t.uid)}
         <button class:cur={t.uid === activeUid} onclick={() => jumpTo(t.uid)}
           title={t.text.length > 40 ? t.text : undefined}>
-          <span class="tt">{t.text || '[图片]'}</span>
+          <span class="tt">{t.text || '[附件]'}</span>
           <span class="tick"></span>
         </button>
       {/each}

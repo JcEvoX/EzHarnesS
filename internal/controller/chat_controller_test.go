@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-/* 发送校验矩阵：text/images 至少其一、图片张数、MIME 前缀、单图大小。 */
+/* 发送校验矩阵：text/files 至少其一、附件个数、单附件大小。 */
 func TestSendMessageValidation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c := &ChatController{Svc: nil} // 校验在进 Svc 前完成，nil 不触发
@@ -27,25 +27,22 @@ func TestSendMessageValidation(t *testing.T) {
 	if got := post(`{}`); got != http.StatusBadRequest {
 		t.Fatalf("empty body: %d", got)
 	}
-	if got := post(`{"images":[{"mimeType":"text/plain","data":"aGk="}]}`); got != http.StatusBadRequest {
-		t.Fatalf("non-image mime: %d", got)
-	}
 	many, _ := json.Marshal(map[string]any{
-		"images": func() []map[string]string {
+		"files": func() []map[string]string {
 			out := make([]map[string]string, 9)
 			for i := range out {
-				out[i] = map[string]string{"mimeType": "image/png", "data": "aGk="}
+				out[i] = map[string]string{"name": "a.txt", "mimeType": "text/plain", "data": "aGk="}
 			}
 			return out
 		}(),
 	})
 	if got := post(string(many)); got != http.StatusBadRequest {
-		t.Fatalf("too many images: %d", got)
+		t.Fatalf("too many files: %d", got)
 	}
 	big, _ := json.Marshal(map[string]any{
-		"images": []map[string]string{{"mimeType": "image/png", "data": strings.Repeat("a", maxImageBase64+1)}},
+		"files": []map[string]string{{"name": "big.bin", "mimeType": "application/octet-stream", "data": strings.Repeat("a", maxAttachBase64+1)}},
 	})
 	if got := post(string(big)); got != http.StatusBadRequest {
-		t.Fatalf("oversized image: %d", got)
+		t.Fatalf("oversized file: %d", got)
 	}
 }

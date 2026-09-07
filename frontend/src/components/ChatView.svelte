@@ -8,7 +8,7 @@
   import { store } from '../lib/store.svelte'
 
   /* 拖拽附件：整个对话页是热区（dragenter/leave 计数防子元素抖动）。
-  图片附件随消息多模态直发（粘贴/画板同路），非图片暂不支持。 */
+  任意类型文件随消息暂存发送（粘贴/画板同路），后端落盘工作目录 tmp/。 */
   let files = $state<File[]>([])
   let dragging = $state(false)
   let depth = 0
