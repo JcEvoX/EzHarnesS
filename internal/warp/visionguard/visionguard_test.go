@@ -22,7 +22,7 @@ var png1x1 = []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 func mkReq() (*types.ModelRequest, *types.Message) {
 	imgMsg := &types.Message{
 		Role:    types.RoleUser,
-		Content: "[图片已加载: /tmp/a.png]",
+		Content: "<image_loaded>\n/tmp/a.png\n</image_loaded>",
 		Images:  []types.ImagePart{{MimeType: "image/png", Data: "aGk="}},
 	}
 	plain := types.Message{Role: types.RoleAssistant, Content: "x"}
@@ -40,11 +40,11 @@ func TestStripsWithoutVision(t *testing.T) {
 	if len(got.Images) != 0 {
 		t.Fatalf("images should be stripped, got %d", len(got.Images))
 	}
-	if got.Content != "[图片已省略（当前模型可能已切换，不支持图片输入）：/tmp/a.png]" {
-		t.Fatalf("content = %q", got.Content)
+	if want := `<image_loaded omitted="当前模型可能已切换，不支持图片输入">` + "\n/tmp/a.png\n</image_loaded>"; got.Content != want {
+		t.Fatalf("content = %q, want %q", got.Content, want)
 	}
 	// 落盘历史（原消息）不受影响：换回多模态自动恢复
-	if len(imgMsg.Images) != 1 || imgMsg.Content != "[图片已加载: /tmp/a.png]" {
+	if len(imgMsg.Images) != 1 || imgMsg.Content != "<image_loaded>\n/tmp/a.png\n</image_loaded>" {
 		t.Fatalf("original message mutated: %+v", imgMsg)
 	}
 }
@@ -57,7 +57,7 @@ func TestKeepsWithVision(t *testing.T) {
 		t.Fatalf("invoke: %v", err)
 	}
 	got := stub.lastReq.Messages[0]
-	if len(got.Images) != 1 || got.Content != "[图片已加载: /tmp/a.png]" {
+	if len(got.Images) != 1 || got.Content != "<image_loaded>\n/tmp/a.png\n</image_loaded>" {
 		t.Fatalf("vision model should keep images: %+v", got)
 	}
 	_ = png1x1

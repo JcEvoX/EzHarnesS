@@ -83,6 +83,7 @@ export type Block = { uid: number } & (
   | { kind: 'note'; text: string }
   | { kind: 'status'; text: string; data: StatusPayload | null }
   | { kind: 'endtick'; icon: string; title: string }
+  | { kind: 'imgload'; paths: string[]; images: ImagePayload[] }
 )
 
 export interface TotalUsage {
@@ -398,6 +399,14 @@ class AppStore {
           // 附件路径记录：路径挂到紧跟其后的真实 user 块（chips 渲染）
           const paths = [...m.content.matchAll(/^- (.+)$/gm)].map((x) => x[1].trim()).filter(Boolean)
           if (paths.length) pendingFiles = paths.map((p) => ({ name: baseName(p), path: p }))
+        } else if (m.content.includes('<image_loaded>')) {
+          // read_file 图片已进上下文：渲染为缩略图小行（paths 在标签体内，每行一个）
+          const inner = m.content.replace(/^[\s\S]*?<image_loaded>|<\/image_loaded>[\s\S]*$/g, '')
+          const paths = inner
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+          out.push({ kind: 'imgload', uid: this.nuid(), paths, images: m.images || [] })
         } else if (m.content.includes('<end_reason>')) {
           const detail = endReasonText(m.content)
           out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })

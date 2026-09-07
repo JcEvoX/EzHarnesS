@@ -261,6 +261,13 @@
           {seg.b.text}
           <span class="line"></span>
         </div>
+      {:else if seg.b.kind === 'imgload'}
+        <div class="imgload" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
+          {#each seg.b.images as img, i (i)}
+            <img src={`data:${img.mimeType};base64,${img.data}`} alt={seg.b.paths[i] || '已加载图片'} loading="lazy" />
+          {/each}
+          <span class="label">已加载上下文</span>
+        </div>
       {:else if seg.b.kind === 'endtick'}
         <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
           <span class="dot" class:warn={seg.b.icon === '⚠'}>{seg.b.icon}</span>
@@ -534,6 +541,27 @@
     font-size: 11px;
     color: var(--faint);
     animation: float-in var(--dur-fast) var(--ease-out) both;
+  }
+  /* <image_loaded> 图片消息：缩略图小行（read_file 读图已进上下文） */
+  .imgload {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 48px;
+    font-size: 11px;
+    color: var(--faint);
+    animation: float-in var(--dur-fast) var(--ease-out) both;
+  }
+  .imgload img {
+    width: 22px;
+    height: 22px;
+    object-fit: cover;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+    cursor: zoom-in;
+  }
+  .imgload .label {
+    white-space: nowrap;
   }
   .endtick .dot {
     flex: none;

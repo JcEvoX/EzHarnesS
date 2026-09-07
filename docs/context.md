@@ -117,16 +117,18 @@ type StatusData struct {
 |---|---|
 | **发送** | 前端任意类型附件（≤8 个/单文件 base64 ≤20MB）POST → 后端落盘 `<工作目录>/tmp/att-<时间戳>-<序号>-<净化名>` → `<upload_file>` 告知路径。base64 **不**入会话历史 |
 | **read_file 读图** | 魔数判定（jpeg/png/gif/webp；>8MB 拒载）。主模型开视觉 → 工具结果为机器标记 `<image_loaded path="…"/>`（ezloop filetools 内置格式）；未开视觉 → `WithImageHandler` 回调返回引导文案（可调 `image_recognize`；识别槽未启用则引导设置） |
-| **OnLoop 转换** | filetools hook 的 OnLoop（迭代回边、下次模型调用前）把**本轮工具批**的标记（从尾部回扫 tool 消息、至第一条 assistant 止——批边界天然划定，免状态）转换为：tool 结果文本改为"已加载"说明 + **批末插入一条 user 图片消息** `{Content:"[图片已加载: 路径…]}", Images:[base64…]}`（批内多图合并）。消息随历史**落盘 session.json**。增量语义：assistant 边界之前的残留（取消轮落盘）不补偿（模型看到标记文本无害，重新 read_file 即可） |
-| **visionguard 兜底** | `internal/warp/visionguard` 挂模型链最内层：主模型无视觉时每次实际请求（含 retry）剥掉请求视图里全部 user Images、"[图片已加载: …]"改写为"[图片已省略（当前模型可能已切换，不支持图片输入）：…]"。**只改请求副本，落盘不动**——换回多模态图片自动恢复 |
+| **OnLoop 转换** | filetools hook 的 OnLoop（迭代回边、下次模型调用前）把**本轮工具批**的标记（从尾部回扫 tool 消息、至第一条 assistant 止——批边界天然划定，免状态）转换为**批末一条 user 图片消息**：Content 为包裹标签（每行一个路径），Images 带 base64（批内多图合并）。已入史的 tool 结果不改写（标记保留）；消息随历史**落盘 session.json**。不会重复加载：先有 assistant 才有 tool 结果，上批之后必有新的 assistant 边界；取消轮残留不补偿 |
+| **visionguard 兜底** | `internal/warp/visionguard` 挂模型链最内层：主模型无视觉时每次实际请求（含 retry）剥掉请求视图里全部 user Images、开标签注入 `omitted="当前模型可能已切换，不支持图片输入"` 属性。**只改请求副本，落盘不动**——换回多模态图片自动恢复 |
 | **image_recognize** | 识别槽模型的独立工具：按路径识别任意图片返回文字描述（无视觉模型的替代通道） |
 
 消息序列（多模态模型读图一轮）：
 
 ```
 assistant: [tool_use read_file {path: tmp/att-…png}]
-tool:      [图片已作为视觉内容加载，见相邻消息]
-user:      [图片已加载: C:/…/att-…png]  ← Images 带 base64，随历史落盘
+tool:      <image_loaded path="C:/…/att-…png"/>   ← read_file 原样返回的标记，保留不改写
+user:      <image_loaded>                          ← Images 带 base64，随历史落盘
+           C:/…/att-…png
+           </image_loaded>
 assistant: 这张图是…
 ```
 
@@ -140,7 +142,7 @@ anthropic 侧 tool_result 与相邻 user 聚合为同一条消息（协议合法
 | 换非多模态模型 | visionguard 剥请求视图里的图；模型看到"[图片已省略…路径]"文本 → 可 read_file → 得到 image_recognize 引导，闭环 |
 | 换回多模态模型 | 历史未动，图片自动恢复可见 |
 | trim 折叠 | 图片消息是普通 user 消息，折叠即退出上下文 |
-| 前端渲染 | 图片消息走历史接口 `images` 字段，MessageItem 现有图片网格自动渲染，**前端零特判** |
+| 前端渲染 | `buildBlocks` 识别 `<image_loaded>` 标签转 `imgload` 块，Timeline 渲染为"缩略图 + 已加载上下文"小行（历史加载同样路径） |
 | 旧会话 | 早期"发送直传"时期的历史 Images 同样被 visionguard 覆盖（此前无兜底会 400 的场景已修复） |
 
 ### toolArg 参数语法糖（internal/warp/toolarg）

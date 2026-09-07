@@ -19,11 +19,11 @@ import (
 	"github.com/xuanlv2002/ezloop/warp"
 )
 
-/* loadedPrefix 是 filetools OnLoop 插入的图片消息文案前缀（两侧契约：
-剥离时改写为省略说明）。 */
-const loadedPrefix = "[图片已加载: "
+/* imageLoadedTag 与 ezloop filetools 的图片消息标签同源：剥离时给
+开标签注入 omitted 属性（模型侧可读的省略说明），落盘历史不动。 */
+const imageLoadedTag = "<image_loaded>"
 
-const elidedNote = "[图片已省略（当前模型可能已切换，不支持图片输入）："
+const elidedOpen = `<image_loaded omitted="当前模型可能已切换，不支持图片输入">`
 
 /* Warp 包装模型节点：visionOn 实时判断主模型视觉能力（闭包读设置）。 */
 func Warp(visionOn func() bool) warp.ModelHandler {
@@ -75,7 +75,7 @@ func (p *guardProvider) strip(req *types.ModelRequest) {
 			continue
 		}
 		msgs[i].Images = nil
-		msgs[i].Content = strings.ReplaceAll(msgs[i].Content, loadedPrefix, elidedNote)
+		msgs[i].Content = strings.Replace(msgs[i].Content, imageLoadedTag, elidedOpen, 1)
 	}
 	req.Messages = msgs
 }
