@@ -45,7 +45,7 @@ import (
 	"ezharness/internal/tools"
 	"ezharness/internal/warp/modeldump"
 	"ezharness/internal/warp/toolarg"
-	"ezharness/internal/warp/visionload"
+	"ezharness/internal/warp/visionguard"
 )
 
 /* AgentService 装配领域会话的运行时。 */
@@ -138,20 +138,21 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		m := a.Hub.ModelsSnapshot().ActiveMain()
 		return m != nil && m.Vision
 	}
-	// read_file 图片分支：开视觉 → 路径标记（visionload 据此动态注入）；
+	// read_file 图片分支裁决：开视觉 → 走标记→OnLoop 转图片消息（持久化）；
 	// 未开 → 引导 image_recognize（识别槽也未开则引导设置）
-	readImage := func(path, _ string) string {
+	readImage := func(path, _ string) (string, bool) {
 		if mainVision() {
-			return visionload.MarkLoaded(path)
+			return "", true
 		}
 		if visionOn {
-			return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；可调用 image_recognize 工具识别]", path)
+			return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；可调用 image_recognize 工具识别]", path), false
 		}
-		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型启用图片识别槽]", path)
+		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型启用图片识别槽]", path), false
 	}
 
-	// visionload 最内层（紧贴 provider）：retry 每次实际请求都按标记注入图片
-	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), visionload.Warp(s.Fsys, mainVision)}
+	// visionguard 最内层（紧贴 provider）：无视觉模型每次实际请求（含 retry）
+	// 剥历史图片消息（请求视图，落盘不动，换回多模态自动恢复）
+	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), visionguard.Warp(mainVision)}
 	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
 	if visionOn {
 		agentTools = append(agentTools, tools.ImageRecognize(a)...)
@@ -428,7 +429,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 	b.WriteString("\n\n<workspace>\n" +
 		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
 		"# " + p("workspace") + "          工作目录，草稿/脚本/命令产物放这里，自由读写（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）\n" +
-		"# " + filepath.ToSlash(filepath.Join(workDir, "tmp")) + "   用户上传附件的暂存目录；需要附件内容时用 read_file 按路径读取（图片会自动进入你的视觉上下文，无需调用识别工具）\n" +
+		"# " + filepath.ToSlash(filepath.Join(workDir, "tmp")) + "   用户上传附件的暂存目录；需要附件内容时用 read_file 按路径读取（图片会作为图片消息进入你的上下文，无需调用识别工具）\n" +
 		"# " + p("memory/longterm") + "    长期记忆，可写：harness.md 是索引（已注入上下文），主题文件按需新建，沉淀用户偏好与重要事实\n" +
 		"# " + p("memory/skills") + "      技能库，可写：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
 		"# " + p("apps") + "               快应用目录，由 save_app 工具写入，一般不手动改\n" +
