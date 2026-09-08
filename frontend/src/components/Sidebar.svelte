@@ -125,6 +125,8 @@
 
 <style>
   .menu {
+    flex: none;
+    width: 64px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -133,8 +135,10 @@
     background: var(--bg-soft);
     border-right: 1px solid var(--line);
     overflow: hidden;
+    transition: width var(--dur-in) var(--ease-out);
   }
   .menu.expanded {
+    width: 176px;
     align-items: stretch;
   }
   .logo {

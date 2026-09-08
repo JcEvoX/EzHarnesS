@@ -64,6 +64,8 @@
         <SettingsView />
       {/if}
     </main>
+    <!-- 共享终端：推挤式右布局列（.app flex 行内，打开挤窄 main） -->
+    <TerminalDrawer />
   </div>
 </div>
 
@@ -73,9 +75,8 @@
   <a href="https://github.com/xuanlv2002/ezloop" target="_blank" rel="noreferrer">powered by ezloop</a>
 </footer>
 
-<!-- 魔法看板（画板/浏览器大 overlay）与共享终端抽屉：fixed 定位，不参与 view 切换 -->
+<!-- 魔法看板（画板/浏览器大 overlay）：fixed 定位，不参与 view 切换 -->
 <Panel />
-<TerminalDrawer />
 
 <style>
   .shell {
@@ -84,16 +85,12 @@
     height: 100%;
   }
   .app {
-    display: grid;
-    grid-template-columns: 64px 1fr;
+    display: flex;
     flex: 1;
     min-height: 0;
-    transition: grid-template-columns var(--dur-in) var(--ease-out);
-  }
-  .app.expanded {
-    grid-template-columns: 176px 1fr;
   }
   main {
+    flex: 1;
     min-width: 0;
     min-height: 0;
     display: flex;
