@@ -278,11 +278,15 @@
         <div class="imgload" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
           {#each seg.b.paths as p, i (p)}
             {#if seg.b.images[i]}
-              <img src={`data:${seg.b.images[i].mimeType};base64,${seg.b.images[i].data}`} alt={p} loading="lazy" />
+              <img src={`data:${seg.b.images[i].mimeType};base64,${seg.b.images[i].data}`} alt={p} loading="lazy"
+                onclick={() => void store.editImage(`data:${seg.b.images[i].mimeType};base64,${seg.b.images[i].data}`, p.split(/[/\\]/).pop() || p)}
+                title="点击进画板编辑" />
             {:else}
               <!-- 实时路径：工具结果只有路径，缩略图走工作目录文件服务 -->
               <img src={`/api/workspace/file?path=${encodeURIComponent(p)}`} alt={p} loading="lazy"
-                onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+                onclick={() => void store.editImage(`/api/workspace/file?path=${encodeURIComponent(p)}`, p.split(/[/\\]/).pop() || p)}
+                onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                title="点击进画板编辑" />
             {/if}
           {/each}
           <span class="label">已加载上下文</span>

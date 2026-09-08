@@ -3,6 +3,7 @@
   import DOMPurify from 'dompurify'
   import type { ImagePayload } from '../lib/api'
   import { isDesktop } from '../lib/desktop'
+  import { store } from '../lib/store.svelte'
 
   let {
     text,
@@ -128,7 +129,11 @@
       {#if files?.length}
         <div class="fchips">
           {#each files as f, i (i)}
-            <button class="fchip" onclick={() => openFile(f.path)} title={f.path || f.name} disabled={!f.path}>
+            <button class="fchip"
+              onclick={() => (isImagePath(f.name) && f.path
+                ? void store.editImage(fileUrl(f.path), f.name)
+                : openFile(f.path))}
+              title={isImagePath(f.name) && f.path ? `${f.name}（点击进画板编辑）` : f.path || f.name} disabled={!f.path}>
               {#if isImagePath(f.name)}
                 {#if f.path}
                   <img src={fileUrl(f.path)} alt={f.name} loading="lazy" />
@@ -146,7 +151,9 @@
       {#if images?.length}
         <div class="imgs">
           {#each images as img, i (i)}
-            <img src={`data:${img.mimeType};base64,${img.data}`} alt="附件图片 {i + 1}" loading="lazy" />
+            <img src={`data:${img.mimeType};base64,${img.data}`} alt="附件图片 {i + 1}" loading="lazy"
+              onclick={() => void store.editImage(`data:${img.mimeType};base64,${img.data}`, `图片 ${i + 1}.png`)}
+              title="点击进画板编辑" />
           {/each}
         </div>
       {/if}

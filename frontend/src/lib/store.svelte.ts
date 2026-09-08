@@ -536,6 +536,20 @@ class AppStore {
     else this.openBoard()
   }
 
+  /* editImage 把一张图片（src = data: 或工作目录文件服务 URL）作为底图
+     直接打开魔法画板编辑——产物经 completeBoard 回流进输入框附件，
+     直接关闭画板则无事发生。时间线/附件缩略图的点击入口。 */
+  async editImage(src: string, name: string) {
+    try {
+      const r = await fetch(src)
+      if (!r.ok) throw new Error('read fail')
+      const blob = await r.blob()
+      this.openBoard(new File([blob], name || 'image.png', { type: blob.type || 'image/png' }))
+    } catch {
+      this.lastStatus = '图片读取失败，未能打开画板'
+    }
+  }
+
   /* openTermDrawer 拉开共享终端抽屉（AI term_* 实际执行时调用；
      抽屉与聊天并存，不打断当前视图）。 */
   private openTermDrawer() {
