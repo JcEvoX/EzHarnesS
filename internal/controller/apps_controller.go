@@ -3,6 +3,7 @@ package controller
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -34,7 +35,9 @@ func (c *AppsController) Open(g *gin.Context) {
 		return
 	}
 	for _, e := range c.Svc.List() { // 名单校验，杜绝路径穿越
-		if e.Name == req.Name {
+		// 名单是带 .html 后缀的文件名；app:// 引用与 save_app 的 name 均
+		// 为无后缀短名——两种写法都接受（仍限定名单内，不可穿越）
+		if e.Name == req.Name || strings.TrimSuffix(e.Name, ".html") == req.Name {
 			if c.Win.OpenApp("/apps/"+e.Name, e.Title+" · ezharness") {
 				// 200+JSON（而非 204）：前端 post() 辅助函数固定解析 body，
 				// 204 空 body 会被当成失败触发 window.open 回落（双开 bug）
