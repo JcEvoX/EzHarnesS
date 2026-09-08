@@ -5,6 +5,7 @@
   import { Unicode11Addon } from '@xterm/addon-unicode11'
   import '@xterm/xterm/css/xterm.css'
   import { termManager, type TermInfo } from '../../lib/term'
+  import { store } from '../../lib/store.svelte'
 
   /*
   魔法看板·终端 tab:顶部切换条(全部终端,含 AI 新建的,来源在 tooltip)
@@ -128,6 +129,15 @@
       t?.term.focus()
     })
   }
+
+  /* 外部定位请求（supper_url term:// 点击）：目标终端到达清单后切换。
+     依赖 sessions（$state）——抽屉首次打开 WS hello 到达时重试，不丢。 */
+  $effect(() => {
+    const want = store.termFocus
+    if (!want || !sessions.some((s) => s.id === want)) return
+    store.termFocus = ''
+    switchTo(want)
+  })
 
   async function createOne() {
     try {

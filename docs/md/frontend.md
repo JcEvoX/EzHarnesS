@@ -92,7 +92,10 @@ flowchart LR
 | `<image_loaded path="…"/>` 自闭合 | read_file 工具结果 | ✓（tool 消息，保留不改写） | 工具卡结果文本 | 同左（不解析） |
 | `<end_reason>` | remind 收尾段 | ✓ | turn_end 合成 endtick | 正则提取 |
 | `<context_trim kept="N">` | trim hook | ✓（替代被折叠消息） | session.trim note | 标签 → note |
-| `<$supper_url>…</$supper_url>` | 模型输出（占位语法） | ✓（正文） | marked extension 实时解析 | 同左（同一渲染管线） |
+| `<$supper_url>…</$supper_url>` | 模型输出（占位语法，system workspace 段有指引） | ✓（正文） | marked extension 实时解析 | 同左（同一渲染管线） |
+| ↳ 内容 `https://…` | 同上（外链） | ✓ | chip 点击经系统浏览器打开（复用外链拦截） | 同左 |
+| ↳ 内容 `term://<终端id>` | 同上（终端入口） | ✓ | chip 点击 openTermAt：拉开终端抽屉并定位（TerminalTab 消费 store.termFocus） | 同左 |
+| ↳ 内容 `app://<快应用名>` | 同上（快应用入口） | ✓ | chip 点击 POST /api/apps/open 开子窗 | 同左 |
 | `<@toolArg>路径</@toolArg>` | 模型工具参数 | ✓（入史参数保持原文） | 工具卡显示原文 | 同左（展开只发生在执行侧） |
 
 **改任一 tag 格式的连带清单**见 AGENTS.md 对应小节；行前缀 `- ` 与关键词"整理上下文"是硬契约。

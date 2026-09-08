@@ -1,7 +1,7 @@
 <script lang="ts">
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
-  import type { ImagePayload } from '../lib/api'
+  import { api, type ImagePayload } from '../lib/api'
   import { isDesktop } from '../lib/desktop'
   import { store } from '../lib/store.svelte'
 
@@ -25,9 +25,10 @@
 
   marked.setOptions({ breaks: true, gfm: true })
 
-  /* <$supper_url> 特殊渲染语法（占位）：闭合标签解析为可点击 chip，
-     内容是 http(s) 时可经系统浏览器打开（复用外链拦截），其他内容
-     仅展示（跳转类型与方案待定）。流式未闭合时按原文转义显示。 */
+  /* <$supper_url> 特殊渲染语法（占位）：闭合标签解析为可点击 chip——
+     http(s) 经系统浏览器打开（复用外链拦截）；term://<终端id> 拉开
+     共享终端抽屉并定位；app://<快应用名> 打开快应用子窗。其他内容
+     仅展示。流式未闭合时按原文转义显示。 */
   const escHtml = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   marked.use({
@@ -49,11 +50,37 @@
           if (/^https?:\/\//i.test(t)) {
             return `<a class="supper-url" data-supper-url="${b}" href="${b}">${b}</a>`
           }
+          let m = t.match(/^term:\/\/([^\s]+)$/i)
+          if (m) {
+            const id = escHtml(m[1])
+            return `<span class="supper-url act" data-supper-kind="term" data-supper-id="${id}" role="button" tabindex="0">▤ 终端 ${id}</span>`
+          }
+          m = t.match(/^app:\/\/([^\s]+)$/i)
+          if (m) {
+            const id = escHtml(m[1])
+            return `<span class="supper-url act" data-supper-kind="app" data-supper-id="${id}" role="button" tabindex="0">▶ 快应用 ${id}</span>`
+          }
           return `<a class="supper-url" data-supper-url="${b}">${b}</a>`
         },
       },
     ],
   })
+
+  /* term:// / app:// chip 点击委托（{@html} 渲染无法直接绑事件） */
+  function onBodyClick(e: MouseEvent) {
+    const el = (e.target as HTMLElement).closest('span[data-supper-kind]')
+    if (!el) return
+    const kind = el.dataset.supperKind
+    const id = el.dataset.supperId || ''
+    if (kind === 'term') {
+      store.openTermAt(id)
+    } else if (kind === 'app') {
+      void api
+        .openApp(id)
+        .then(() => (store.lastStatus = `正在打开快应用 ${id}`))
+        .catch((err: unknown) => (store.lastStatus = `打开快应用失败：${(err as Error).message}`))
+    }
+  }
 
   /* 模型输出渲染 markdown（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
   const mdHtml = $derived(text ? DOMPurify.sanitize(marked.parse(text) as string) : '')
@@ -176,7 +203,7 @@
         </details>
       {/if}
       {#if text}
-        <div class="md" bind:this={bodyEl}>
+        <div class="md" bind:this={bodyEl} onclick={onBodyClick}>
           {@html mdHtml}
         </div>
         <div class="foot">
@@ -503,8 +530,9 @@
   .md :global(a:hover) {
     text-decoration: underline;
   }
-  /* <$supper_url> 占位 chip：可点击强调块（跳转类型与样式待定） */
-  .md :global(a.supper-url) {
+  /* <$supper_url> 占位 chip：可点击强调块（http 外链 / 终端 / 快应用） */
+  .md :global(a.supper-url),
+  .md :global(span.supper-url) {
     display: inline-block;
     font-family: var(--font-mono);
     font-size: 12px;
@@ -520,6 +548,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: middle;
+  }
+  .md :global(span.supper-url) {
+    cursor: pointer;
   }
   .md :global(a.supper-url:hover) {
     border-color: var(--accent);

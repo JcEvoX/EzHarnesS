@@ -213,8 +213,10 @@ class AppStore {
   boardSource = $state<File | null>(null)
   pendingBoardFile = $state<{ file: File; tag: string; source: File | null } | null>(null)
   /* 共享终端抽屉(独立于画板 overlay,与聊天并存):收起仅滑出,
-     WS/xterm 常驻保活 */
+     WS/xterm 常驻保活。termFocus 是外部请求定位的终端 id
+     （supper_url term:// 点击入口；TerminalTab 消费后清空） */
   termDrawerOpen = $state(false)
+  termFocus = $state('')
   private boardTag = ''
   /* 模型调用进行中（model_start→model_end），思考指示用 */
   modelActive = $state(false)
@@ -553,6 +555,13 @@ class AppStore {
   /* openTermDrawer 拉开共享终端抽屉（AI term_* 实际执行时调用；
      抽屉与聊天并存，不打断当前视图）。 */
   private openTermDrawer() {
+    this.termDrawerOpen = true
+  }
+
+  /* openTermAt 拉开终端抽屉并定位到指定终端（supper_url term:// 点击；
+     首次打开时 WS hello 到达后由 TerminalTab 消费定位）。 */
+  openTermAt(id: string) {
+    this.termFocus = id
     this.termDrawerOpen = true
   }
 

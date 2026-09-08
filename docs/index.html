@@ -829,8 +829,9 @@ sequenceDiagram
 # D:/ezharness/data/.ezloop/offload    大工具结果的卸载区……
 # 规则：terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径……
 # 参数语法糖：工具参数的字符串值里写 &lt;@toolArg&gt;绝对路径&lt;/@toolArg&gt;，执行时会自动展开为该文件内容……
+# 输出占位：回复中给用户可点击的入口用 &lt;$supper_url&gt;类型://标识&lt;/$supper_url&gt; 包裹——https:// 外部链接、term://终端id（长驻程序收尾时交付终端入口）、app://快应用名……
 # 共享终端（term_start/term_send 等）：魔法看板里的多终端，用户与你实时共见同一屏幕……
-# 用户手动在终端里的操作会出现在每轮 agent_status，留意并在需要时接续。
+# 用户手动在终端里的操作会出现在轮首 &lt;res_change&gt; 资源变更提示里，留意并在需要时接续。
 <span class="t">&lt;/workspace&gt;</span>
 
 <span class="t">&lt;memory&gt;</span>
@@ -1222,7 +1223,7 @@ flowchart LR
       <tr><td><code>&lt;image_loaded path=…/&gt;</code> 自闭合</td><td>read_file 工具结果</td><td>✓（保留不改写）</td><td>工具卡结果原文</td><td>同左（不解析）</td></tr>
       <tr><td><code>&lt;end_reason&gt;</code></td><td>remind 收尾段</td><td>✓</td><td>turn_end 合成 endtick</td><td>正则提取字段</td></tr>
       <tr><td><code>&lt;context_trim kept="N"&gt;</code></td><td>trim</td><td>✓</td><td>session.trim 事件（note 块）</td><td>标签 → note 分割线</td></tr>
-      <tr><td><code>&lt;$supper_url&gt;…</code></td><td>模型输出占位语法</td><td>✓（正文）</td><td>marked extension 实时解析</td><td>同左（同一渲染管线）</td></tr>
+      <tr><td><code>&lt;$supper_url&gt;…</code></td><td>模型输出占位语法</td><td>✓（正文）</td><td>marked extension 实时解析：https:// 外链 / term://终端id 拉开终端抽屉定位 / app://快应用名 开子窗</td><td>同左（同一渲染管线）</td></tr>
       <tr><td><code>&lt;@toolArg&gt;…</code></td><td>模型工具参数</td><td>✓（入史保持原文）</td><td>工具卡显示原文</td><td>同左</td></tr>
     </table>
     <div class="tip warn">

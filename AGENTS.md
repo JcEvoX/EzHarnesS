@@ -26,6 +26,12 @@ remind hook（`internal/hooks/remind.go` + `reschange.go`）统一负责旁路�
 - **基线**：`ResSnapshot{Skills, Mcps, Terms}` 每会话独立持久化（sessionstore），
   资源清单对比 = 全局实时清单 vs 本会话基线；首轮只建基线，用户终端操作
   收割即清不走基线
+- **system 文案连带**：`agent_service.go` buildSystemBase 的 workspace 段
+  文案描述终端/资源变更的呈现位置（"轮首 `<res_change>` 提示"）——改
+  remind 呈现机制时必须同步，曾漏改导致 system 告诉模型错误信道（旧
+  "每轮 agent_status"）；同理改 `<$supper_url>` / `<@toolArg>` 等模型
+  侧语法时 workspace 段指引也要更新（且 system 每 session 固定，
+  存量会话不回填，新文案只对新会话生效）
 
 ## 工具面增删/改名清单（term_run→term_send 的教训）
 
