@@ -49,14 +49,14 @@ export interface ForkSummary {
 }
 
 /* agent_status 状态栏载荷（后端 hooks.StatusData 的 JSON 形状，SSE snapshot 用；
-   注入消息历史的正文是中文语义化文本，历史重建走关键词识别） */
+   注入消息历史的正文是中文语义化文本，历史重建走关键词识别；
+   资源变更不在快照里——走 res.change 事件 + <res_change> 消息单一来源） */
 export interface StatusPayload {
   now: string
   sinceLastOutputMin: number
   ctxTokens: number
   ctxWindow: number
   suggestCompact: boolean
-  changes?: string[]
 }
 
 export interface AppEntry {

@@ -82,6 +82,7 @@ export type Block = { uid: number } & (
   | { kind: 'decision' } & DecisionData
   | { kind: 'note'; text: string }
   | { kind: 'status'; text: string; data: StatusPayload | null }
+  | { kind: 'reschange'; items: string[] }
   | { kind: 'endtick'; icon: string; title: string }
   | { kind: 'imgload'; paths: string[]; images: ImagePayload[] }
 )
@@ -221,6 +222,9 @@ class AppStore {
   status = $state<Status | null>(null)
   /* 最新 agent_status 快照（status.snapshot 事件实时更新，右上角水位条数据源） */
   live = $state<StatusPayload | null>(null)
+  /* 本轮资源变更条目（res.change 事件更新，右上角 StatusCard 数据源；
+     loop_start 清空——事件按需推送，不清会滞留上一轮的旧变更） */
+  liveChanges = $state<string[]>([])
   settings = $state<Settings | null>(null)
   total = $state<TotalUsage>({ prompt: 0, completion: 0, cached: 0 })
 
@@ -301,6 +305,7 @@ class AppStore {
     this.modelActive = false
     this.lastTool = ''
     this.live = null
+    this.liveChanges = []
     try {
       const s = await api.getHistory(this.activeId)
       this.leafId = s.id
@@ -385,16 +390,20 @@ class AppStore {
       if (m.role === 'user') {
         const d = parseStatus(m.content) // 旧格式：JSON 载荷
         if (d) {
-          // 状态记录仅异常时（推荐压缩/资源变更）入时间线，平时只在右上角
-          if (d.suggestCompact || d.changes?.length) {
+          // 状态记录仅水位异常时入时间线，平时只在右上角
+          if (d.suggestCompact) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: d })
           }
         } else if (m.content.includes('<agent_status>')) {
-          // 新格式：中文语义化文本；同样仅异常行进时间线
+          // 新格式：中文语义化文本；仅水位异常行进时间线
           // （文案是"建议调用 trim_context 整理上下文"，关键词取"整理上下文"）
-          if (m.content.includes('整理上下文') || m.content.includes('资源变更')) {
+          if (m.content.includes('整理上下文')) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
           }
+        } else if (m.content.includes('<res_change>')) {
+          // 资源变更记录：remind 变更段按需插入（实时由 res.change 事件渲染）
+          const items = [...m.content.matchAll(/^- (.+)$/gm)].map((x) => x[1].trim()).filter(Boolean)
+          if (items.length) out.push({ kind: 'reschange', uid: this.nuid(), items })
         } else if (m.content.includes('<upload_file>')) {
           // 附件路径记录：路径挂到紧跟其后的真实 user 块（chips 渲染）
           const paths = [...m.content.matchAll(/^- (.+)$/gm)].map((x) => x[1].trim()).filter(Boolean)
@@ -868,6 +877,8 @@ class AppStore {
       case 'loop_start': {
         // 回放重建：本轮 user 输入（实时路径 send 已本地 push，同文本去重）
         const text = typeof ev.data === 'string' ? ev.data : ''
+        // 新一轮开始：上一轮的资源变更不再挂右上角（res.change 按需推送不自动清）
+        if (!ev.forkId) this.liveChanges = []
         if (ev.forkId) {
           // 分身输入进分身聊天框（含任务包装前缀，即分身收到的原文）
           const f = this.ensureFork(ev.forkId)
@@ -1116,6 +1127,17 @@ class AppStore {
         }
         break
       }
+      case 'res.change': {
+        // 资源变更（remind 变更段推送，单一来源）：变更卡插到本轮 user 块前 +
+        // 右上角 StatusCard 同步行。res.change 不可回放（replayable 排除），
+        // 断线重连靠历史 <res_change> 消息重建。
+        if (ev.forkId) break
+        const items: string[] = Array.isArray(ev.data) ? ev.data : []
+        if (!items.length) break
+        this.liveChanges = items
+        this.insertBeforeLastUser({ kind: 'reschange', uid: this.nuid(), items })
+        break
+      }
       case 'status.snapshot': {
         // 分身状态快照不入主时间线、不碰主水位（分身上下文与主循环无关）
         if (ev.forkId) break
@@ -1123,18 +1145,9 @@ class AppStore {
         // 右上角实时同步：最新快照 + 上下文水位
         this.live = d
         if (d && this.status) this.status.contextTokens = d.ctxTokens || 0
-        // 时间线仅异常时插块（send 已先本地 push user 块，插到它之前）
-        if (d && (d.suggestCompact || d.changes?.length)) {
-          const block: Block = { kind: 'status', uid: this.nuid(), text: '', data: d }
-          let idx = -1
-          for (let k = this.blocks.length - 1; k >= 0; k--) {
-            if (this.blocks[k].kind === 'user') {
-              idx = k
-              break
-            }
-          }
-          if (idx >= 0) this.blocks.splice(idx, 0, block)
-          else this.blocks.push(block)
+        // 时间线仅水位异常时插块（send 已先本地 push user 块，插到它之前）
+        if (d?.suggestCompact) {
+          this.insertBeforeLastUser({ kind: 'status', uid: this.nuid(), text: '', data: d })
         }
         break
       }
@@ -1164,6 +1177,7 @@ class AppStore {
         // 归档换代：根 ID 不变（SSE/路由稳定），只换叶与上翻游标；
         // 分支列表刷新（LeafID 更新，条目数不变）
         this.live = null // 旧会话水位快照作废，状态卡按刷新后的 status 渲染
+        this.liveChanges = []
         const d = ev.data || {}
         this.blocks.push({
           kind: 'note',
@@ -1278,6 +1292,20 @@ class AppStore {
 
   private lastStreamingAssistant(): Extract<Block, { kind: 'assistant' }> | null {
     return this.lastStreaming(this.blocks)
+  }
+
+  /* insertBeforeLastUser 把块插到最后一个 user 块之前（status/reschange
+     轮首系统卡的实时插入位——send 已先 push 本轮 user 块）；无 user 时尾加 */
+  private insertBeforeLastUser(block: Block) {
+    let idx = -1
+    for (let k = this.blocks.length - 1; k >= 0; k--) {
+      if (this.blocks[k].kind === 'user') {
+        idx = k
+        break
+      }
+    }
+    if (idx >= 0) this.blocks.splice(idx, 0, block)
+    else this.blocks.push(block)
   }
 
   private lastStreaming(bs: Block[]): Extract<Block, { kind: 'assistant' }> | null {

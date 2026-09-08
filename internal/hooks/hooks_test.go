@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/xuanlv2002/ezloop/ext/fs"
-	ezhook "github.com/xuanlv2002/ezloop/hook"
 	"github.com/xuanlv2002/ezloop/types"
 )
 
@@ -72,10 +71,11 @@ func newTestState(msgs []types.Message) *types.LoopState {
 	return &types.LoopState{Messages: msgs, Tools: types.NewToolRegistry(), Metadata: map[string]any{}}
 }
 
-/* 标题推导须跳过系统记录（agent_status/end_reason 都是 role=user 的注入消息） */
+/* 标题推导须跳过系统记录（agent_status/res_change/end_reason 都是 role=user 的注入消息） */
 func TestFirstUserTitleSkipsSystemNotes(t *testing.T) {
 	msgs := []types.Message{
 		{Role: types.RoleUser, Content: "<agent_status>\n水位 50%\n</agent_status>"},
+		{Role: types.RoleUser, Content: "<res_change>\n- 新增技能 x\n</res_change>"},
 		{Role: types.RoleUser, Content: "<end_reason>\n（系统自动记录的轮次收尾信息，非用户发言，无需回应）\n</end_reason>"},
 		{Role: types.RoleAssistant, Content: "答"},
 		{Role: types.RoleUser, Content: "  真正的用户问题  "},
@@ -83,14 +83,14 @@ func TestFirstUserTitleSkipsSystemNotes(t *testing.T) {
 	if got := FirstUserTitle(msgs); got != "真正的用户问题" {
 		t.Fatalf("expect real user text, got %q", got)
 	}
-	if got := FirstUserTitle(msgs[:2]); got != "未命名话题" {
+	if got := FirstUserTitle(msgs[:3]); got != "未命名话题" {
 		t.Fatalf("all-system window should be untitled, got %q", got)
 	}
 }
 
-/* endnote 错误轮须落错误详情（换行压平、超长截断），否则用户只见分类不知原因 */
-func TestEndNoteErrorDetail(t *testing.T) {
-	h := NewEndNote()
+/* remind 收尾段：错误轮须落错误详情（换行压平、超长截断） */
+func TestRemindEndNoteErrorDetail(t *testing.T) {
+	h := NewRemind(memFS{}, NewStore(memFS{}, "t1"), func() int { return 0 }, 1000, nil, nil, nil)
 	long := strings.Repeat("错", 400)
 	state := &types.LoopState{StopReason: types.StopError, LastError: fmt.Errorf("boom\nline2 %s", long)}
 	if err := h.OnEnd(context.Background(), state); err != nil {
@@ -191,46 +191,115 @@ func TestSysPromptSingleSystem(t *testing.T) {
 	}
 }
 
-/* 三层加载的第 2 层：load_skill 返回 SKILL.md 全文 + 路径 + 目录结构。 */
-func TestSkillToolLoad(t *testing.T) {
+/* 三层加载的第 2 层（load_skill）已下沉 ezloop ext/hook/skilltool（测试随迁）。 */
+
+/* remind 变更段：首轮只建基线零消息；用户终端操作是事件型，首轮也报。 */
+
+/* remind 变更段：首轮只建基线零消息；用户终端操作是事件型，首轮也报。 */
+func TestRemindFirstRoundBaselineOnly(t *testing.T) {
 	ctx := context.Background()
 	fsys := memFS{}
-	_ = fsys.Write(ctx, "memory/skills/pdf/SKILL.md",
-		[]byte("---\nname: pdf\ndescription: 提取 PDF\n---\n\n# PDF 处理\n步骤：pdfplumber"))
-	_ = fsys.Write(ctx, "memory/skills/pdf/scripts/extract.py", []byte("print(1)"))
-	_ = fsys.Write(ctx, "memory/skills/pdf/references/api.md", []byte("api 文档"))
-
-	h := NewSkillTool(fsys, "memory/skills", nil)
-	state := newTestState(nil)
+	_ = fsys.Write(ctx, "memory/skills/pdf/SKILL.md", []byte("---\nname: pdf---\n步骤"))
+	store := NewStore(fsys, "t1")
+	// termRep 报一条用户操作 + 空终端基线
+	h := NewRemind(fsys, store, func() int { return 0 }, 1000,
+		func() []StatusMcp { return nil },
+		func() TermReport {
+			return TermReport{Lines: []UserAction{{ID: "t2", Line: "go run ."}}}
+		}, nil)
+	state := newTestState([]types.Message{{Role: types.RoleUser, Content: "q"}})
 	if err := h.OnStart(ctx, state); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.Tools.Lookup(SkillTool); err != nil {
-		t.Fatal("load_skill must be registered")
+	resChange, status := 0, 0
+	for _, m := range state.Messages {
+		if strings.Contains(m.Content, "<"+ResChangeTag+">") {
+			resChange++
+			if !strings.Contains(m.Content, "用户在终端 t2 执行：go run .") {
+				t.Fatalf("user action missing: %q", m.Content)
+			}
+		}
+		if strings.Contains(m.Content, "<"+StatusTag+">") {
+			status++
+		}
 	}
+	if resChange != 1 {
+		t.Fatalf("first round: exactly 1 res_change (user action only), got %d", resChange)
+	}
+	if status != 1 {
+		t.Fatalf("snapshot always present, got %d", status)
+	}
+	if store.ResSnap() == nil {
+		t.Fatal("baseline must be established on first round")
+	}
+}
 
-	action, err := h.OnToolStart(ctx, state, &types.ToolCall{
-		ID: "c1", Name: SkillTool, Args: []byte(`{"name":"pdf"}`),
-	})
-	if err != nil || action.Kind != ezhook.KindSkip {
-		t.Fatalf("expect skip action, err=%v kind=%v", err, action.Kind)
-	}
-	r := action.Result
-	if !strings.Contains(r, "memory/skills/pdf/SKILL.md") ||
-		!strings.Contains(r, "步骤：pdfplumber") || // 全文（frontmatter 已剥离）
-		!strings.Contains(r, "scripts/extract.py") || !strings.Contains(r, "references/api.md") {
-		t.Fatalf("load result missing parts: %q", r)
-	}
-	if strings.Contains(r, "name: pdf") {
-		t.Fatal("frontmatter must be stripped from instructions")
-	}
+/* remind 变更段：二轮检测到技能新增 → 恰一条 res_change 在 agent_status 前。 */
+func TestRemindResChangeInsertedBeforeStatus(t *testing.T) {
+	ctx := context.Background()
+	fsys := memFS{}
+	store := NewStore(fsys, "t1")
+	mcpList := func() []StatusMcp { return nil }
+	h := NewRemind(fsys, store, func() int { return 0 }, 1000, mcpList, nil, nil)
+	state1 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}})
+	if err := h.OnStart(ctx, state1); err != nil {
+		t.Fatal(err)
+	} // 首轮建基线
 
-	// 未知名：返回可用列表提示
-	action, _ = h.OnToolStart(ctx, state, &types.ToolCall{
-		ID: "c2", Name: SkillTool, Args: []byte(`{"name":"nope"}`),
+	_ = fsys.Write(ctx, "memory/skills/pdf/SKILL.md", []byte("---\nname: pdf---\n步骤"))
+	state2 := newTestState([]types.Message{
+		{Role: types.RoleUser, Content: "q1"},
+		{Role: types.RoleUser, Content: "q2"},
 	})
-	if !strings.Contains(action.Result, "pdf") {
-		t.Fatalf("unknown skill should list available: %q", action.Result)
+	if err := h.OnStart(ctx, state2); err != nil {
+		t.Fatal(err)
+	}
+	// 序列应为 [q1, res_change, agent_status, q2]
+	if len(state2.Messages) != 4 {
+		t.Fatalf("messages = %d, want 4: %+v", len(state2.Messages), state2.Messages)
+	}
+	if !strings.Contains(state2.Messages[1].Content, "新增技能 pdf") {
+		t.Fatalf("res_change missing: %q", state2.Messages[1].Content)
+	}
+	if !strings.Contains(state2.Messages[2].Content, "<"+StatusTag+">") {
+		t.Fatalf("snapshot not after res_change: %q", state2.Messages[2].Content)
+	}
+}
+
+/* 无变更轮次零 res_change（不浮夸）。 */
+func TestRemindNoChangeNoMessage(t *testing.T) {
+	ctx := context.Background()
+	fsys := memFS{}
+	_ = fsys.Write(ctx, "memory/skills/pdf/SKILL.md", []byte("---\nname: pdf---\n步骤"))
+	store := NewStore(fsys, "t1")
+	h := NewRemind(fsys, store, func() int { return 0 }, 1000,
+		func() []StatusMcp { return nil }, nil, nil)
+	s1 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}})
+	_ = h.OnStart(ctx, s1) // 建基线
+	s2 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q2"}})
+	if err := h.OnStart(ctx, s2); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range s2.Messages {
+		if strings.Contains(m.Content, "<"+ResChangeTag+">") {
+			t.Fatalf("no-change round must be silent: %q", m.Content)
+		}
+	}
+}
+
+/* OnEnd：fork 不记收尾但 LastOutputAt 仍更新。 */
+func TestRemindOnEndForkSkip(t *testing.T) {
+	store := NewStore(memFS{}, "t1")
+	h := NewRemind(memFS{}, store, func() int { return 0 }, 1000, nil, nil, nil)
+	state := &types.LoopState{ForkID: "f1", Messages: []types.Message{}}
+	if err := h.OnEnd(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Messages) != 0 {
+		t.Fatalf("fork must not record end_reason, got %d msgs", len(state.Messages))
+	}
+	if store.LastOutputAt() == 0 {
+		t.Fatal("LastOutputAt must be recorded even for fork")
 	}
 }
 

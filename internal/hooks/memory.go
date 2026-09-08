@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/ext/fs"
+	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 	"github.com/xuanlv2002/ezloop/types"
 )
 
@@ -28,16 +29,11 @@ const MemoryFile = HarnessMd
 /*
 SkillDirOf 从 SKILL.md 的 FS 路径提取技能目录名。目录名是技能的
 稳定身份（frontmatter name 可与目录名不同），启停名单与删除都按它定位。
+实现在 ezloop skill 包（目录布局的通用知识），此处保留本地入口供
+既有调用点使用。
 */
 func SkillDirOf(path string) string {
-	i := strings.LastIndex(path, "/")
-	if i < 0 {
-		return ""
-	}
-	if j := strings.LastIndex(path[:i], "/"); j >= 0 {
-		return path[j+1 : i]
-	}
-	return path[:i]
+	return skill.DirOf(path)
 }
 
 /*

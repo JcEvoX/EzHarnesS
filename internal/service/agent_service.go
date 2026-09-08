@@ -28,6 +28,7 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/hook/filetools"
 	"github.com/xuanlv2002/ezloop/ext/hook/offload"
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
+	"github.com/xuanlv2002/ezloop/ext/hook/skilltool"
 	"github.com/xuanlv2002/ezloop/ext/hook/task"
 	"github.com/xuanlv2002/ezloop/ext/provider/anthropic"
 	"github.com/xuanlv2002/ezloop/ext/provider/openai"
@@ -117,7 +118,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	}
 	s.Sess.BindCtx(func() (int, int) { return s.CtxTokens(), window })
 	disabledSkills := func() []string { return a.Hub.SettingsSnapshot().DisabledSkills }
-	statusHook := hooks.NewStatus(s.Fsys, s.Sess,
+	remindHook := hooks.NewRemind(s.Fsys, s.Sess,
 		func() int { return s.CtxTokens() },
 		window,
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
@@ -160,7 +161,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	toolNames := []string{
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
-		"mcp_router", hooks.TrimTool, hooks.SkillTool,
+		"mcp_router", hooks.TrimTool, skilltool.ToolName,
 		"term_start", "term_send", "term_read", "term_list", "term_close",
 	}
 	if visionOn {
@@ -174,18 +175,17 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
 			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir)), filetools.WithImageHandler(readImage)),
-			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir, disabledSkills),
-			statusHook,
+			skilltool.New(s.Fsys, hooks.SkillsDir, disabledSkills),
+			remindHook, // 系统提醒：变更段插 <res_change>? + 快照段插 agent_status；OnEnd 收尾 <end_reason>
 			hooks.NewUploadFile(), // 有附件轮次在输入前插 <upload_file> 路径告知（模型按需 read_file）
 			approver,
 			asker,
 			task.New(),
 			NewMcpHook(s.Fsys),
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, hooks.SkillTool), offload.WithReplayTool("read_file")), // load_skill 返回的指令集是后续行动依据,卸载再回读纯浪费
+			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file")), // load_skill 返回的指令集是后续行动依据,卸载再回读纯浪费
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			trimHook, // OnLoop 回边水位整理（就地截断，立即生效），OnToolStart 拦模型主动整理
 			traceHook,
-			hooks.NewEndNote(), // 每轮收尾补 <end_reason>（轮次/时长/结束时间/原因），须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
 		),
 		core.WithLoopParams(core.LoopParams{MaxIterations: maxIters(st)}),
@@ -292,7 +292,7 @@ func (a *AgentService) Reassemble(st domain.Settings) error {
 */
 func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 	switch c.Name {
-	case askuser.ToolName, hooks.SkillTool, hooks.TrimTool:
+	case askuser.ToolName, skilltool.ToolName, hooks.TrimTool:
 		return false // 交互与内部工具不属用户管控面（加载技能/整理上下文均为只读元操作）
 	}
 	name := c.Name

@@ -115,6 +115,8 @@ func MapEvent(e event.Event) Event {
 		out.Data = raw(e.Data) // TrimInfo / 提示文本原样透传
 	case hooks.EventStatus:
 		out.Data = raw(e.Data) // StatusData 原样透传
+	case hooks.EventResChange:
+		out.Data = raw(e.Data) // []string 变更条目原样透传（前端变更卡）
 	case filetools.EventImageLoaded:
 		out.Data = raw(e.Data) // []string 路径原样透传（前端实时渲染 imgload 块）
 	case "task.start", "task.end":
