@@ -44,6 +44,17 @@
     if (t >= startOfToday - 7 * 86400000) return '7 天内'
     return '更早'
   }
+
+  /* 行内时间：今天显示时刻，更早显示日期（跨年带年份），悬停有完整时间 */
+  function timeLabel(ts?: number): string {
+    if (!ts) return ''
+    const d = new Date(ts)
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    if (groupLabel(ts) === '今天') return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+    if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}-${d.getDate()}`
+    return `${String(d.getFullYear()).slice(2)}-${d.getMonth() + 1}-${d.getDate()}`
+  }
   const groups = $derived.by(() => {
     const out: { label: string; items: BranchView[] }[] = []
     for (const b of store.branches) {
@@ -97,6 +108,9 @@
             {#if b.kind === 'fork'}<i class="kbadge" title={b.origin?.title ? `来自 session：${b.origin.title}` : 'fork 产生的分支'}>⑂</i>{/if}
             {#if b.archiving || b.id === store.archivingRootId}<em class="flag arc-ing">归档中</em>{/if}
             {#if b.waiting}<em class="flag">待审批</em>{/if}
+            <span class="tm" title={b.updatedAt || b.createdAt ? new Date(b.updatedAt || b.createdAt!).toLocaleString() : ''}>
+              {timeLabel(b.updatedAt || b.createdAt)}
+            </span>
             <button class="arc" disabled={b.archiving || b.id === store.archivingRootId || b.running}
               onclick={(e) => { e.stopPropagation(); void store.compactTopic(b.id) }}
               title="归档此话题：总结归档并开新会话（同线换代，树上加一代）">⇪</button>
@@ -293,6 +307,15 @@
   .arc-ing {
     color: #8957e5;
   }
+  /* 行尾更新时间：右推（今天=时刻，更早=日期），hover 归档按钮时与之并排 */
+  .tm {
+    flex: none;
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
   /* 行尾归档按钮：hover 行时浮现 */
   .arc {
     flex: none;
@@ -300,7 +323,6 @@
     place-items: center;
     width: 22px;
     height: 22px;
-    margin-left: auto;
     border: none;
     border-radius: 6px;
     background: transparent;

@@ -1,11 +1,14 @@
 <script lang="ts">
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
-  import type { ImagePayload } from '../lib/api'
+  import { api, type ImagePayload } from '../lib/api'
+  import { isDesktop } from '../lib/desktop'
+  import { store } from '../lib/store.svelte'
 
   let {
     text,
     images,
+    files,
     reasoning = '',
     streaming = false,
     role,
@@ -13,6 +16,7 @@
   }: {
     text: string
     images?: ImagePayload[]
+    files?: { name: string; path?: string }[]
     reasoning?: string
     streaming?: boolean
     role: 'user' | 'assistant'
@@ -20,6 +24,63 @@
   } = $props()
 
   marked.setOptions({ breaks: true, gfm: true })
+
+  /* <$supper_url> 特殊渲染语法（占位）：闭合标签解析为可点击 chip——
+     http(s) 经系统浏览器打开（复用外链拦截）；term://<终端id> 拉开
+     共享终端抽屉并定位；app://<快应用名> 打开快应用子窗。其他内容
+     仅展示。流式未闭合时按原文转义显示。 */
+  const escHtml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  marked.use({
+    extensions: [
+      {
+        name: 'supperUrl',
+        level: 'inline',
+        start(src: string) {
+          return src.indexOf('<$supper_url>')
+        },
+        tokenizer(src: string) {
+          const m = src.match(/^<\$supper_url>([\s\S]*?)<\/\$supper_url>/)
+          if (!m) return undefined
+          return { type: 'supperUrl', raw: m[0], text: m[1].trim() }
+        },
+        renderer(token: any) {
+          const t = String(token.text ?? '')
+          const b = escHtml(t)
+          if (/^https?:\/\//i.test(t)) {
+            return `<a class="supper-url" data-supper-url="${b}" href="${b}">${b}</a>`
+          }
+          let m = t.match(/^term:\/\/([^\s]+)$/i)
+          if (m) {
+            const id = escHtml(m[1])
+            return `<span class="supper-url act" data-supper-kind="term" data-supper-id="${id}" role="button" tabindex="0">▤ 终端 ${id}</span>`
+          }
+          m = t.match(/^app:\/\/([^\s]+)$/i)
+          if (m) {
+            const id = escHtml(m[1])
+            return `<span class="supper-url act" data-supper-kind="app" data-supper-id="${id}" role="button" tabindex="0">▶ 快应用 ${id}</span>`
+          }
+          return `<a class="supper-url" data-supper-url="${b}">${b}</a>`
+        },
+      },
+    ],
+  })
+
+  /* term:// / app:// chip 点击委托（{@html} 渲染无法直接绑事件） */
+  function onBodyClick(e: MouseEvent) {
+    const el = (e.target as HTMLElement).closest('span[data-supper-kind]')
+    if (!el) return
+    const kind = el.dataset.supperKind
+    const id = el.dataset.supperId || ''
+    if (kind === 'term') {
+      store.openTermAt(id)
+    } else if (kind === 'app') {
+      void api
+        .openApp(id)
+        .then(() => (store.lastStatus = `正在打开快应用 ${id}`))
+        .catch((err: unknown) => (store.lastStatus = `打开快应用失败：${(err as Error).message}`))
+    }
+  }
 
   /* 模型输出渲染 markdown（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
   const mdHtml = $derived(text ? DOMPurify.sanitize(marked.parse(text) as string) : '')
@@ -65,16 +126,61 @@
       /* 剪贴板不可用（非安全上下文等）静默 */
     }
   }
+
+  /* 附件预览地址（工作目录文件服务；path 未回填前不可预览） */
+  const fileUrl = (p?: string) => (p ? `/api/workspace/file?path=${encodeURIComponent(p)}` : '')
+
+  /* 打开附件：桌面壳经系统浏览器（WebView 内导航会顶掉 SPA），浏览器模式新标签 */
+  function openFile(p?: string) {
+    const url = fileUrl(p)
+    if (!url) return
+    const abs = new URL(url, location.href).toString()
+    if (isDesktop) {
+      void fetch('/api/window/open-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: abs }),
+      })
+    } else {
+      window.open(abs, '_blank', 'noopener')
+    }
+  }
+
+  const isImagePath = (name: string) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)
 </script>
 
 {#if role === 'user'}
   <div class="user enter-rise">
     <span class="tag">你</span>
     <div class="ucontent">
+      {#if files?.length}
+        <div class="fchips">
+          {#each files as f, i (i)}
+            <button class="fchip"
+              onclick={() => (isImagePath(f.name) && f.path
+                ? void store.editImage(fileUrl(f.path), f.name)
+                : openFile(f.path))}
+              title={isImagePath(f.name) && f.path ? `${f.name}（点击进画板编辑）` : f.path || f.name} disabled={!f.path}>
+              {#if isImagePath(f.name)}
+                {#if f.path}
+                  <img src={fileUrl(f.path)} alt={f.name} loading="lazy" />
+                {:else}
+                  <span class="fico">🖼</span>
+                {/if}
+              {:else}
+                <span class="fico">📄</span>
+              {/if}
+              <span class="fname">{f.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       {#if images?.length}
         <div class="imgs">
           {#each images as img, i (i)}
-            <img src={`data:${img.mimeType};base64,${img.data}`} alt="附件图片 {i + 1}" loading="lazy" />
+            <img src={`data:${img.mimeType};base64,${img.data}`} alt="附件图片 {i + 1}" loading="lazy"
+              onclick={() => void store.editImage(`data:${img.mimeType};base64,${img.data}`, `图片 ${i + 1}.png`)}
+              title="点击进画板编辑" />
           {/each}
         </div>
       {/if}
@@ -97,7 +203,7 @@
         </details>
       {/if}
       {#if text}
-        <div class="md" bind:this={bodyEl}>
+        <div class="md" bind:this={bodyEl} onclick={onBodyClick}>
           {@html mdHtml}
         </div>
         <div class="foot">
@@ -214,6 +320,56 @@
     border-radius: 10px;
     border: 1px solid var(--line);
     cursor: zoom-in;
+  }
+  /* 附件 chips：图片带缩略图（工作目录文件服务），其他文件名 chip；
+     path 回填前（发送瞬间）只显名不可点 */
+  .fchips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .fchip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--line);
+    background: var(--bg-soft);
+    border-radius: 9px;
+    padding: 4px 10px 4px 5px;
+    max-width: 220px;
+    cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  .fchip:hover:not(:disabled) {
+    border-color: var(--line-strong);
+  }
+  .fchip:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+  .fchip img {
+    width: 26px;
+    height: 26px;
+    object-fit: cover;
+    border-radius: 5px;
+    flex: none;
+  }
+  .fico {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    background: var(--bg);
+    font-size: 13px;
+    flex: none;
+  }
+  .fname {
+    font-size: 11.5px;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .body {
     min-width: 0;
@@ -373,6 +529,32 @@
   }
   .md :global(a:hover) {
     text-decoration: underline;
+  }
+  /* <$supper_url> 占位 chip：可点击强调块（http 外链 / 终端 / 快应用） */
+  .md :global(a.supper-url),
+  .md :global(span.supper-url) {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 2px 10px;
+    margin: 2px 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--accent);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .md :global(span.supper-url) {
+    cursor: pointer;
+  }
+  .md :global(a.supper-url:hover) {
+    border-color: var(--accent);
+    text-decoration: none;
   }
   .md :global(hr) {
     margin: 12px 0;

@@ -7,6 +7,7 @@
   import ForkCard from './ForkCard.svelte'
   import DecisionCard from './DecisionCard.svelte'
   import StatusTagCard from './StatusTagCard.svelte'
+  import ResChangeCard from './ResChangeCard.svelte'
 
   let el: HTMLDivElement
   let stick = true
@@ -58,10 +59,18 @@
     return out
   })
 
-  /* 空状态判定：note/status 是系统自动记录（压缩翻页后的新会话仅含
-     一条 <end_reason> 收尾），不算对话内容——只剩系统记录时仍展示欢迎页 */
+  /* 空状态判定：note/status/reschange/endtick/imgload 是系统自动记录
+     （压缩翻页后的新会话仅含一条 <end_reason> 收尾），不算对话内容——
+     只剩系统记录时仍展示欢迎页 */
   const empty = $derived(
-    !store.blocks.some((b) => b.kind !== 'note' && b.kind !== 'status' && b.kind !== 'endtick'),
+    !store.blocks.some(
+      (b) =>
+        b.kind !== 'note' &&
+        b.kind !== 'status' &&
+        b.kind !== 'reschange' &&
+        b.kind !== 'endtick' &&
+        b.kind !== 'imgload',
+    ),
   )
 
   let openGroups = $state<Set<number>>(new Set())
@@ -227,6 +236,7 @@
           <MessageItem
             text={ub.text}
             images={ub.images}
+            files={ub.files}
             role="user"
             onFork={ub.owner && ub.msgIdx !== undefined ? () => void store.forkFrom(ub.owner!, ub.msgIdx!) : undefined}
           />
@@ -254,11 +264,32 @@
         <div class:reveal={store.batchIds.has(seg.b.uid)}>
           <StatusTagCard data={seg.b.data} raw={seg.b.text} />
         </div>
+      {:else if seg.b.kind === 'reschange'}
+        <div class:reveal={store.batchIds.has(seg.b.uid)}>
+          <ResChangeCard items={seg.b.items} />
+        </div>
       {:else if seg.b.kind === 'note'}
         <div class="note" class:reveal={store.batchIds.has(seg.b.uid)}>
           <span class="line"></span>
           {seg.b.text}
           <span class="line"></span>
+        </div>
+      {:else if seg.b.kind === 'imgload'}
+        <div class="imgload" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
+          {#each seg.b.paths as p, i (p)}
+            {#if seg.b.images[i]}
+              <img src={`data:${seg.b.images[i].mimeType};base64,${seg.b.images[i].data}`} alt={p} loading="lazy"
+                onclick={() => void store.editImage(`data:${seg.b.images[i].mimeType};base64,${seg.b.images[i].data}`, p.split(/[/\\]/).pop() || p)}
+                title="点击进画板编辑" />
+            {:else}
+              <!-- 实时路径：工具结果只有路径，缩略图走工作目录文件服务 -->
+              <img src={`/api/workspace/file?path=${encodeURIComponent(p)}`} alt={p} loading="lazy"
+                onclick={() => void store.editImage(`/api/workspace/file?path=${encodeURIComponent(p)}`, p.split(/[/\\]/).pop() || p)}
+                onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+                title="点击进画板编辑" />
+            {/if}
+          {/each}
+          <span class="label">已加载上下文</span>
         </div>
       {:else if seg.b.kind === 'endtick'}
         <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
@@ -287,7 +318,7 @@
       {#each turns as t (t.uid)}
         <button class:cur={t.uid === activeUid} onclick={() => jumpTo(t.uid)}
           title={t.text.length > 40 ? t.text : undefined}>
-          <span class="tt">{t.text || '[图片]'}</span>
+          <span class="tt">{t.text || '[附件]'}</span>
           <span class="tick"></span>
         </button>
       {/each}
@@ -533,6 +564,27 @@
     font-size: 11px;
     color: var(--faint);
     animation: float-in var(--dur-fast) var(--ease-out) both;
+  }
+  /* <image_loaded> 图片消息：缩略图小行（read_file 读图已进上下文） */
+  .imgload {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 48px;
+    font-size: 11px;
+    color: var(--faint);
+    animation: float-in var(--dur-fast) var(--ease-out) both;
+  }
+  .imgload img {
+    width: 22px;
+    height: 22px;
+    object-fit: cover;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+    cursor: zoom-in;
+  }
+  .imgload .label {
+    white-space: nowrap;
   }
   .endtick .dot {
     flex: none;

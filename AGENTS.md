@@ -3,21 +3,35 @@
 变更时的连带检查清单与易踩的坑（按主题）。改动相关模块前先扫对应小节，
 这里的每一条都是实际踩过的。
 
-## agent_status（状态注入）变更清单
+## agent_status / res_change（系统提醒注入）变更清单
 
+remind hook（`internal/hooks/remind.go` + `reschange.go`）统一负责旁路提醒，
 格式或文案改动牵一发动全身，以下全部要对齐：
 
-- **生成**：`internal/hooks/status.go` 的 `renderStatus`（中文语义化文本：当前时间 /
-  上下文水位 / 距上次输出 / 本轮资源变更）
-- **历史重建识别**：`frontend/src/lib/store.svelte.ts` 的 `buildBlocks`——按关键词
-  （`整理上下文` / `资源变更`）决定状态消息是否进时间线。**改 renderStatus 文案必须
-  同步关键词**，否则消息被整个吞掉（建议整理被忽略）或普通轮次状态全量入时间线
+- **生成**：`internal/hooks/remind.go` 的 `renderStatus`（中文语义化文本：当前时间 /
+  上下文水位 / 距上次输出）；变更条目文案在 `reschange.go`（diffNames/diffTerms/用户操作）
+- **历史重建识别**：`frontend/src/lib/store.svelte.ts` 的 `buildBlocks`——agent_status 按
+  关键词 `整理上下文` 决定是否进时间线。**改 renderStatus 文案必须同步关键词**，
+  否则消息被整个吞掉（建议整理被忽略）或普通轮次状态全量入时间线
 - **状态卡渲染**：`frontend/src/components/StatusTagCard.svelte`——两条路径（旧 JSON
-  `data` / 新中文文本 `raw`），新格式解析（当前时间/上下文水位/本轮资源变更行）要与
-  renderStatus 文案严格一致，否则历史重建时全文铺开（已修过一次）
-- **标题推导**：`FirstUserTitle` 按 `<agent_status>` tag 跳过系统记录
+  `data` / 新中文文本 `raw`），新格式解析（当前时间/上下文水位）要与 renderStatus
+  文案严格一致，否则历史重建时全文铺开（已修过一次）
+- **`<res_change>` 契约**（变更段独立消息，按需插入）：`renderResChange` 条目行
+  前缀 `- `；前端三处联动——`buildBlocks` 的 res_change 分支（matchAll
+  `/^- (.+)$/gm`）、`ResChangeCard.svelte`（着色前缀：新增/用户绿、移除/已退出/
+  已关闭红）、`store.apply` 的 `res.change` case（liveChanges + 插卡）；
+  `res.change` 在 domain/session.go `replayable` 排除名单（回放重插会重复）
+- **标题推导**：`FirstUserTitle` 按 `<agent_status>` / `<res_change>` / `<end_reason>`
+  tag 跳过系统记录
 - **基线**：`ResSnapshot{Skills, Mcps, Terms}` 每会话独立持久化（sessionstore），
-  资源清单对比 = 全局实时清单 vs 本会话基线
+  资源清单对比 = 全局实时清单 vs 本会话基线；首轮只建基线，用户终端操作
+  收割即清不走基线
+- **system 文案连带**：`agent_service.go` buildSystemBase 的 workspace 段
+  文案描述终端/资源变更的呈现位置（"轮首 `<res_change>` 提示"）——改
+  remind 呈现机制时必须同步，曾漏改导致 system 告诉模型错误信道（旧
+  "每轮 agent_status"）；同理改 `<$supper_url>` / `<@toolArg>` 等模型
+  侧语法时 workspace 段指引也要更新（且 system 每 session 固定，
+  存量会话不回填，新文案只对新会话生效）
 
 ## 工具面增删/改名清单（term_run→term_send 的教训）
 
@@ -37,13 +51,14 @@
 ## skill 消费点（改 skill 相关须全查）
 
 `skill.LoadDir` 共 **5 处**消费，每处都要按 `DisabledSkills` 过滤：
-`settings_service.Config` / `agent_service.buildSystemBase` / `hooks/skilltool.go` /
-`hooks/status.go` / `session_service.Status`。
+`settings_service.Config` / `agent_service.buildSystemBase` / `ezloop ext/hook/skilltool` /
+`hooks/reschange.go` / `session_service.Status`。
 
-- 技能身份用**目录名**（`hooks.SkillDirOf(s.Path)`），frontmatter name 仅作显示名——
+- 技能身份用**目录名**（`skill.DirOf(s.Path)`，ezloop skill 包；ezharness
+  `hooks.SkillDirOf` 是委托入口），frontmatter name 仅作显示名——
   开关/删除按目录名定位，别混用
-- skilltool/status 是 hook（不能 import service，会循环），禁用名单经闭包
-  `func() []string` 注入
+- skilltool 已下沉 ezloop（`ext/hook/skilltool`，工具名常量 `skilltool.ToolName`）；
+  hooks 不能 import service（会循环），禁用名单经闭包 `func() []string` 注入
 
 ## 终端模块
 
@@ -68,18 +83,19 @@
 
 ## 模型 warp 链
 
-链序（先注册 = 外层）：`modeldump → modelretry → [stripimage] → provider`。
+链序（先注册 = 外层）：`modeldump → modelretry → visionguard → provider`。
 - 模型层错误**必须**在 provider 装饰器里处理（引擎在模型节点失败即终止
   loop，hook 拦截不到）
-- `stripimage`（internal/warp/stripimage）：主模型 `ModelEntry.Vision=false`
-  时装配（配置驱动），请求前把全部图片**落盘到工作目录 images/** 并把
-  正文替换为路径与引导（识别槽启用时引导 image_recognize，否则引导去
-  设置启用）——防"一次带图失败、图片留历史、之后每轮 400 卡死"；替换
-  直接改引擎消息（落盘自愈语义）。用户偏好显式配置而非 400 自适应降级
-  （曾实现过 novision 自适应方案被否）
+- `visionguard`（internal/warp/visionguard）：主模型 `ModelEntry.Vision=false`
+  时每次实际请求（含 retry）把请求视图里全部 user Images 剥除、
+  `<image_loaded>` 开标签注入 `omitted` 省略说明——**只改请求副本，落盘
+  历史不动**（换回多模态图片自动恢复）。防"一次带图失败、图片留历史、
+  之后每轮 400 卡死"
+- 图片本体走 `<image_loaded>` user 消息持久化（read_file 标记 → filetools
+  OnLoop 批末插入，详见 docs/hooks.md 封装范式）
 - 图片路由说明**不进 system prompt**（buildSystemBase 不按 Vision 注入
   任何文案/目录行）：多模态模型图片直接进上下文无需说明，非多模态由
-  stripimage 占位文本自解释——曾因 system 烙下"你无法直接看图"残留，
+  omitted 说明自解释——曾因 system 烙下"你无法直接看图"残留，
   换多模态模型后（SysPrompt 每 session 固定，只复用不重建）误导模型怀疑
   自己的直接视觉
 

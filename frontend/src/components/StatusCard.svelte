@@ -55,8 +55,8 @@
   <aside class="card">
     <div class="head">
       <h2>状态</h2>
-      {#if live?.changes?.length}
-        <span class="changes" title={live.changes.join('\n')}>{live.changes.join(' · ')}</span>
+      {#if store.liveChanges.length}
+        <span class="changes" title={store.liveChanges.join('\n')}>{store.liveChanges.join(' · ')}</span>
       {/if}
       <button class="fold" onclick={() => fold(true)} title="收起">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">

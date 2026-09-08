@@ -2,6 +2,10 @@ module ezharness
 
 go 1.25.0
 
+// 开发期指向本地 ezloop（read_file 图片分支等改动）；发布前升 ezloop
+// 版本并移除本 replace。
+replace github.com/xuanlv2002/ezloop => C:/Users/guy/Desktop/ai/ezloop
+
 require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/websocket v1.8.14

@@ -6,7 +6,7 @@ AgentService 负责 agent 的装配与重建：provider、hooks、warp、工具�
 上下文机制：system 由 sysprompt hook 每轮注入（session 创建时组装一次：
 人格+SystemExtra+长期记忆+skill/mcp 列表；重启从快照还原不重组）。
 contextfix 修理残缺历史，offload 卸载大工具结果；压缩（compact）、
-状态栏（status）、调用链（trace）见 internal/hooks 各文件。
+系统提醒（remind）、调用链（trace）见 internal/hooks 各文件。
 */
 package service
 
@@ -28,6 +28,7 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/hook/filetools"
 	"github.com/xuanlv2002/ezloop/ext/hook/offload"
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
+	"github.com/xuanlv2002/ezloop/ext/hook/skilltool"
 	"github.com/xuanlv2002/ezloop/ext/hook/task"
 	"github.com/xuanlv2002/ezloop/ext/provider/anthropic"
 	"github.com/xuanlv2002/ezloop/ext/provider/openai"
@@ -44,7 +45,8 @@ import (
 	"ezharness/internal/osfs"
 	"ezharness/internal/tools"
 	"ezharness/internal/warp/modeldump"
-	"ezharness/internal/warp/stripimage"
+	"ezharness/internal/warp/toolarg"
+	"ezharness/internal/warp/visionguard"
 )
 
 /* AgentService 装配领域会话的运行时。 */
@@ -116,7 +118,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	}
 	s.Sess.BindCtx(func() (int, int) { return s.CtxTokens(), window })
 	disabledSkills := func() []string { return a.Hub.SettingsSnapshot().DisabledSkills }
-	statusHook := hooks.NewStatus(s.Fsys, s.Sess,
+	remindHook := hooks.NewRemind(s.Fsys, s.Sess,
 		func() int { return s.CtxTokens() },
 		window,
 		func() []hooks.StatusMcp { return mcpStatusList(s.Fsys) },
@@ -132,13 +134,26 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	// 能力槽启用态：图片识别槽启用 → agent 获得图片识别工具
 	visionOn := visionModel(a.Hub) != nil
 
-	// 主模型未开视觉（ModelEntry.Vision=false）时挂图片落盘装饰器：带图
-	// 请求（含历史残留）的图片存到工作目录 images/ 并替换为路径与引导
-	// 说明（有识别工具则引导 image_recognize），防 VLM 400 卡死会话
-	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp()}
-	if main != nil && !main.Vision {
-		modelWarps = append(modelWarps, stripimage.Warp(s.Fsys, ResolveWorkDir(st.WorkDir), visionOn))
+	// 主模型视觉能力实时判断（换模型 Reassemble 后随设置即时生效）
+	mainVision := func() bool {
+		m := a.Hub.ModelsSnapshot().ActiveMain()
+		return m != nil && m.Vision
 	}
+	// read_file 图片分支裁决：开视觉 → 走标记→OnLoop 转图片消息（持久化）；
+	// 未开 → 引导 image_recognize（识别槽也未开则引导设置）
+	readImage := func(path, _ string) (string, bool) {
+		if mainVision() {
+			return "", true
+		}
+		if visionOn {
+			return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；可调用 image_recognize 工具识别]", path), false
+		}
+		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型启用图片识别槽]", path), false
+	}
+
+	// visionguard 最内层（紧贴 provider）：无视觉模型每次实际请求（含 retry）
+	// 剥历史图片消息（请求视图，落盘不动，换回多模态自动恢复）
+	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), visionguard.Warp(mainVision)}
 	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
 	if visionOn {
 		agentTools = append(agentTools, tools.ImageRecognize(a)...)
@@ -146,7 +161,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	toolNames := []string{
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
-		"mcp_router", hooks.TrimTool, hooks.SkillTool,
+		"mcp_router", hooks.TrimTool, skilltool.ToolName,
 		"term_start", "term_send", "term_read", "term_list", "term_close",
 	}
 	if visionOn {
@@ -154,23 +169,23 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	}
 	agent := core.NewAgent(provider,
 		core.WithModelWarp(modelWarps...),
-		core.WithToolWarp(limit.Warp(4), safetool.Warp()),
+		core.WithToolWarp(toolarg.Warp(s.Fsys), limit.Warp(4), safetool.Warp()),
 		core.WithTools(agentTools...),
 		core.WithHooks(
 			sys, // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			contextfix.New(),
-			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir))),
-			hooks.NewSkillTool(s.Fsys, hooks.SkillsDir, disabledSkills),
-			statusHook,
+			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir)), filetools.WithImageHandler(readImage)),
+			skilltool.New(s.Fsys, hooks.SkillsDir, disabledSkills),
+			remindHook, // 系统提醒：变更段插 <res_change>? + 快照段插 agent_status；OnEnd 收尾 <end_reason>
+			hooks.NewUploadFile(), // 有附件轮次在输入前插 <upload_file> 路径告知（模型按需 read_file）
 			approver,
 			asker,
 			task.New(),
 			NewMcpHook(s.Fsys),
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, hooks.SkillTool), offload.WithReplayTool("read_file")), // load_skill 返回的指令集是后续行动依据,卸载再回读纯浪费
+			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file")), // load_skill 返回的指令集是后续行动依据,卸载再回读纯浪费
 			hooks.NewGuard(s.Fsys, window), // 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时卸载，须在 offload 之后
 			trimHook, // OnLoop 回边水位整理（就地截断，立即生效），OnToolStart 拦模型主动整理
 			traceHook,
-			hooks.NewEndNote(), // 每轮收尾补 <end_reason>（轮次/时长/结束时间/原因），须在 sessionstore 落盘前
 			s.Sess, // 最后落盘
 		),
 		core.WithLoopParams(core.LoopParams{MaxIterations: maxIters(st)}),
@@ -277,7 +292,7 @@ func (a *AgentService) Reassemble(st domain.Settings) error {
 */
 func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 	switch c.Name {
-	case askuser.ToolName, hooks.SkillTool, hooks.TrimTool:
+	case askuser.ToolName, skilltool.ToolName, hooks.TrimTool:
 		return false // 交互与内部工具不属用户管控面（加载技能/整理上下文均为只读元操作）
 	}
 	name := c.Name
@@ -397,7 +412,7 @@ buildSystemBase 组装 session 的 system 基础段：人格 + SystemExtra +
 标签化注入块（<memory> 长期记忆结构+索引 / <skills> 技能列表 /
 <mcp> MCP 列表）。只在 session 创建时调用一次（同 session 不变）；
 skill 全文与记忆细节不注入（模型按需用文件工具读取），列表变更要等
-下个 session 才进 system，过渡期靠 agent_status 状态栏告知模型。
+下个 session 才进 system，过渡期靠 remind 变更段的 <res_change> 告知模型。
 */
 func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) string {
 	var b strings.Builder
@@ -414,20 +429,26 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 	b.WriteString("\n\n<workspace>\n" +
 		"# 目录架构与读写权限（下列均为完整绝对路径，直接使用，不要自行拼接）：\n" +
 		"# " + p("workspace") + "          工作目录，草稿/脚本/命令产物放这里，自由读写（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）\n" +
+		"# " + filepath.ToSlash(filepath.Join(workDir, "tmp")) + "   用户上传附件的暂存目录；需要附件内容时用 read_file 按路径读取（图片会作为图片消息进入你的上下文，无需调用识别工具）\n" +
 		"# " + p("memory/longterm") + "    长期记忆，可写：harness.md 是索引（已注入上下文），主题文件按需新建，沉淀用户偏好与重要事实\n" +
 		"# " + p("memory/skills") + "      技能库，可写：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
 		"# " + p("apps") + "               快应用目录，由 save_app 工具写入，一般不手动改\n" +
-		"# " + p("mcp.json") + "           MCP 服务配置，可写：新增/修改 server 后经 mcp_router 调用（资源变更会出现在状态栏）\n" +
+		"# " + p("mcp.json") + "           MCP 服务配置，可写：新增/修改 server 后经 mcp_router 调用（资源变更会出现在轮首 <res_change> 提示）\n" +
 		"# " + p("sessions") + "           历史会话存档，只读：上下文与回忆来源（compact 摘要引用其路径），改写会破坏会话链\n" +
 		"# " + p(".ezloop/offload") + "    大工具结果的卸载区，按需读取，不手动管理\n" +
 		"# " + p("settings.json") + " / " + p("models.json") + " / " + p("stats.json") + " / " + p("topics.json") + "：应用配置与索引，由设置页和应用自身管理，不要直接改写\n" +
 		"# 规则：terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，不要依赖当前目录；\n" +
 		"# 工作目录之外的临时文件不要随手乱放。\n" +
+		"# 参数语法糖：工具参数的字符串值里写 <@toolArg>绝对路径</@toolArg>，执行时会自动展开为该文件内容" +
+		"（省去先 read_file 再复制的往返；单文件上限 200000 字符，读不到会报错）；\n" +
+		"# 输出占位：回复中给用户可点击的入口用 <$supper_url>类型://标识</$supper_url> 包裹——" +
+		"https:// 外部链接、term://终端id（term_list 可查；长驻程序运行中或任务收尾时把终端入口交付给用户）、" +
+		"app://快应用名（save_app 生成后在回复中引用，用户点击即开）；\n" +
 		"# 共享终端（term_start/term_send 等）：魔法看板里的多终端，用户与你实时共见同一屏幕，全局共享（所有会话可用同一批终端）；" +
 		"term_list 查看全部（含用户手开的），term_start 新建（带描述，可附带首条命令）；\n" +
 		"# term_send 发命令并等输出静默返回（也用于应答交互/发 \\u0003 中断），term_read 游标式续读（只返回新增），term_close 关闭；\n" +
 		"# 需要交互式应答/状态保留/长驻程序/想让用户看到过程时用 term_* 系列，一次性无状态命令仍用 terminal；\n" +
-		"# 用户手动在终端里的操作会出现在每轮 agent_status，留意并在需要时接续。\n" +
+		"# 用户手动在终端里的操作会出现在轮首 <res_change> 资源变更提示里，留意并在需要时接续。\n" +
 		"</workspace>")
 	memRoot := filepath.ToSlash(filepath.Join(dataDir, "memory"))
 	b.WriteString("\n\n<memory>\n" +
@@ -483,8 +504,8 @@ func mcpListLines(fsys osfs.OS) []string {
 	return out
 }
 
-/* termReportFn 共享终端状态面（agent_status 注入：终端清单变更 + 用户
-手动输入）；nil 服务返回 nil。终端全局共享，清单实时全量——各会话的
+/* termReportFn 共享终端状态面（remind 变更段对比基线用：终端清单变更 +
+用户手动输入收割）；nil 服务返回 nil。终端全局共享，清单实时全量——各会话的
 ResSnapshot 基线独立对比（A 会话首轮见到 B 会话开的终端同样报"新增"，
 模型各自知悉全局终端水位）。 */
 func termReportFn(t *TerminalService) func() hooks.TermReport {
@@ -503,7 +524,7 @@ func termReportFn(t *TerminalService) func() hooks.TermReport {
 	}
 }
 
-/* mcpStatusList 返回状态栏 MCP 清单（描述前 8 字）。 */
+/* mcpStatusList 返回 MCP 清单（remind 变更基线用，描述前 8 字）。 */
 func mcpStatusList(fsys osfs.OS) []hooks.StatusMcp {
 	f := loadMcpFileOrNil(fsys)
 	if f == nil {

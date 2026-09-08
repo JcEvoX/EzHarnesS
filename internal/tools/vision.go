@@ -1,7 +1,8 @@
 /*
 图片识别工具（image_recognize）：设置·模型·图片识别槽启用后装配。
-主模型无视觉时图片会被存到工作目录（stripimage 装饰器），本工具让
-模型按路径识别任意图片（含用户落盘的、终端/脚本产物）。
+用户发送的图片附件保存在工作目录 tmp/（read_file 按路径读取；主模型
+多模态时自动进上下文），本工具让无视觉的模型按路径识别任意图片
+（含用户落盘的、终端/脚本产物）。
 依赖倒置：tools 只依赖 RecognizeIO 接口，service 层用图片识别槽的
 模型实现（service 已 import tools，反向引用会循环）。
 */
@@ -32,9 +33,8 @@ type recognizeTool struct{ io RecognizeIO }
 func (recognizeTool) Name() string { return ImageRecognizeTool }
 func (recognizeTool) Description() string {
 	return "识别一张图片文件并返回详细文字描述（由图片识别模型驱动）。适用于以文件形式存在的图片：" +
-		"本机任意路径的图片、终端/脚本产物、历史落盘图片（正文引导里给出路径时）。" +
-		"可用 question 参数指定识别侧重点（如逐字转录文字、还原页面布局与配色），缺省为通用描述。" +
-		"注意：用户直接发送且已在你上下文里的图片无需调用本工具。"
+		"本机任意路径的图片、终端/脚本产物、用户上传附件（工作目录 tmp/，read_file 读不到图片内容时可改用本工具）。" +
+		"可用 question 参数指定识别侧重点（如逐字转录文字、还原页面布局与配色），缺省为通用描述。"
 }
 
 func (recognizeTool) ArgsSchema() json.RawMessage {

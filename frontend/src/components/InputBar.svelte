@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { store } from '../lib/store.svelte'
-  import { compressImage } from '../lib/image'
 
   let {
     files = [],
@@ -29,8 +28,8 @@
     })),
   )
 
-  /* 图片附件数量上限（与后端校验一致） */
-  const MAX_IMAGES = 8
+  /* 附件数量上限（与后端校验一致；任意类型，落盘暂存） */
+  const MAX_FILES = 8
 
   onMount(() => {
     /* rows=1 的浏览器默认高度与行高不齐，挂载即校准为单行高 */
@@ -42,30 +41,18 @@
 
   async function send() {
     const t = text.trim()
-    const imgs = files.filter((f) => f.type.startsWith('image/'))
-    if (!t && !imgs.length) return
+    if (!t && !files.length) return
     if (store.archivingRootId === store.activeId) {
       store.lastStatus = '正在归档当前话题，完成后即可继续对话（可先切换分支）'
       return
     }
-    if (files.length > imgs.length) {
-      store.lastStatus = '暂只支持图片附件，非图片文件未发送'
+    if (files.length > MAX_FILES) {
+      store.lastStatus = `附件最多 ${MAX_FILES} 个，多余的未发送`
     }
-    if (imgs.length > MAX_IMAGES) {
-      store.lastStatus = `图片最多 ${MAX_IMAGES} 张，多余的未发送`
-    }
-    const sendImgs = imgs.slice(0, MAX_IMAGES)
-    if (sendImgs.length && store.status && !store.status.modelVision) {
-      store.lastStatus = '当前主模型未开启视觉支持，图片将省略（可在设置·模型勾选"支持视觉"）'
-    }
+    const sendFiles = files.slice(0, MAX_FILES)
     text = ''
-    try {
-      const compressed = await Promise.all(sendImgs.map((f) => compressImage(f)))
-      onClearFiles?.()
-      await store.send(t, compressed)
-    } catch (e) {
-      store.lastStatus = `图片处理失败：${(e as Error).message}`
-    }
+    onClearFiles?.()
+    await store.send(t, sendFiles)
   }
 
   function onKey(e: KeyboardEvent) {

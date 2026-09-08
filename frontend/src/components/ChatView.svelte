@@ -8,7 +8,7 @@
   import { store } from '../lib/store.svelte'
 
   /* 拖拽附件：整个对话页是热区（dragenter/leave 计数防子元素抖动）。
-  图片附件随消息多模态直发（粘贴/画板同路），非图片暂不支持。 */
+  任意类型文件随消息暂存发送（粘贴/画板同路），后端落盘工作目录 tmp/。 */
   let files = $state<File[]>([])
   let dragging = $state(false)
   let depth = 0
@@ -90,6 +90,9 @@
   ondragover={onDragOver}
   ondrop={onDrop}
 >
+  <aside class="side-left">
+    <BranchPanel />
+  </aside>
   <div class="main-col">
     <Timeline />
     <InputBar
@@ -100,9 +103,6 @@
       onClearFiles={clearFiles}
     />
   </div>
-  <aside class="side-left">
-    <BranchPanel />
-  </aside>
   <aside class="side">
     <StatusCard />
     <!-- 全局通知栏（数据跨分支轮询）：保持侧栏一列布局 -->
@@ -156,28 +156,20 @@
     display: flex;
     flex-direction: column;
   }
-  /* 左侧悬浮列：分支面板浮在内容之上（与右侧状态/通知列对称）。
-  容器点击穿透，卡片自身可交互 */
+  /* 左侧分支列：推挤式布局列（抽屉语义）——展开时占宽度把主列挤窄，
+  收起（BranchPanel collapsed）只剩折叠小方块；不遮挡内容 */
   .side-left {
-    position: absolute;
-    top: 16px;
-    left: 16px;
-    bottom: 30px;
-    width: 240px;
-    z-index: 5;
+    flex: none;
+    align-self: stretch;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
-    pointer-events: none;
-  }
-  .chat > .side-left > :global(*) {
-    pointer-events: auto;
-    box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+    padding: 16px 12px 30px 16px;
   }
   .side-left > :global(.panel) {
     min-height: 0;
-    width: 100%;
+    flex: 1;
+    width: 240px;
   }
   /* 右侧悬浮列：状态卡 + 通知栏浮在内容之上。容器点击穿透，
   卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */

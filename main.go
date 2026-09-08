@@ -100,6 +100,7 @@ func (a *app) buildRouter() *gin.Engine {
 		App:    &controller.AppController{Svc: appSvc},
 		Window: a.winCtl,
 		Terminal: &controller.TerminalController{Svc: termSvc},
+		Workspace: &controller.WorkspaceController{Hub: hub},
 	}
 	return controller.NewRouter(controllers, distFS())
 }

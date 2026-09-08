@@ -5,6 +5,7 @@ import {
   subscribe,
   type BranchView,
   type DecisionRecord,
+  type FilePayload,
   type ForkSummary,
   type HistoryMessage,
   type ImagePayload,
@@ -67,14 +68,23 @@ export interface NoticeData {
 /* 消息锚点（分叉定位）：owner=消息所属 session ID（leaf 或上翻出的旧世代），
    msgIdx=该会话 messages 数组下标；分叉复制 [0, msgIdx]（含选中消息） */
 export type Block = { uid: number } & (
-  | { kind: 'user'; text: string; images?: ImagePayload[]; owner?: string; msgIdx?: number }
+  | {
+      kind: 'user'
+      text: string
+      images?: ImagePayload[]
+      files?: { name: string; path?: string }[]
+      owner?: string
+      msgIdx?: number
+    }
   | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean; owner?: string; msgIdx?: number }
   | { kind: 'tool' } & ToolBlockData
   | { kind: 'fork'; forkId: string }
   | { kind: 'decision' } & DecisionData
   | { kind: 'note'; text: string }
   | { kind: 'status'; text: string; data: StatusPayload | null }
+  | { kind: 'reschange'; items: string[] }
   | { kind: 'endtick'; icon: string; title: string }
+  | { kind: 'imgload'; paths: string[]; images: ImagePayload[] }
 )
 
 export interface TotalUsage {
@@ -85,6 +95,25 @@ export interface TotalUsage {
 
 function nowHM(): string {
   return new Date().toTimeString().slice(0, 5)
+}
+
+/* File 读成上传载荷（base64 不含 data: 前缀，与后端解码约定一致） */
+function fileToPayload(f: File): Promise<FilePayload> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => {
+      const s = String(r.result)
+      resolve({ name: f.name, mimeType: f.type || 'application/octet-stream', data: s.slice(s.indexOf(',') + 1) })
+    }
+    r.onerror = () => reject(r.error ?? new Error('read failed'))
+    r.readAsDataURL(f)
+  })
+}
+
+/* 路径取文件名（chips 展示用；兼容 / 与 \ 两种分隔符） */
+function baseName(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return i >= 0 ? p.slice(i + 1) : p
 }
 
 /* 解析 <agent_status> 载荷（旧格式 JSON；新格式中文文本返回 null） */
@@ -184,8 +213,10 @@ class AppStore {
   boardSource = $state<File | null>(null)
   pendingBoardFile = $state<{ file: File; tag: string; source: File | null } | null>(null)
   /* 共享终端抽屉(独立于画板 overlay,与聊天并存):收起仅滑出,
-     WS/xterm 常驻保活 */
+     WS/xterm 常驻保活。termFocus 是外部请求定位的终端 id
+     （supper_url term:// 点击入口；TerminalTab 消费后清空） */
   termDrawerOpen = $state(false)
+  termFocus = $state('')
   private boardTag = ''
   /* 模型调用进行中（model_start→model_end），思考指示用 */
   modelActive = $state(false)
@@ -193,6 +224,9 @@ class AppStore {
   status = $state<Status | null>(null)
   /* 最新 agent_status 快照（status.snapshot 事件实时更新，右上角水位条数据源） */
   live = $state<StatusPayload | null>(null)
+  /* 本轮资源变更条目（res.change 事件更新，右上角 StatusCard 数据源；
+     loop_start 清空——事件按需推送，不清会滞留上一轮的旧变更） */
+  liveChanges = $state<string[]>([])
   settings = $state<Settings | null>(null)
   total = $state<TotalUsage>({ prompt: 0, completion: 0, cached: 0 })
 
@@ -273,6 +307,7 @@ class AppStore {
     this.modelActive = false
     this.lastTool = ''
     this.live = null
+    this.liveChanges = []
     try {
       const s = await api.getHistory(this.activeId)
       this.leafId = s.id
@@ -351,28 +386,46 @@ class AppStore {
     const dmap = new Map((decisions || []).map((d) => [d.callId, d.resolution]))
     const forkQueue = [...(forks || [])]
     const out: Block[] = []
+    let pendingFiles: { name: string; path?: string }[] | undefined // <upload_file> 待挂到下一个 user 块
     for (let mi = 0; mi < messages.length; mi++) {
       const m = messages[mi]
       if (m.role === 'user') {
         const d = parseStatus(m.content) // 旧格式：JSON 载荷
         if (d) {
-          // 状态记录仅异常时（推荐压缩/资源变更）入时间线，平时只在右上角
-          if (d.suggestCompact || d.changes?.length) {
+          // 状态记录仅水位异常时入时间线，平时只在右上角
+          if (d.suggestCompact) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: d })
           }
         } else if (m.content.includes('<agent_status>')) {
-          // 新格式：中文语义化文本；同样仅异常行进时间线
+          // 新格式：中文语义化文本；仅水位异常行进时间线
           // （文案是"建议调用 trim_context 整理上下文"，关键词取"整理上下文"）
-          if (m.content.includes('整理上下文') || m.content.includes('资源变更')) {
+          if (m.content.includes('整理上下文')) {
             out.push({ kind: 'status', uid: this.nuid(), text: m.content, data: null })
           }
+        } else if (m.content.includes('<res_change>')) {
+          // 资源变更记录：remind 变更段按需插入（实时由 res.change 事件渲染）
+          const items = [...m.content.matchAll(/^- (.+)$/gm)].map((x) => x[1].trim()).filter(Boolean)
+          if (items.length) out.push({ kind: 'reschange', uid: this.nuid(), items })
+        } else if (m.content.includes('<upload_file>')) {
+          // 附件路径记录：路径挂到紧跟其后的真实 user 块（chips 渲染）
+          const paths = [...m.content.matchAll(/^- (.+)$/gm)].map((x) => x[1].trim()).filter(Boolean)
+          if (paths.length) pendingFiles = paths.map((p) => ({ name: baseName(p), path: p }))
+        } else if (m.content.includes('<image_loaded>')) {
+          // read_file 图片已进上下文：渲染为缩略图小行（paths 在标签体内，每行一个）
+          const inner = m.content.replace(/^[\s\S]*?<image_loaded>|<\/image_loaded>[\s\S]*$/g, '')
+          const paths = inner
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+          out.push({ kind: 'imgload', uid: this.nuid(), paths, images: m.images || [] })
         } else if (m.content.includes('<end_reason>')) {
           const detail = endReasonText(m.content)
           out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })
         } else if (m.content.includes('<context_trim')) {
           out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
         } else {
-          out.push({ kind: 'user', uid: this.nuid(), text: m.content, images: m.images, owner, msgIdx: mi })
+          out.push({ kind: 'user', uid: this.nuid(), text: m.content, images: m.images, files: pendingFiles, owner, msgIdx: mi })
+          pendingFiles = undefined
         }
       } else if (m.role === 'assistant') {
         if (m.content || m.reasoning) {
@@ -485,9 +538,30 @@ class AppStore {
     else this.openBoard()
   }
 
+  /* editImage 把一张图片（src = data: 或工作目录文件服务 URL）作为底图
+     直接打开魔法画板编辑——产物经 completeBoard 回流进输入框附件，
+     直接关闭画板则无事发生。时间线/附件缩略图的点击入口。 */
+  async editImage(src: string, name: string) {
+    try {
+      const r = await fetch(src)
+      if (!r.ok) throw new Error('read fail')
+      const blob = await r.blob()
+      this.openBoard(new File([blob], name || 'image.png', { type: blob.type || 'image/png' }))
+    } catch {
+      this.lastStatus = '图片读取失败，未能打开画板'
+    }
+  }
+
   /* openTermDrawer 拉开共享终端抽屉（AI term_* 实际执行时调用；
      抽屉与聊天并存，不打断当前视图）。 */
   private openTermDrawer() {
+    this.termDrawerOpen = true
+  }
+
+  /* openTermAt 拉开终端抽屉并定位到指定终端（supper_url term:// 点击；
+     首次打开时 WS hello 到达后由 TerminalTab 消费定位）。 */
+  openTermAt(id: string) {
+    this.termFocus = id
     this.termDrawerOpen = true
   }
 
@@ -516,9 +590,10 @@ class AppStore {
   /* ── 发送 / 取消 ── */
 
   /* 打断式发送：运行中再来指令 = 先终止当前轮（等引擎真正退出，含工具树杀），
-     再执行新指令；等待超时则放弃并提示。图片为可选多模态输入。 */
-  async send(text: string, images?: ImagePayload[]) {
-    if (!this.activeId || (!text.trim() && !images?.length)) return
+     再执行新指令；等待超时则放弃并提示。附件先读 base64，落盘路径由响应
+     回传（chips 缩略图源）。 */
+  async send(text: string, files?: File[]) {
+    if (!this.activeId || (!text.trim() && !files?.length)) return
     if (this.busy) {
       this.lastStatus = '正在终止当前轮…'
       await this.cancel()
@@ -528,13 +603,27 @@ class AppStore {
       }
     }
     const uid = this.nuid()
-    this.blocks.push({ kind: 'user', uid, text, images })
+    this.blocks.push({
+      kind: 'user',
+      uid,
+      text,
+      files: files?.map((f) => ({ name: f.name })),
+    })
     this.pendingUserUid = uid
     this.pendingUserText = text
     this.busy = true
     this.lastStatus = ''
     try {
-      await api.send(this.activeId, text, images)
+      const payloads = files?.length ? await Promise.all(files.map(fileToPayload)) : undefined
+      const res = await api.send(this.activeId, text, payloads)
+      if (res?.files?.length) {
+        const b = this.blocks.find((x) => x.uid === uid)
+        if (b && b.kind === 'user') {
+          res.files.forEach((p, i) => {
+            if (b.files?.[i]) b.files[i].path = p
+          })
+        }
+      }
       void this.refreshBranches() // 首次发言落线索引 + 运行指示
     } catch (e) {
       this.busy = false
@@ -811,6 +900,8 @@ class AppStore {
       case 'loop_start': {
         // 回放重建：本轮 user 输入（实时路径 send 已本地 push，同文本去重）
         const text = typeof ev.data === 'string' ? ev.data : ''
+        // 新一轮开始：上一轮的资源变更不再挂右上角（res.change 按需推送不自动清）
+        if (!ev.forkId) this.liveChanges = []
         if (ev.forkId) {
           // 分身输入进分身聊天框（含任务包装前缀，即分身收到的原文）
           const f = this.ensureFork(ev.forkId)
@@ -1049,6 +1140,27 @@ class AppStore {
         bs.push({ kind: 'assistant', uid: this.nuid(), text: `⚠️ ${msg}`, reasoning: '', streaming: false })
         break
       }
+      case 'filetools.image_loaded': {
+        // read_file 图片进上下文（OnLoop 加载点推送）：实时渲染缩略图小行，
+        // 缩略图走工作目录文件服务（与历史 <image_loaded> 消息同款渲染）
+        const paths: string[] = Array.isArray(ev.data) ? ev.data : []
+        if (paths.length) {
+          const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+          bs.push({ kind: 'imgload', uid: this.nuid(), paths, images: [] })
+        }
+        break
+      }
+      case 'res.change': {
+        // 资源变更（remind 变更段推送，单一来源）：变更卡插到本轮 user 块前 +
+        // 右上角 StatusCard 同步行。res.change 不可回放（replayable 排除），
+        // 断线重连靠历史 <res_change> 消息重建。
+        if (ev.forkId) break
+        const items: string[] = Array.isArray(ev.data) ? ev.data : []
+        if (!items.length) break
+        this.liveChanges = items
+        this.insertBeforeLastUser({ kind: 'reschange', uid: this.nuid(), items })
+        break
+      }
       case 'status.snapshot': {
         // 分身状态快照不入主时间线、不碰主水位（分身上下文与主循环无关）
         if (ev.forkId) break
@@ -1056,18 +1168,9 @@ class AppStore {
         // 右上角实时同步：最新快照 + 上下文水位
         this.live = d
         if (d && this.status) this.status.contextTokens = d.ctxTokens || 0
-        // 时间线仅异常时插块（send 已先本地 push user 块，插到它之前）
-        if (d && (d.suggestCompact || d.changes?.length)) {
-          const block: Block = { kind: 'status', uid: this.nuid(), text: '', data: d }
-          let idx = -1
-          for (let k = this.blocks.length - 1; k >= 0; k--) {
-            if (this.blocks[k].kind === 'user') {
-              idx = k
-              break
-            }
-          }
-          if (idx >= 0) this.blocks.splice(idx, 0, block)
-          else this.blocks.push(block)
+        // 时间线仅水位异常时插块（send 已先本地 push user 块，插到它之前）
+        if (d?.suggestCompact) {
+          this.insertBeforeLastUser({ kind: 'status', uid: this.nuid(), text: '', data: d })
         }
         break
       }
@@ -1097,6 +1200,7 @@ class AppStore {
         // 归档换代：根 ID 不变（SSE/路由稳定），只换叶与上翻游标；
         // 分支列表刷新（LeafID 更新，条目数不变）
         this.live = null // 旧会话水位快照作废，状态卡按刷新后的 status 渲染
+        this.liveChanges = []
         const d = ev.data || {}
         this.blocks.push({
           kind: 'note',
@@ -1211,6 +1315,20 @@ class AppStore {
 
   private lastStreamingAssistant(): Extract<Block, { kind: 'assistant' }> | null {
     return this.lastStreaming(this.blocks)
+  }
+
+  /* insertBeforeLastUser 把块插到最后一个 user 块之前（status/reschange
+     轮首系统卡的实时插入位——send 已先 push 本轮 user 块）；无 user 时尾加 */
+  private insertBeforeLastUser(block: Block) {
+    let idx = -1
+    for (let k = this.blocks.length - 1; k >= 0; k--) {
+      if (this.blocks[k].kind === 'user') {
+        idx = k
+        break
+      }
+    }
+    if (idx >= 0) this.blocks.splice(idx, 0, block)
+    else this.blocks.push(block)
   }
 
   private lastStreaming(bs: Block[]): Extract<Block, { kind: 'assistant' }> | null {
