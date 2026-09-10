@@ -1,0 +1,363 @@
+# ezharness 多端编译与发布
+#
+# 触发：
+#   - push tag (v*)     : 自动编译 Windows + Linux，并发布到该 tag 的 GitHub Release
+#   - push master       : debug 构建（Windows + Linux），产物留存 7 天，不发布
+#   - workflow_dispatch : 手动触发，主要用于 macOS（10 倍计费，避免自动跑）
+#                         传入 tag 输入时构建 universal + .dmg 并附加到对应 release；
+#                         不传 tag 时仅产出 arm64 debug 产物（留存 7 天）。
+#
+# 产物策略（参考 https://zhuanlan.zhihu.com/p/2067179555979367268 的存储优化思路）：
+#   - 各端产物独立 artifact，不合并；上传原始构建产物，不再额外压缩包一层
+#     （upload-artifact 内部已归档，release 上传的也是原始文件）
+#   - release 产物 retention 30 天，debug 产物 retention 7 天
+#   - 仅缓存依赖（setup-go / setup-node 内置缓存，不占用 artifact 存储配额）
+#   - macOS 仅手动触发，控制 10 倍计费
+#   - concurrency 取消被取代的旧运行（tag 运行不取消，避免中断发布）
+#
+# 前置条件：
+#   - go.mod 用本地 replace 指向开发机路径，CI 用不了；且 require 的 v1.3.6 不含
+#     ext/hook/skilltool 等 ezharness 依赖的包。故 CI 构建前会 dropreplace 并
+#     `go get github.com/xuanlv2002/ezloop@v1.3.7`（已发布且含上述包）。
+#     发布新版 ezloop 后，把各 job 里 @v1.3.7 一并更新。
+#   - Windows release 会尝试用 wails3 生成 .syso（图标/版本信息），失败则降级为无图标 exe。
+
+name: build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要为哪个 git tag 构建 macOS 并附加到其 release（留空则只产出 debug 产物）'
+        required: false
+
+permissions:
+  contents: write   # 发布 / 附加 GitHub Release 资源需要
+
+concurrency:
+  # 含 event_name，避免手动触发 mac 与 master 推送的 debug 构建互相取消
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  # tag 发布不取消在跑的发布运行；普通推送取消被取代的旧运行
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  NODE_OPTIONS: "--max-old-space-size=4096"   # 避免前端构建 OOM
+
+jobs:
+  # ─────────────────────────── Windows ───────────────────────────
+  build-windows:
+    # tag 推送 = release；master 推送 = debug。macOS 手动触发不跑此 job。
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version & mode
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            {
+              echo "version=${GITHUB_REF_NAME#v}"
+              echo "release=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "version=dev-${GITHUB_SHA::7}"
+              echo "release=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Use published ezloop in CI (drop local replace, bump to v1.3.7)
+        run: |
+          # go.mod 本地 replace 指向开发机路径，CI 用不了；且 go.mod require 的
+          # v1.3.6 不含 ext/hook/skilltool 等 ezharness 依赖的包，会编译失败。
+          # v1.3.7 才含这些包。发布新版 ezloop 后，把这里的版本号一并更新。
+          go mod edit -dropreplace=github.com/xuanlv2002/ezloop
+          go get github.com/xuanlv2002/ezloop@v1.3.7
+          go mod download
+
+      - name: Generate Windows resource (.syso) for icon/version
+        if: steps.ver.outputs.release == 'true'
+        continue-on-error: true
+        run: |
+          # 失败则降级为无图标 exe，不阻断发布
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.12 \
+            || { echo "::warning::wails3 install failed, building without icon"; exit 0; }
+          "$(go env GOPATH)/bin/wails3" generate syso \
+            -arch amd64 -icon windows/icon.ico \
+            -manifest windows/wails.exe.manifest -info windows/info.json \
+            -out ../wails_windows_amd64.syso
+        working-directory: build
+
+      - name: Build Windows binary
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          mkdir -p build/dist
+          go build -tags production -trimpath -buildvcs=false \
+            -ldflags="-w -s -H windowsgui" \
+            -o "build/dist/ezharness-${{ steps.ver.outputs.version }}-windows-amd64.exe" .
+          # 清理可能生成的 syso（不入库）
+          rm -f wails_windows_amd64.syso
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezharness-windows-amd64
+          path: build/dist/ezharness-*-windows-amd64.exe
+          if-no-files-found: error
+          # release 30 天，debug 7 天
+          retention-days: ${{ steps.ver.outputs.release == 'true' && 30 || 7 }}
+
+  # ──────────────────────────── Linux ────────────────────────────
+  build-linux:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version & mode
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            {
+              echo "version=${GITHUB_REF_NAME#v}"
+              echo "release=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "version=dev-${GITHUB_SHA::7}"
+              echo "release=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Linux build dependencies (webkit/gtk for cgo)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Use published ezloop in CI (drop local replace, bump to v1.3.7)
+        run: |
+          # go.mod 本地 replace 指向开发机路径，CI 用不了；且 go.mod require 的
+          # v1.3.6 不含 ext/hook/skilltool 等 ezharness 依赖的包，会编译失败。
+          # v1.3.7 才含这些包。发布新版 ezloop 后，把这里的版本号一并更新。
+          go mod edit -dropreplace=github.com/xuanlv2002/ezloop
+          go get github.com/xuanlv2002/ezloop@v1.3.7
+          go mod download
+
+      - name: Build Linux binary
+        env:
+          CGO_ENABLED: '1'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p build/dist
+          go build -tags production -trimpath -buildvcs=false \
+            -ldflags="-w -s" \
+            -o "build/dist/ezharness-${{ steps.ver.outputs.version }}-linux-amd64" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezharness-linux-amd64
+          path: build/dist/ezharness-*-linux-amd64
+          if-no-files-found: error
+          retention-days: ${{ steps.ver.outputs.release == 'true' && 30 || 7 }}
+
+  # ──────────────────────────── macOS ────────────────────────────
+  # 手动触发（10 倍计费，不自动跑）。传入 tag → 构建 universal + .dmg 并附加到 release。
+  build-macos:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Resolve version, mode & tag
+        id: ver
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ -n "${INPUT_TAG}" ]]; then
+            {
+              echo "version=${INPUT_TAG#v}"
+              echo "release=true"
+              echo "tag=${INPUT_TAG}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "version=dev-${GITHUB_SHA::7}"
+              echo "release=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # release 构建切到指定 tag 的提交；debug 用默认分支
+          ref: ${{ steps.ver.outputs.tag }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Use published ezloop in CI (drop local replace, bump to v1.3.7)
+        run: |
+          # go.mod 本地 replace 指向开发机路径，CI 用不了；且 go.mod require 的
+          # v1.3.6 不含 ext/hook/skilltool 等 ezharness 依赖的包，会编译失败。
+          # v1.3.7 才含这些包。发布新版 ezloop 后，把这里的版本号一并更新。
+          go mod edit -dropreplace=github.com/xuanlv2002/ezloop
+          go get github.com/xuanlv2002/ezloop@v1.3.7
+          go mod download
+
+      - name: Build macOS binary
+        run: |
+          set -euo pipefail
+          mkdir -p build/dist
+          LDFLAGS="-w -s"
+          export CGO_ENABLED=1 GOOS=darwin
+          export CGO_CFLAGS="-mmacosx-version-min=12.0" CGO_LDFLAGS="-mmacosx-version-min=12.0" MACOSX_DEPLOYMENT_TARGET=12.0
+          if [[ "${{ steps.ver.outputs.release }}" == "true" ]]; then
+            echo "::group::Build darwin/amd64"
+            GOARCH=amd64 go build -tags production -trimpath -buildvcs=false -ldflags="${LDFLAGS}" -o build/dist/ezharness-amd64 .
+            echo "::endgroup::"
+            echo "::group::Build darwin/arm64"
+            GOARCH=arm64 go build -tags production -trimpath -buildvcs=false -ldflags="${LDFLAGS}" -o build/dist/ezharness-arm64 .
+            echo "::endgroup::"
+            echo "::group::Create universal binary"
+            lipo -create -output build/dist/ezharness build/dist/ezharness-amd64 build/dist/ezharness-arm64
+            rm -f build/dist/ezharness-amd64 build/dist/ezharness-arm64
+            echo "::endgroup::"
+          else
+            echo "::group::Build darwin/arm64 (debug)"
+            GOARCH=arm64 go build -tags production -trimpath -buildvcs=false -ldflags="${LDFLAGS}" -o build/dist/ezharness .
+            echo "::endgroup::"
+          fi
+
+      - name: Package .app + .dmg (release only)
+        if: steps.ver.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+          APP="build/dist/ezharness.app"
+          mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
+          cp build/dist/ezharness "${APP}/Contents/MacOS/ezharness"
+          cp build/darwin/icons.icns "${APP}/Contents/Resources/"
+          if [[ -f build/darwin/Assets.car ]]; then cp build/darwin/Assets.car "${APP}/Contents/Resources/"; fi
+          cp build/darwin/Info.plist "${APP}/Contents/Info.plist"
+          # ad-hoc 签名（未配置 Apple 开发者证书；分发需自行 notarize）
+          codesign --force --deep --sign - "${APP}"
+          # 压缩 dmg（直接以 .app 为源，不再额外包一层压缩）
+          hdiutil create -volname "ezharness" \
+            -srcfolder "${APP}" -ov -format UDZO \
+            "build/dist/ezharness-${{ steps.ver.outputs.version }}-darwin-universal.dmg"
+
+      - name: Upload .dmg artifact (release)
+        if: steps.ver.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezharness-darwin-dmg
+          path: build/dist/ezharness-*-darwin-universal.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload binary artifact (debug)
+        if: steps.ver.outputs.release != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezharness-darwin-arm64
+          path: build/dist/ezharness
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Attach .dmg to release
+        if: steps.ver.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          files: build/dist/ezharness-*-darwin-universal.dmg
+
+  # ──────────────────────── 发布 release（tag 推送） ────────────────────────
+  release:
+    needs: [build-windows, build-linux]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ezharness-windows-amd64
+          path: windows
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ezharness-linux-amd64
+          path: linux
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            windows/*
+            linux/*

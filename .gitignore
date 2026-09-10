@@ -32,3 +32,9 @@ data/
 # IDE
 .idea/
 .vscode/
+
+# Trae IDE 自动生成的 HTML 分享包（勿提交）
+.trae-html-share-packages/
+
+# git 凭据文件（含 token，严禁入库）
+.git-credentials
