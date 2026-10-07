@@ -173,6 +173,7 @@ function createMainWindow() {
   })
   mainWindow.loadURL(pageUrl('/?desktop=1'))
   guardWebContents(mainWindow.webContents)
+  attachInspectMenu(mainWindow.webContents)
   mainWindow.once('ready-to-show', () => mainWindow.show())
   /* 系统级关闭（Alt+F4/任务栏 X）拦截：与标题栏 X 同一条询问流程 */
   mainWindow.on('close', (e) => {
