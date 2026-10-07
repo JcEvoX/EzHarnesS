@@ -421,7 +421,7 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 		if !listCapable(name) {
 			return true
 		}
-		hit := matchRuleList(rule.List, name, c.Args)
+		hit := matchRuleList(rule.List, rule.Level, name, c.Args)
 		if rule.Level == domain.LevelWhite {
 			return !hit
 		}
@@ -440,12 +440,13 @@ func listCapable(tool string) bool {
 }
 
 /*
-	matchRuleList 判定工具调用是否命中名单：终端系匹配命令（包含即命中
-
-——命令文本任意位置出现名单词都算，拼接/转义绕不过）、mcp 匹配
-server 或 server.tool（点边界）。
+matchRuleList 判定工具调用是否命中名单，语义随档位：
+白名单=前缀（终端命令以名单词开头，词边界=结尾或空白——拼接/引号/
+命令中段出现都放不过；mcp 按 server 或 server.tool 精确、整站点边界）；
+黑名单=包含（命令文本任意位置出现名单词即拦下审批，宁误拦不漏拦；
+mcp 子串命中同理）。
 */
-func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
+func matchRuleList(list []string, level domain.Level, ruleTool string, args json.RawMessage) bool {
 	key := ""
 	term := ruleTool == "terminal" || ruleTool == "term_start" || ruleTool == "term_send"
 	switch {
@@ -454,7 +455,7 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 			Command string `json:"command"`
 		}
 		_ = json.Unmarshal(args, &a)
-		key = a.Command
+		key = strings.TrimSpace(a.Command)
 	case ruleTool == "mcp.*":
 		var a struct {
 			Server string `json:"server"`
@@ -469,19 +470,32 @@ func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
 	if key == "" {
 		return false
 	}
+	white := level == domain.LevelWhite
 	for _, e := range list {
-		if term && strings.Contains(key, e) {
-			return true // 命令文本包含即命中
-		}
-		if key == e {
-			return true
-		}
-		if ruleTool == "mcp.*" && strings.HasPrefix(key, e+".") {
-			return true // server 前缀放行整站（点边界：time 不误命中 timeX）
+		switch {
+		case term && white:
+			if key == e || (strings.HasPrefix(key, e) && isSpaceByte(key[len(e)])) {
+				return true // 命令以名单词开头（词边界：结尾或空白）
+			}
+		case term:
+			if strings.Contains(key, e) {
+				return true // 命令文本包含即命中（拦下审批）
+			}
+		case ruleTool == "mcp.*" && white:
+			if key == e || strings.HasPrefix(key, e+".") {
+				return true // 精确或整站前缀（点边界：time 不误命中 timeX）
+			}
+		default:
+			if strings.Contains(key, e) {
+				return true
+			}
 		}
 	}
 	return false
 }
+
+/* isSpaceByte 命令词边界字符（空白）。 */
+func isSpaceByte(b byte) bool { return b == ' ' || b == '\t' }
 
 /*
 ResolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/

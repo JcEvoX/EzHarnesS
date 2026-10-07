@@ -11,7 +11,9 @@ const (
 	LevelAuto  Level = "auto"  // 全部免审
 )
 
-/* ToolRule 是单个工具的审批策略；list 语义随档位（黑=命中才审，白=命中即免）。 */
+/* ToolRule 是单个工具的审批策略；list 匹配语义随档位：
+白名单=前缀命中即免审（终端按命令词开头、mcp 按 server/整站点边界），
+黑名单=包含命中才拦审（命令/mcp 文本任意位置出现名单词）。 */
 type ToolRule struct {
 	Tool  string   `json:"tool"`
 	Level Level    `json:"level"`

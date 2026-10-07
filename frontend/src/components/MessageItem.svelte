@@ -108,12 +108,50 @@
     }
   }
 
-  /* 模型输出渲染 markdown（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
-  const mdHtml = $derived(text ? DOMPurify.sanitize(marked.parse(text) as string) : '')
-
   /* 流式期思考只渲染尾部：超长思考逐 chunk 全文重排会卡死页面
      （每 chunk O(n)，累计 O(n²)）；结束后恢复全文 */
   const reasoningView = $derived(streaming ? reasoning.slice(-1200) : reasoning)
+
+  /* 流式期正文同理分头/尾两段：每个 delta 全文 parse+sanitize+innerHTML
+     重建是 O(n²)，长输出时主线程被打满——页面卡死无法滚动，积压的
+     增量随后一次涌出。切段点取尾部窗口外的最后一个空行（块边界，且
+     不落在未闭合代码围栏内），cut 不变头段不重算也不重建 DOM，尾段
+     每 delta 重排（长度有界）。流结束一次性全文重排（权威渲染）。 */
+  const STREAM_TAIL = 2400
+
+  function streamCut(src: string): number {
+    const max = src.length - STREAM_TAIL
+    if (max <= 0) return 0
+    const cut = src.lastIndexOf('\n\n', max)
+    if (cut <= 0) return 0
+    let fences = 0
+    let openFence = -1
+    for (let i = 0; i < cut; ) {
+      if (src.startsWith('```', i)) {
+        fences++
+        if (fences % 2 === 1) openFence = i
+      }
+      const nl = src.indexOf('\n', i)
+      if (nl === -1 || nl >= cut) break
+      i = nl + 1
+    }
+    if (fences % 2 === 1 && openFence >= 0) return openFence
+    return cut
+  }
+
+  let headCache = { cut: -1, html: '' }
+  const streamView = $derived.by(() => {
+    if (!streaming || !text) return null
+    const cut = streamCut(text)
+    if (headCache.cut !== cut) {
+      const head = cut > 0 ? DOMPurify.sanitize(marked.parse(text.slice(0, cut)) as string) : ''
+      headCache = { cut, html: head }
+    }
+    return { head: headCache.html, tail: DOMPurify.sanitize(marked.parse(text.slice(cut)) as string) }
+  })
+
+  /* 模型输出渲染 markdown（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
+  const mdHtml = $derived(text && !streaming ? DOMPurify.sanitize(marked.parse(text) as string) : '')
   const reasoningClipped = $derived(streaming && reasoning.length > 1200)
 
   let bodyEl: HTMLDivElement | undefined = $state()
@@ -227,7 +265,12 @@
       {/if}
       {#if text}
         <div class="md" bind:this={bodyEl} onclick={onBodyClick}>
-          {@html mdHtml}
+          {#if streamView}
+            <!-- 头/尾分节点：cut 不变时头段 DOM 不重建，delta 只重排尾段 -->
+            {#if streamView.head}{@html streamView.head}{/if}{@html streamView.tail}
+          {:else}
+            {@html mdHtml}
+          {/if}
         </div>
         <div class="foot">
           {#if streaming}<span class="caret"></span>{/if}

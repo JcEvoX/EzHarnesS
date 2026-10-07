@@ -8,7 +8,6 @@
   import ChatView from './components/ChatView.svelte'
   import ModelsView from './components/ModelsView.svelte'
   import MemoryView from './components/MemoryView.svelte'
-  import KnowledgeView from './components/KnowledgeView.svelte'
   import ToolsView from './components/ToolsView.svelte'
   import McpView from './components/McpView.svelte'
   import SecurityView from './components/SecurityView.svelte'
@@ -18,7 +17,7 @@
   import ResourcePane from './components/viewer/ResourcePane.svelte'
   import BrowserPane from './components/board/BrowserPane.svelte'
 
-  let view = $state<'chat' | 'models' | 'memory' | 'knowledge' | 'tools' | 'mcp' | 'security' | 'settings'>('chat')
+  let view = $state<'chat' | 'models' | 'memory' | 'tools' | 'mcp' | 'security' | 'settings'>('chat')
   let expanded = $state(false)
 
   /* 弹出窗口（ez:popout 创建）：只渲染单个工具 pane 的轻布局，无会话/
@@ -94,8 +93,6 @@
         <ModelsView />
       {:else if view === 'memory'}
         <MemoryView onNavigate={(v) => (view = v as typeof view)} />
-      {:else if view === 'knowledge'}
-        <KnowledgeView />
       {:else if view === 'tools'}
         <ToolsView />
       {:else if view === 'mcp'}

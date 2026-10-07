@@ -4,9 +4,9 @@
 
   /*
   安全：对 agent 的操作管控（区别于应用设置——这里全是 agent 域）。
-  工具行与真实工具一一对应。名单概念只有两处：终端工具按命令前缀、
-  mcp 按 server.tool（这两类四档：审批/黑名单/白名单/免审）；其余工具
-  纯按工具名两档（每次审批 / 全部免审）。
+  工具行与真实工具一一对应。名单概念只有两处：终端工具按命令、mcp 按
+  server.tool（这两类四档：审批/黑名单/白名单/免审；白名单=前缀命中才
+  放行、黑名单=包含命中就拦审）；其余工具纯按工具名两档（每次审批 / 全部免审）。
   策略数据由后端下发（toolRules.json），保存即时生效（无需重建 agent）。
   */
   type Level = ApproveLevel
@@ -22,7 +22,7 @@
   ]
   type ListKind = 'command' | 'mcpTool'
   const listMeta: Record<ListKind, { label: string; ph: string }> = {
-    command: { label: '命令或前缀', ph: 'git status' },
+    command: { label: '命令词（白名单=前缀放行，黑名单=包含拦审）', ph: 'git status' },
     mcpTool: { label: 'server 或 server.tool', ph: 'github.create_issue' },
   }
 
@@ -148,8 +148,9 @@
       {/if}
     </div>
     <p class="hint">
-      大多数工具两档：每次审批 / 全部免审。终端工具可按命令前缀、MCP 可按
-      server.tool 配黑白名单（选黑/白名单时展开配置）。变更自动保存。
+      大多数工具两档：每次审批 / 全部免审。终端工具可按命令词、MCP 可按
+      server.tool 配黑白名单——白名单按前缀命中放行，黑名单按包含命中
+      拦下审批（选黑/白名单时展开配置）。变更自动保存。
     </p>
     {#if message}
       <p class="msg">{message}</p>
