@@ -93,6 +93,13 @@
     const sendAttachments = attachments.slice(0, MAX_FILES)
     const sendFileRefs = fileRefs.slice(0, MAX_FILES)
     text = ''
+    /* 内容清空后高度即时回落（autoResize 只挂 oninput，程序清值不触发） */
+    void tick().then(() => {
+      if (el) {
+        el.style.height = 'auto'
+        el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+      }
+    })
     onClearFiles?.()
     onClearFileRefs?.()
     /* 附件进框时已落盘 tmp（只传路径引用）；fileRefs 统一进 <reference_file>

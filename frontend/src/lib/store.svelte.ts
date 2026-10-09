@@ -262,6 +262,8 @@ class AppStore {
   截断本地本轮块，让整轮回放帧干净重建（防 user/回复块重复） */
   private pendingUserUid = 0
   private pendingUserText = ''
+  /* 上一轮通知轮询是否有未决项（待审批角标联动分支拉取的收尾依据） */
+  private noticesHadPending = false
 
   private nuid(): number {
     return ++this.uidSeq
@@ -281,9 +283,13 @@ class AppStore {
     this.unsub = subscribe(this.activeId, (ev) => this.apply(ev))
     this.refreshNotices()
     setInterval(() => {
-      this.refreshNotices()
-      // 后台标签活跃时才拉分支列表（标签转点/待审批角标的数据源）
-      if (this.bgTabsBusy()) void this.refreshBranches()
+      // 未决通知出没联动分支拉取（待审批角标数据源）：出现期间持续拉、
+      // 消失后补拉一轮收尾；后台标签活跃照旧拉
+      void this.refreshNotices().then(() => {
+        const pending = this.notices.some((n) => n.status === 'pending')
+        if (this.bgTabsBusy() || pending || this.noticesHadPending) void this.refreshBranches()
+        this.noticesHadPending = pending
+      })
     }, 3000)
   }
 
@@ -1181,6 +1187,8 @@ class AppStore {
         if (d.id) {
           this.markToolDecision(d.id, d.resolution || '')
           this.removeResolvedDecisions(d.id)
+          // 分支 waiting 标记即刻收敛（tab 待审批角标不残留到轮末）
+          void this.refreshBranches()
         }
         // term_*/browser_* 审批通过 → 现在才拉开对应抽屉页（拒绝则什么都不做）
         if (d.id && this.toolApprovals.has(d.id)) {
