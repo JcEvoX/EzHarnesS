@@ -536,6 +536,34 @@ class AppStore {
     return out
   }
 
+  /* backfillForkAnchors 用历史重建的尾段回填本地块的分叉锚点（owner/msgIdx）：
+  实时轮的块是本地 push 的，没有锚点（分叉按钮不显，切页重建才出现）。
+  turn_end 时历史已落盘（后端 FinishRun 先于帧发布），从尾部往前按
+  user/assistant 序对位回填；遇已带锚点的块即停（更早的都齐），kind 或
+  文本对不上保守停止——只是按钮暂缺，切页重建自愈 */
+  private async backfillForkAnchors(sessionId: string) {
+    try {
+      const s = await api.getHistory(sessionId)
+      if (sessionId !== this.activeId) return // 等待期间已切分支：别写错时间线
+      const rebuilt = this.buildBlocks(s.messages, undefined, undefined, s.id)
+      let j = rebuilt.length - 1
+      for (let i = this.blocks.length - 1; i >= 0 && j >= 0; i--) {
+        const b = this.blocks[i]
+        if (b.kind !== 'user' && b.kind !== 'assistant') continue
+        if (b.msgIdx !== undefined) break
+        while (j >= 0 && rebuilt[j].kind !== 'user' && rebuilt[j].kind !== 'assistant') j--
+        if (j < 0) break
+        const rb = rebuilt[j] as Extract<Block, { kind: 'user' | 'assistant' }>
+        if (rb.kind !== b.kind || rb.text !== b.text) break
+        b.owner = rb.owner
+        b.msgIdx = rb.msgIdx
+        j--
+      }
+    } catch {
+      /* 拉取失败静默 */
+    }
+  }
+
   /* ── 分身抽屉 ── */
 
   /* ensureFork 取分身状态，不存在则建骨架（SSE 重放/异常时序兜底）。 */
@@ -1558,6 +1586,8 @@ class AppStore {
             title,
           })
         }
+        // 本轮已落盘：回填分叉锚点（实时轮的消息即刻可分叉，不必切页重建）
+        if (!ev.forkId && this.activeId) void this.backfillForkAnchors(this.activeId)
         void this.refreshStatus()
         break
       }

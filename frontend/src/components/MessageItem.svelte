@@ -283,6 +283,10 @@
         </div>
       {:else if streaming}
         <div class="text"><span class="caret"></span></div>
+      {:else if onFork}
+        <!-- 纯思考消息（无正文）：分叉钮悬浮右下不占布局高度，思考与
+             后续工具卡紧凑衔接；锚点是同一条消息 -->
+        <button class="forkbtn floating" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
       {/if}
     </div>
   </div>
@@ -298,7 +302,6 @@
   /* 分叉按钮：与复制按钮同款弱化样式，hover 显形 */
   .forkbtn {
     flex: none;
-    align-self: flex-end;
     font-size: 11px;
     color: var(--faint);
     padding: 2px 8px;
@@ -307,6 +310,16 @@
     transition:
       opacity var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out);
+  }
+  /* 用户行分叉钮贴消息底缘（助手卡 foot 行内与复制同走 align-items: center） */
+  .user > .forkbtn {
+    align-self: flex-end;
+  }
+  /* 纯思考块的分叉钮：悬浮思考卡右下，不占布局高度 */
+  .forkbtn.floating {
+    position: absolute;
+    right: 0;
+    bottom: 2px;
   }
   .user:hover .forkbtn,
   .assistant:hover .forkbtn,
@@ -440,6 +453,7 @@
     text-overflow: ellipsis;
   }
   .body {
+    position: relative; /* 纯思考块的分叉钮悬浮定位的包含块 */
     min-width: 0;
     flex: 1;
     padding-top: 3px;
