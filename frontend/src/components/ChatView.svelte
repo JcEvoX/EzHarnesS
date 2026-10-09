@@ -244,7 +244,7 @@
   主列不动），收起只剩折叠小方块。容器点击穿透，卡片自身可交互 */
   .side-left {
     position: absolute;
-    top: 16px;
+    top: 48px; /* TabBar 行高约 36px，避开标签行防抽屉展开时遮挡 */
     left: 16px;
     bottom: 30px;
     width: 240px;
@@ -267,7 +267,7 @@
   卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */
   .side {
     position: absolute;
-    top: 16px;
+    top: 48px; /* 同 side-left：避开 TabBar 标签行 */
     right: 16px;
     bottom: 30px;
     width: 260px;
