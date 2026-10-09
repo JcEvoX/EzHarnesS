@@ -10,8 +10,9 @@
   聊天主列被挤窄不遮挡。工具页（终端/资源查看器/共享浏览器）互斥显
   隐，多 pane 常驻挂载保活（终端 WS/xterm、资源 tab 的 buffer/标注/
   画布、浏览器标签条互不丢失）；入口是右侧悬浮列的 mini 钮
-  （store.toggleDrawerTool）。宽度统一（画板比例）：与视口联动让位，
-  主列压到手机宽保底 480px；余量不足先压抽屉、保底 280px。
+  （store.toggleDrawerTool）。宽度：中间线定主列宽（默认 42vw、保底
+  480px），抽屉吃掉剩余全部——窗口缩放时抽屉跟着伸缩、主列不动；
+  余量不足抽屉保底 280px。
   动画 = width 展开（内层 .inner 恒宽 var(--pane-w)：过渡期间内容不
   重排、xterm 不反复 fit；窗口 resize 时宽度变化经 var 继承同步到
   inner，ResizeObserver 自动 fit）。
@@ -123,6 +124,59 @@
     if (!tearing || !commit) return
     popOut(e.screenX, e.screenY)
   }
+
+  /* 左缘拖拽定主列宽：写入 store.chatWidth（0 = 跟随默认公式）。
+  主列保底 480、抽屉保底 280 */
+  let resizing = $state(false)
+  let resize: { pointerId: number; startX: number; startChatW: number } | null = null
+
+  /* 开/关抽屉时：①首次打开把默认主列宽落成固定 px（默认公式含 42vw
+  随窗口缩放，不落 px 的话拉窗口主列抽屉会一起变宽，主列应是不动锚点）；
+  ②进入 300ms 动画窗，width 过渡仅在此期间启用，平时宽度即时跟随
+  窗口/侧栏变化 */
+  let animating = $state(false)
+  let widthSeeded = false
+  $effect(() => {
+    open
+    if (open && !widthSeeded) {
+      widthSeeded = true
+      store.chatWidth = Math.round(Math.max(480, window.innerWidth * 0.42))
+    }
+    animating = true
+    const timer = setTimeout(() => (animating = false), 300)
+    return () => clearTimeout(timer)
+  })
+
+  function sidebarW(): number {
+    if (!drawerEl) return 64
+    const v = parseFloat(getComputedStyle(drawerEl).getPropertyValue('--sidebar-w'))
+    return Number.isFinite(v) && v > 0 ? v : 64
+  }
+
+  function beginResize(e: PointerEvent) {
+    if (!open || !drawerEl || resize) return
+    resize = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startChatW: window.innerWidth - sidebarW() - drawerEl.getBoundingClientRect().width,
+    }
+    resizing = true
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }
+
+  function moveResize(e: PointerEvent) {
+    if (!resize || e.pointerId !== resize.pointerId) return
+    const max = window.innerWidth - sidebarW() - 280
+    store.chatWidth = Math.round(Math.max(480, Math.min(max, resize.startChatW + (e.clientX - resize.startX))))
+  }
+
+  function endResize(e: PointerEvent) {
+    if (resize && e.pointerId === resize.pointerId) {
+      resize = null
+      resizing = false
+    }
+  }
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -135,16 +189,30 @@
 <aside
   class="drawer"
   class:open
+  class:animating
   class:dragging
+  class:resizing
   role="complementary"
   aria-label="工作区"
   bind:this={drawerEl}
+  style={store.chatWidth ? `--chat-w:${store.chatWidth}px` : ''}
   onpointerdown={beginDrag}
   onpointermove={moveDrag}
   onpointerup={(e) => endDrag(e, true)}
   onpointercancel={(e) => endDrag(e, false)}
   onlostpointercapture={(e) => endDrag(e, false)}
 >
+  {#if open}
+    <div
+      class="resizer"
+      class:on={resizing}
+      onpointerdown={beginResize}
+      onpointermove={moveResize}
+      onpointerup={endResize}
+      onpointercancel={endResize}
+      title="拖动调整宽度"
+    ></div>
+  {/if}
   <div class="inner">
     <header title="按住拖出抽屉，成为独立窗口（关闭窗口即回到抽屉）">
       <span class="grip" aria-hidden="true">
@@ -184,20 +252,49 @@
 </aside>
 
 <style>
-  /* 各页统一宽（画板比例）：抽屉展开时主列压到手机宽保底 480px；
-  侧栏宽经 --sidebar-w 联动（收 64 / 展 176）。余量不足时抽屉先让位，
-  保底 280 */
+  /* 中间线定主列宽（--chat-w，默认 42vw 保底 480），抽屉吃掉剩余全部
+  （100vw - 侧栏 - 主列）：窗口缩放时抽屉跟着伸缩、主列与中间线不动；
+  余量不足抽屉保底 280 */
   .drawer {
-    --pane-w: max(280px, min(960px, 58vw, calc(100vw - var(--sidebar-w, 64px) - 480px)));
+    --pane-w: max(280px, calc(100vw - var(--sidebar-w, 64px) - var(--chat-w, max(480px, 42vw))));
+    position: relative;
     flex: none;
     width: 0;
     overflow: hidden;
     background: var(--bg);
     border-left: 1px solid var(--line);
-    transition: width 0.28s var(--ease-out);
   }
   .drawer.open {
     width: var(--pane-w);
+  }
+  /* width 过渡只在开关抽屉的动画窗内启用：平时宽度随窗口/侧栏即时
+  跟随（有过渡会滞后——main 先吃掉增量，中间线跳过去再弹回来） */
+  .drawer.animating:not(.resizing) {
+    transition: width 0.28s var(--ease-out);
+  }
+  /* 左缘调宽把手：细热区 + 悬停显形指示线 */
+  .resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 7px;
+    z-index: 5;
+    cursor: col-resize;
+  }
+  .resizer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    background: transparent;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .resizer:hover::after,
+  .resizer.on::after {
+    background: var(--accent-soft, var(--accent));
   }
   /* 内层恒宽（继承 --pane-w）：外层宽度过渡时内容不重排；窗口
   resize 时宽度变化随之更新，RO fit 跟随实际宽 */

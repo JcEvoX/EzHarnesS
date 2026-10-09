@@ -30,12 +30,17 @@
   function onGlobalDown(e: PointerEvent) {
     if (menu && !(e.target as HTMLElement).closest('.tabmenu')) menu = null
   }
-</script>
+
+  /* 高度上报：折行后 tabbar 变高，对话页两侧悬浮列的 top 跟随避让 */
+  let barH = $state(0)
+  $effect(() => {
+    store.tabbarH = barH
+  })</script>
 
 <svelte:window onpointerdown={onGlobalDown} onkeydown={(e) => e.key === 'Escape' && (menu = null)} />
 
-{#if store.tabs.length}
-  <div class="tabbar">
+<div class="tabbar" class:empty={!store.tabs.length} bind:clientHeight={barH}>
+  {#if store.tabs.length}
     <div class="strip">
       {#each store.tabs as t (t.rootId)}
         {@const info = store.branches.find((b) => b.id === t.rootId)}
@@ -68,8 +73,8 @@
       {/each}
       <button class="new" onclick={() => store.newChatTab()} title="新建会话标签">+</button>
     </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 {#if menu}
   <div class="tabmenu" style="left:{menu.x}px; top:{menu.y}px" role="menu">
@@ -85,6 +90,10 @@
     border-bottom: 1px solid var(--line);
     background: var(--bg);
     padding: 5px 10px;
+  }
+  /* 无标签不渲染（也不显示底线），但根元素常在以回报高度 0 */
+  .tabbar.empty {
+    display: none;
   }
   .strip {
     display: flex;

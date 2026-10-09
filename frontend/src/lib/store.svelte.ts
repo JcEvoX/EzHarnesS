@@ -265,6 +265,11 @@ class AppStore {
   /* 上一轮通知轮询是否有未决项（待审批角标联动分支拉取的收尾依据） */
   private noticesHadPending = false
 
+  /* tab 条实际高度（折行后变高）：对话页两侧悬浮列 top 跟随它避让 */
+  tabbarH = $state(0)
+  /* 抽屉展开时主列用户拖拽宽（px；0 = 默认公式 42vw 保底 480），抽屉吃剩余全部 */
+  chatWidth = $state(0)
+
   private nuid(): number {
     return ++this.uidSeq
   }
