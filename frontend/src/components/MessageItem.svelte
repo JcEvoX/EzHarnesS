@@ -531,6 +531,9 @@
   /* ── markdown 正文：scoped 样式不作用于 {@html} 注入节点，全部走 :global ── */
   .md {
     line-height: 1.7;
+    /* 长路径/长串（行内 code、URL）就地断行，不撑宽消息列（pre 代码块
+    white-space: pre 不受影响，横向滚动由其自身 overflow-x 承担） */
+    overflow-wrap: anywhere;
   }
   .md :global(p) {
     margin: 6px 0;

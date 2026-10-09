@@ -45,10 +45,10 @@
           onclick={() => store.openTab(t.rootId)}
           onauxclick={(e) => e.button === 1 && store.closeTab(t.rootId)}
           oncontextmenu={(e) => openMenu(e, t.rootId)}
-          title={(info?.title || '未命名会话') + (t.rootId === store.activeId ? '（当前会话）' : '')}
+          title={(info?.title || '新对话') + (t.rootId === store.activeId ? '（当前会话）' : '')}
         >
           <span class="dot" class:run={info?.running}></span>
-          <span class="name">{info?.title || '未命名会话'}</span>
+          <span class="name">{info?.title || '新对话'}</span>
           {#if info?.waiting}<span class="wait" title="等待审批">⚠</span>{/if}
           <span
             class="x"
@@ -90,17 +90,15 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .strip::-webkit-scrollbar {
-    display: none;
+    min-width: 0;
+    flex-wrap: wrap; /* 放不下的 tab 折行：不裁不滚，全部可点 */
   }
   .tab {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 72px; /* 名字至少留约 3 字，收不到只剩点+叉的残骸 */
     border: 1px solid var(--line);
     background: var(--bg);
     border-radius: 8px;
@@ -123,7 +121,7 @@
     font-weight: 600;
   }
   .name {
-    max-width: 130px;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

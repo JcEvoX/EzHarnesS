@@ -406,6 +406,7 @@
   .timeline {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden; /* 会话区不要横向滚动条（长串断行后此为兜底） */
     min-height: 0;
     /* 滚动条槽位常驻且双侧对称（both-edges）：文本宽度恒定，
     且消息流中心与下方输入框（居中于全宽）对齐——单侧槽会让内容
