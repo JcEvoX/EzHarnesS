@@ -12,11 +12,8 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -206,24 +203,18 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		s.Fsys, func() string { return s.ID }, // 进度档案 progress.md 落盘
 	)
 
-	// 能力槽启用态：图片识别槽启用 → agent 获得图片识别工具
-	visionOn := visionModel(a.Hub) != nil
-
 	// 主模型视觉能力实时判断（换模型 Reassemble 后随设置即时生效）
 	mainVision := func() bool {
 		m := a.Hub.ModelsSnapshot().ActiveMain()
 		return m != nil && m.Vision
 	}
 	// read_file 图片分支裁决：开视觉 → 走标记→OnLoop 转图片消息（持久化）；
-	// 未开 → 引导 image_recognize（识别槽也未开则引导设置）
+	// 未开 → 模型无法处理图片
 	readImage := func(path, _ string) (string, bool) {
 		if mainVision() {
 			return "", true
 		}
-		if visionOn {
-			return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；可调用 image_recognize 工具识别]", path), false
-		}
-		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型启用图片识别槽]", path), false
+		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型为主模型勾选\"支持视觉\"]", path), false
 	}
 
 	// visionguard 最内层（紧贴 provider）：无视觉模型每次实际请求（含 retry）
@@ -231,9 +222,6 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), noempty.Warp(), visionguard.Warp(mainVision)}
 	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
 	agentTools = append(agentTools, tools.SharedBrowser(a.Browser)...)
-	if visionOn {
-		agentTools = append(agentTools, tools.ImageRecognize(a)...)
-	}
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
 	}
@@ -243,9 +231,6 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
 		"term_start", "term_send", "term_read", "term_list", "term_close",
 		"browser_tab", "browser_action", "browser_read",
-	}
-	if visionOn {
-		toolNames = append(toolNames, tools.ImageRecognizeTool)
 	}
 	agent := core.NewAgent(provider,
 		core.WithModelWarp(modelWarps...),
@@ -288,67 +273,6 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		Trace:     traceHook,
 		ToolNames: toolNames,
 	})
-}
-
-/* visionModel 返回图片识别槽的启用条目（无则 nil）。 */
-func visionModel(h *domain.Hub) *domain.ModelEntry {
-	for i := range h.ModelsSnapshot().Vision {
-		if h.ModelsSnapshot().Vision[i].Enabled {
-			return &h.ModelsSnapshot().Vision[i]
-		}
-	}
-	return nil
-}
-
-/*
-RecognizeImage 用图片识别槽模型识别一张图片（image_recognize 工具的
-后端）。question 为识别侧重点（空 = 通用描述），由调用方按任务语境给定。
-槽模型与启用态每次实时读取——设置变更即生效，无需重建 agent。
-*/
-func (a *AgentService) RecognizeImage(ctx context.Context, path, question string) (string, error) {
-	m := visionModel(a.Hub)
-	if m == nil || m.APIKey == "" {
-		return "", errors.New("图片识别模型未启用（设置·模型·图片识别）")
-	}
-	data, err := a.Hub.Fsys.Read(ctx, path)
-	if err != nil {
-		return "", fmt.Errorf("读取图片失败: %w", err)
-	}
-	prompt := question
-	if prompt == "" {
-		prompt = "识别这张图片的内容：先概述是什么，再按需提取其中的文字、数据、代码或关键细节。"
-	}
-	prompt += "\n输出将直接交给另一个 agent 使用，请客观、结构化，不要寒暄。"
-	// 按扩展名推图片 MIME（识别模型通用要求 image/*）
-	mime := "image/jpeg"
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".png":
-		mime = "image/png"
-	case ".webp":
-		mime = "image/webp"
-	case ".gif":
-		mime = "image/gif"
-	}
-	prov := buildProvider(m)
-	resp, err := prov.Invoke(ctx, &types.ModelRequest{Messages: []types.Message{{
-		Role:    types.RoleUser,
-		Content: prompt,
-		Images: []types.ImagePart{{
-			MimeType: mime,
-			Data:     base64.StdEncoding.EncodeToString(data),
-		}},
-	}}})
-	if err != nil {
-		return "", err
-	}
-	{
-		if a.Hub.ApplyVisionUsage(&resp.Usage) {
-			if err := SaveModelsConfig(context.Background(), a.Hub.Fsys, a.Hub.ModelsSnapshot()); err != nil {
-				log.Printf("视觉用量落盘失败: %v", err)
-			}
-		}
-	}
-	return resp.Content, nil
 }
 
 /*

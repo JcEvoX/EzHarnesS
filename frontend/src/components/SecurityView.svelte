@@ -49,7 +49,6 @@
     browser_tab: { desc: '共享浏览器标签管理（open 新建 / close 关闭；list 只读恒免审）' },
     browser_action: { desc: '页面操作（导航 / 点击 / 输入 / 按键 / 滚动）' },
     browser_read: { desc: '读页面正文 / 链接清单 / 截图（只读）' },
-    image_recognize: { desc: '图片识别（识别槽模型驱动，只读）' },
     task: { desc: 'fork 分身执行子任务（分身继承主 agent 策略）' },
     save_app: { desc: '保存快应用 html' },
     ask_user: { desc: '向用户提问收集信息（交互工具）' },
@@ -73,7 +72,7 @@
     { key: 'term', label: '终端工具', desc: '一次性命令与共享终端' },
     { key: 'browser', label: '浏览器工具', desc: '共享浏览器操控' },
     { key: 'mcp', label: 'MCP 工具', desc: '外部 MCP server 提供的工具' },
-    { key: 'system', label: '系统自带工具', desc: '分身 / 图片识别 / 快应用等内置能力' },
+    { key: 'system', label: '系统自带工具', desc: '分身 / 快应用等内置能力' },
   ]
 
   function groupOf(tool: string): string {

@@ -412,7 +412,7 @@ flowchart TB
         S["service 用例层&lt;br/&gt;Chat / Session / Topic / Settings / Terminal / Agent…"]:::layer
         D["domain · Session 聚合 + Hub&lt;br/&gt;零 HTTP 依赖"]:::layer
         H["internal/hooks（宿主侧）&lt;br/&gt;sysprompt · remind · trim · sessionstore&lt;br/&gt;reference_file · guard · trace"]:::layer
-        TL["internal/tools&lt;br/&gt;save_app · term_* · image_recognize"]:::layer
+        TL["internal/tools&lt;br/&gt;save_app · term_* · browser_*"]:::layer
         WP["internal/warp&lt;br/&gt;modeldump · visionguard · toolarg"]:::layer
     end
 
@@ -518,7 +518,7 @@ flowchart TB
 ├─ ezharness.json              <span class="c"># 端口 / 监听 / dataDir / 窗口尺寸（结构配置）</span>
 └─ data\                       <span class="c"># 数据目录（dataDir 空 = 应用根下 data/）</span>
    ├─ settings.json            <span class="c"># WorkDir / TrimPercent / MaxIterations / DisabledSkills</span>
-   ├─ models.json              <span class="c"># 模型四槽 main/vision/image/audio + 用量累计</span>
+   ├─ models.json              <span class="c"># 模型三槽 main/image/audio + 用量累计</span>
    ├─ toolRules.json           <span class="c"># 工具审批四档策略</span>
    ├─ topics.json              <span class="c"># 分支（线）索引</span>
    ├─ stats.json               <span class="c"># 跨会话生命体征</span>
@@ -926,8 +926,7 @@ sequenceDiagram
         <tr><th>情形</th><th>工具返回（tool 消息内容）</th></tr>
         <tr><td>主模型开视觉</td><td><code>&lt;image_loaded path="C:/…/img.png"/&gt;</code> ——机器标记，<b>保留不改写</b>，前端工具卡原文显示</td></tr>
         <tr><td>超 8MiB</td><td><code>[图片 X 大小 N 字节，超出 8388608 字节上限，无法加载进上下文；请改用文件路径引用或外部识别工具]</code></td></tr>
-        <tr><td>无视觉·识别槽开</td><td><code>[当前模型无多模态能力，无法读取图片 X；可调用 image_recognize 工具识别]</code></td></tr>
-        <tr><td>无视觉·识别槽关</td><td><code>[当前模型无多模态能力，无法读取图片 X；如需识别图片请在设置·模型启用图片识别槽]</code></td></tr>
+        <tr><td>无视觉</td><td><code>[当前模型无多模态能力，无法读取图片 X；如需识别图片请在设置·模型为主模型勾选"支持视觉"]</code></td></tr>
       </table>
       <h4>OnLoop：标记 → 持久化图片消息（核心机制）</h4>
       <p><b>时机：</b>工具批完成后、下次模型调用前。从消息尾部向前回扫本轮 tool 消息至第一条 assistant 止（批边界天然划定，免状态），扫描其中的 <code class="inline">&lt;image_loaded path="…"/&gt;</code> 标记——<b>已入史的 tool 结果不改写</b>，标记只是批末转换的信号。读盘成功（≤8MiB + 魔数有效）的合并为<b>一条</b> user 消息插在批内最后一条 tool 之后：</p>

@@ -156,7 +156,6 @@ export interface ModelEntry {
 
 export interface ModelsConfig {
   main: ModelEntry[]
-  vision: ModelEntry[]
   image: ModelEntry[]
   audio: ModelEntry[]
 }

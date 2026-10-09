@@ -47,7 +47,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/internal/domain/event.go` | SSE 事件类型与 `MapEvent` |
 | `core/internal/domain/settings.go` `toolrules.go` `stats.go` | 设置模型 / 工具审批规则 / 用量统计 |
 | `core/internal/hooks/` | 宿主侧 hook 与相关实现，见第二节 |
-| `core/internal/tools/` | 宿主侧工具：`tools.go`(save_app)、`term.go`(term_*)、`browser.go`(browser_*)、`vision.go`(image_recognize)；接口定义在 tools、实现在 service（避免 import 环） |
+| `core/internal/tools/` | 宿主侧工具：`tools.go`(save_app)、`term.go`(term_*)、`browser.go`(browser_*)；接口定义在 tools、实现在 service（避免 import 环） |
 | `core/internal/warp/` | 模型/工具装饰器，见第三节 |
 | `core/internal/osfs/osfs.go` | 无沙箱全权限 FileSystem |
 | `core/internal/builtinskill/` | 内建技能（go:embed `skills/<目录>/SKILL.md`，现 mcp-config / skill-install / quick-app）：操作手册类，教模型经文件通道自配置应用（mcp.json 热加载、技能目录写入、快应用构建）。buildSystemBase 与用户技能合并进 `<skills>` 清单（标注〔内建〕），记忆页技能卡同样合并展示（`builtin` 标记，可禁用不可删），共用 DisabledSkills 禁用名单、不占用户目录。**新增技能后 `builtinskill_test` 的钉名断言要跟着加** |

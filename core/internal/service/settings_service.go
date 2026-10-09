@@ -94,7 +94,7 @@ func (s *SettingsService) Update(ctx context.Context, v SettingsView) error {
 	return s.Agents.Reassemble(st)
 }
 
-/* GetModels 返回模型四槽（空槽归一为 [] 而非 null）。 */
+/* GetModels 返回模型三槽（空槽归一为 [] 而非 null）。 */
 func (s *SettingsService) GetModels() domain.ModelsConfig {
 	return normalizeModels(s.Hub.ModelsSnapshot())
 }
@@ -103,9 +103,6 @@ func (s *SettingsService) GetModels() domain.ModelsConfig {
 func normalizeModels(m domain.ModelsConfig) domain.ModelsConfig {
 	if m.Main == nil {
 		m.Main = []domain.ModelEntry{}
-	}
-	if m.Vision == nil {
-		m.Vision = []domain.ModelEntry{}
 	}
 	if m.Image == nil {
 		m.Image = []domain.ModelEntry{}
@@ -117,7 +114,7 @@ func normalizeModels(m domain.ModelsConfig) domain.ModelsConfig {
 }
 
 /*
-	UpdateModels 保存模型四槽（每槽至多一条启用，main 槽不可为空且必须
+	UpdateModels 保存模型三槽（每槽至多一条启用，main 槽不可为空且必须
 
 有启用条目——能力槽允许全部停用）并重建 agent（busy 时拒绝）。
 */
@@ -136,7 +133,7 @@ func (s *SettingsService) UpdateModels(ctx context.Context, m domain.ModelsConfi
 		m.Main[0].Enabled = true // 兜底：对话必须由主模型驱动，与 ActiveMain 取首条语义对齐
 	}
 	for slot, entries := range map[string][]domain.ModelEntry{
-		"main": m.Main, "vision": m.Vision, "image": m.Image, "audio": m.Audio,
+		"main": m.Main, "image": m.Image, "audio": m.Audio,
 	} {
 		enabled := 0
 		for _, e := range entries {

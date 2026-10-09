@@ -113,7 +113,6 @@ warp 实例 per-Run 独立（fork 复刻 warp 链，分身输入同样可见）�
 | `ask_user` / `task` / `mcp_router` | 对应 hook |
 | `trim_context` | trim hook |
 | `load_skill` | skilltool |
-| `image_recognize` | ezharness tools（仅识别槽启用时装配） |
 
 工具注册先 SetWarp 后 Register（两者都被包装；hook OnStart 里同名注册 = 覆盖）。
 

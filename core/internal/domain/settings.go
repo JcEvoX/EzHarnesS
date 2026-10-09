@@ -2,8 +2,8 @@
 package domain
 
 /*
-ModelEntry 是一个模型条目；ModelsConfig 是模型四槽记录（models.json）：
-main（主模型，驱动 agent 循环）/ vision（主模型无视觉时图片转写兜底）/
+ModelEntry 是一个模型条目；ModelsConfig 是模型三槽记录（models.json）：
+main（主模型，驱动 agent 循环，支持视觉则图片直接进上下文）/
 image（文生图）/ audio（语音合成）——后两者是主模型按需调用的工具后端。
 每槽至多一条 Enabled。结构随后续数据建模演进。
 */
@@ -30,10 +30,9 @@ const (
 )
 
 type ModelsConfig struct {
-	Main   []ModelEntry `json:"main"`
-	Vision []ModelEntry `json:"vision"`
-	Image  []ModelEntry `json:"image"`
-	Audio  []ModelEntry `json:"audio"`
+	Main  []ModelEntry `json:"main"`
+	Image []ModelEntry `json:"image"`
+	Audio []ModelEntry `json:"audio"`
 }
 
 /* DefaultModelsConfig 给出出厂值（main 一条默认并启用，apiKey 空零配置可启动）。 */

@@ -849,22 +849,6 @@ func (h *Hub) ApplyUsage(u *types.Usage) bool {
 	return false
 }
 
-/* ApplyVisionUsage 累计图片识别用量到识别槽启用条目，返回是否有变更。 */
-func (h *Hub) ApplyVisionUsage(u *types.Usage) bool {
-	if u == nil {
-		return false
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for i := range h.Models.Vision {
-		if h.Models.Vision[i].Enabled {
-			accumulateUsage(&h.Models.Vision[i], u)
-			return true
-		}
-	}
-	return false
-}
-
 /* accumulateUsage 把一份用量按输入/输出/缓存累进条目。 */
 func accumulateUsage(e *ModelEntry, u *types.Usage) {
 	e.InTokens += u.PromptTokens
