@@ -11,47 +11,92 @@ const (
 	LevelAuto  Level = "auto"  // 全部免审
 )
 
-/* ToolRule 是单个工具的审批策略；list 匹配语义随档位：
-白名单=前缀命中即免审（终端按命令词开头、mcp 按 server/整站点边界），
-黑名单=包含命中才拦审（命令/mcp 文本任意位置出现名单词）。 */
+/*
+ToolRule 是一条审批策略。Key 是工具名，或"工具名:action"（合并式工具
+term_action / browser_action 逐 action 配档，如 term_action:send、
+browser_action:eval）。List 匹配语义随档位与名单类型：
+白名单=前缀命中即免审（命令词/路径/server 前缀），黑名单=包含命中才拦审。
+*/
 type ToolRule struct {
-	Tool  string   `json:"tool"`
+	Key   string   `json:"key"`
 	Level Level    `json:"level"`
 	List  []string `json:"list"`
 }
 
-/* DefaultToolRules 内置默认（等价旧 needsApprove 硬编码语义）。 */
+/* 内置默认白名单：终端命令（terminal 与 term_action:send 共用）。 */
+var defaultCommandWhite = []string{
+	"ls", "cat", "head", "tail", "pwd", // POSIX 只读
+	"dir", "type", "cd", "ver", // cmd 只读（Windows 原生 shell）
+	"git status", "git diff", "git log", "go test",
+}
+
+/*
+	DefaultToolRules 内置默认。
+
+只有终端的可执行动作（terminal、term_action:send）与 mcp 有黑白名单；
+write_file/edit_file 有路径白名单；其余工具两档（审批/免审）。
+*/
 func DefaultToolRules() []ToolRule {
 	return []ToolRule{
-		{Tool: "read_file", Level: LevelAuto},
-		{Tool: "write_file", Level: LevelAsk},
-		{Tool: "edit_file", Level: LevelAsk},
-		{Tool: "terminal", Level: LevelWhite, List: []string{
-			"ls", "cat", "head", "tail", "pwd", // POSIX 只读
-			"dir", "type", "cd", "ver", // cmd 只读（Windows 原生 shell）
-			"git status", "git diff", "git log", "go test",
-		}},
-		/* 共享终端（魔法看板，按分支绑定）：send 与 terminal 白名单同集；
-		list/read 只读免审；close 是资源清理（杀本分支终端进程）免审 */
-		{Tool: "term_send", Level: LevelWhite, List: []string{
-			"ls", "cat", "head", "tail", "pwd",
-			"dir", "type", "cd", "ver",
-			"git status", "git diff", "git log", "go test",
-		}},
-		{Tool: "term_start", Level: LevelAsk},
-		{Tool: "term_list", Level: LevelAuto},
-		{Tool: "term_read", Level: LevelAuto},
-		{Tool: "term_close", Level: LevelAuto},
-		/* 共享浏览器（魔法看板）：标签开关默认审批；页面操作与读取免审；
-		browser_tab 的 list 只读恒免审（needsApprove） */
-		{Tool: "browser_tab", Level: LevelAsk},
-		{Tool: "browser_action", Level: LevelAuto},
-		{Tool: "browser_read", Level: LevelAuto},
-		{Tool: "task", Level: LevelAsk},
-		{Tool: "save_app", Level: LevelAsk},
-		{Tool: "ask_user", Level: LevelAuto},
-		{Tool: "trim_context", Level: LevelAuto},
-		{Tool: "load_skill", Level: LevelAuto},
-		{Tool: "mcp.*", Level: LevelAsk},
+		{Key: "read_file", Level: LevelAuto},
+		{Key: "write_file", Level: LevelAsk},
+		{Key: "edit_file", Level: LevelAsk},
+		{Key: "terminal", Level: LevelWhite, List: defaultCommandWhite},
+		/* 共享终端（魔法看板）：生命周期单一档；send 与 terminal 白名单同集，
+		read 只读免审 */
+		{Key: "term_tab", Level: LevelAsk},
+		{Key: "term_action:send", Level: LevelWhite, List: defaultCommandWhite},
+		{Key: "term_action:read", Level: LevelAuto},
+		/* 共享浏览器：标签开关一档；页面动作逐 action 配档（默认免审） */
+		{Key: "browser_tab", Level: LevelAsk},
+		{Key: "browser_action:navigate", Level: LevelAuto},
+		{Key: "browser_action:click", Level: LevelAuto},
+		{Key: "browser_action:type", Level: LevelAuto},
+		{Key: "browser_action:key", Level: LevelAuto},
+		{Key: "browser_action:scroll", Level: LevelAuto},
+		{Key: "browser_action:screenshot", Level: LevelAuto},
+		{Key: "browser_action:read", Level: LevelAuto},
+		{Key: "browser_action:eval", Level: LevelAuto},
+		{Key: "browser_action:console", Level: LevelAuto},
+		{Key: "browser_action:network", Level: LevelAuto},
+		/* 系统自带：两档，默认免审 */
+		{Key: "task", Level: LevelAuto},
+		{Key: "save_app", Level: LevelAuto},
+		{Key: "ask_user", Level: LevelAuto},
+		{Key: "trim_context", Level: LevelAuto},
+		{Key: "load_skill", Level: LevelAuto},
+		{Key: "mcp.*", Level: LevelAsk},
+	}
+}
+
+/*
+	ListKindOf 返回该 key 的名单类型：""=无名单能力（只有 审批/免审 两档）；
+	"path"=文件路径前缀白名单；"command"=终端命令词；"mcpTool"=server 或
+	server.tool。前端据此决定展示哪些档位与名单编辑框。
+*/
+func ListKindOf(key string) string {
+	switch key {
+	case "write_file", "edit_file":
+		return "path"
+	case "terminal", "term_action:send":
+		return "command"
+	case "mcp.*":
+		return "mcpTool"
+	}
+	return ""
+}
+
+/*
+ValidLevel 校验某 key 的档位是否合法：无名单能力只有 审批/免审；
+路径白名单只有 白名单（无黑名单）；命令/mcp 四档齐全。
+*/
+func ValidLevel(key string, lv Level) bool {
+	switch ListKindOf(key) {
+	case "":
+		return lv == LevelAsk || lv == LevelAuto
+	case "path":
+		return lv == LevelAsk || lv == LevelWhite || lv == LevelAuto
+	default:
+		return lv == LevelAsk || lv == LevelBlack || lv == LevelWhite || lv == LevelAuto
 	}
 }

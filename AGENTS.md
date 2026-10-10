@@ -77,8 +77,10 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 |---|---|
 | `desktop/src/main/index.js` | 主进程：spawn core + 健康轮询、无边框主窗、托盘、关闭语义（托盘/确认框）、快应用子窗、抽屉工具的弹出窗口与**拖拽脱离**（tear-off）、全部窗口类 IPC |
 | `desktop/src/main/browser/index.js` | 共享浏览器 = **WebContentsView**（每标签一个，`partition: persist:ezbrowser` 共享登录态）；抽屉页只做 UI，内容区 rect 由渲染层上报、主进程 `setBounds` 贴靠；同时是 core `/api/browser/bridge` 的 WS 客户端与执行器 |
+| `desktop/src/main/browser/devtools.js` | 开发者数据采集（CDP）：`console`/`network` 动作懒加载 attach 并 enable `Runtime`/`Log`/`Network`（**不碰 `Debugger` 域**——拖慢 V8 的是它）；console 带未捕获异常调用栈与 `Log` 的 CSP/混合内容，network 带请求/响应头、耗时、失败原因与按需取响应体（封顶）。attach 独占，用户一开 devtools（`devtools-opened`）立即让出槽位；主框架导航清空缓冲 |
 | `desktop/src/main/inspect.js` | `attachInspectMenu(wc)`：右键菜单「检查元素 / 开发者工具」。**Electron 默认没有右键菜单**，浏览器标签（WebContentsView）与快应用窗口各自在创建处调用；开发者工具一律 detach（dock 会挤压由呈现层上报的内容区 rect） |
 | `desktop/src/preload/index.js` | contextBridge 暴露 `window.ez`（`window.*` / `popout.*` / `browser.*`）；web 端没有它，所有调用点判空降级 |
+| `desktop/src/preload/browser.js` | 浏览器标签视图（WebContentsView）专用 preload，**不暴露任何 API**：只在页面 DOM 上捕获 Ctrl+滚轮转发给主进程改 zoomFactor（Electron 没有内置的 ctrl+wheel→zoom，那是浏览器 UI 层的职责） |
 
 ### 1.5 其他
 
@@ -281,8 +283,10 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 **防线（改动时别拆）**：
 - tab 记录必须带 `id`（`tabState` 的"标签已不存在"只剩操作中途被真关一条真路径）
 - 导航等待只走 `loadSettled`：`loadURL()` 返回的 promise（页面收尾落定）与超时竞速；**别**再写"先 loadURL 再查 isLoading"的等待
-- `read/screenshot` 前过 `waitIdle`（轮询 isLoading，封顶放行——降级语义，不报错）；`browser_read` 有显式 `timeoutMs` 透传
+- `read/screenshot` 前过 `waitIdle`（轮询 isLoading，封顶放行——降级语义，不报错）；`browser_action` 的 read/screenshot 有显式 `timeoutMs` 透传
 - `cdpScreenshot` 20s 护栏 + target/session 类错误按当前 target 重挂重试一次；桥等待上限 = 等待 + 余量（core 侧 `timeoutMs+N` 秒），别让 desktop 内部等待吃光桥超时
+- **截图默认视口**（`fullPage=true` 才截整页）：视口图尺寸就是浏览器真实渲染的那一块，像素坐标与页面视口坐标系一致（要被点/被看的就是这一屏）；**别做设备仿真**（`Emulation.setDeviceMetricsOverride` 造出来的"标准尺寸"不是真实渲染，和交互/坐标都对不上）
+- **整页必须分段**：视觉模型会把大图缩到约 1.15MP，一张超高的整页图会被压成糊图。按视口高逐段 `clip`（`captureBeyondViewport` + 显式 clip——只给 `captureBeyondViewport` 不保证覆盖整页），段数上限 5、宽取 `scrollWidth` 拉满（上限 2400）；`withShotEnv` 里顺带 `Emulation.setScrollbarsHidden` 藏滚动条
 
 ### 5.3 视图未上屏截图挂死 + 元素定位缺失（2026-09-27）
 
@@ -290,7 +294,7 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 
 **防线（改动时别拆）**：
 - desktop `withSurface`：截图前查目标视图是否挂在任一宿主（主窗+paneWindows），未挂则临时 `addChildView` 到主窗 + 屏幕外 bounds（x:-30000，attach 有合成面但不可见），截完摘除并 `syncHost()` 收敛
-- `browser_read mode=elements`：页面内采集可见可交互元素（a/button/input/select/textarea/[role]/[contenteditable]），每行 `tag [CSS选择器] "文本" -> 链接`；selector 生成优先 `#id` > `[name]` > `[aria-label]` > `[placeholder]` > `nth-of-type` 路径。工具描述引导：click/type 优先 elements 拿 selector，截图只做视觉确认
+- `browser_action` action=read mode=elements：页面内采集可见可交互元素（a/button/input/select/textarea/[role]/[contenteditable]），每行 `tag [CSS选择器] "文本" -> 链接`；selector 生成优先 `#id` > `[name]` > `[aria-label]` > `[placeholder]` > `nth-of-type` 路径。工具描述引导：click/type 优先 elements 拿 selector，截图只做视觉确认
 
 ### 5.4 浏览器操作三连坑：滚轮符号 / 合成点击不导航 / 返回值滞后（2026-09-27 诊断页实测）
 
@@ -298,7 +302,32 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 
 **根因与防线（改动时别拆）**：
 - `mouseWheel` 的 `deltaY` **负值=向下滚**（与直觉相反）：`direction==='down' ? -amount : +amount`。up 发负值实测反而 scrollY 增、down 发正值在顶部无空间——符号反了正好吻合两个"怪象"
-- selector 点击走 `domClick`（页面内 `el.click()` 原生点击）：合成输入（sendInputEvent）JS 监听收得到但**不触发链接导航等默认行为**；坐标点击保留合成输入（canvas/视觉定位场景）
+- selector 点击走 `domClick`（页面内 `el.click()` 原生点击）：合成输入（sendInputEvent）JS 监听收得到但**不触发链接导航等默认行为**；click **只认 selector**——不做坐标点击（AI 估不准像素坐标，选择器拿不到就让它用 `eval` 自己按文本/结构找元素再 `.click()`）
 - click 后对比 `tabs.size`：`target=_blank` 类点击就地开新标签（原标签不跳转），返回 `note` 明示——模型不再误判"点击无效"
 - click/type/scroll/key 返回统一融合 `pageState()`（页面内实读 url/title/scrollY，不取缓存）——操作自带成功判据（scrollY 不变即没滚动）；工具描述明示"以此判断生效，别原样重试"
 - `<action>` 第 7 条重试纪律：同手段 2 次无可见效果即停换手段、调试先建可观测信号、子任务约 10 次无进展停手汇报、长任务每几步报进度
+
+### 5.5 后台标签的输入动作失效（scroll 不动 / key 受限）
+
+**现象**：点 `_blank` 打开新标签后原标签转后台（`list` 里 `active:false`），此时 `scroll` 完全无效（up/down 都不动）、`key` 受限；关掉新标签、原标签恢复激活后立刻恢复。`eval`/`screenshot`/`type` 在后台仍正常。
+
+**根因**：`syncHost` 只把**激活**标签的 View 挂到窗口上，后台标签的 View 被 `removeChildView` 摘除——于是 ①没有合成面，滚轮是 compositor（合成线程）滚动，事件被直接丢弃；②`sendInputEvent` 要求 webContents 所属窗口存在且获焦（Electron 文档明确），按键投不出去。后台仍正常的三者都绕开了这两条：`eval` 主线程 JS、`type` 走 `wc.insertText()`、`screenshot` 用 `withSurface` 临时挂离屏合成面。
+
+**防线（改动时别拆）**：
+- `withSurface` 不只是截图用：`key`/`type` 这类含 `sendInputEvent` 的动作都要套（视图已上屏时是空操作，后台临时挂离屏面 + `focus()`）
+- `scroll` 用 `viewAttached(tab)` 分流：挂在窗口上 → 真滚轮（保留 wheel 语义）；后台 → `domScroll`（页面内 JS，自视口中心向上找最近可滚容器）
+- 别默认 `sendInputEvent` 一定生效——它一旦脱离上屏窗口就**静默失效**（不报错、scrollY 不动）
+
+### 5.6 浏览器工具的覆盖面（等待 / 可达性 / 对话框 / 表单 / 局部截图）
+
+**等待原语是刚需**：`wait`（mode=selector/text/time/networkIdle）——SPA 里点完马上 `read` 必然读到渲染前，工具描述明确要求"点/提交后先 wait 再 read"。`networkIdle` 依赖 CDP 采集（未开采集时退化为 `webContents.isLoading()`）。
+
+**可达性**：`read`/`click`/`type` 等的选择器统一走 `runDeep` 注入的 `__ezAll/__ezOne`——**穿透 shadow root 与同源 iframe**（`document.querySelector` 两者都进不去）；`__ezAbsRect` 把 iframe 内元素的矩形折算到顶层视口坐标（鼠标类动作对 iframe 内元素才不会错位）。**跨域 iframe 够不着**（contentDocument 抛错），`read mode=frames` + elements 输出里附帧清单，引导模型 `navigate` 直达帧 URL。
+
+**原生对话框**：建标签即 `devtools.attachTab`（只 enable `Page`，开销极小）——对话框必须在弹出**之前**挂监听，否则 CDP 场景下渲染直接暂停（页面挂住）。一律**自动应答**（默认取消，`dialog` 动作可一次性预设 accept/prompt 文本），并记入控制台缓冲。`will-prevent-unload` 放行，beforeunload 不拦导航。
+
+**表单/交互**：`hover`（mouseMove）、`select`（设 value + 派发 change，合成点击在 `<select>` 上不可靠）、`upload`（只能走 CDP `DOM.setFileInputFiles`——页面 JS 改不了 files）、`drag`（指针拖拽；HTML5 DnD 的 dragstart/dataTransfer 模拟不了）。
+
+**局部截图**：`screenshot selector=...` 只截该元素矩形（`__ezAbsRect` + 滚动量→页面坐标）——验证组件/图表时不必截整屏。`network` 支持 `filter`/`errorsOnly` 过滤（SPA 请求太吵），响应体上限 128KB。
+
+**缩放**：浏览器标签默认 0.8（`BROWSER_ZOOM`，抽屉那块视图比桌面窗口窄，缩到 80% 相当于把 CSS 视口放宽 1.25 倍、更多内容落进桌面断点）；用户 Ctrl+滚轮 / Ctrl+±/Ctrl+0 调（preload 捕获 wheel + `before-input-event`）。**AI 侧要"放大看"用截图的 `scale`（1–3）**：同一块按更高分辨率重渲染（CDP clip 的 `scale`），不改页面布局——比改页面 zoom 好（zoom 会重排、破坏"截图=真实渲染"）。改 zoom 会连布局视口一起变，只有用户手动调。

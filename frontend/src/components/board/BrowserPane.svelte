@@ -11,7 +11,7 @@
   过渡期间内容区恒宽、RO 不触发，但内容区 x 在动，需逐帧重贴。
   */
 
-  let { active = false }: { active?: boolean } = $props()
+  let { active = false, animating = false }: { active?: boolean; animating?: boolean } = $props()
 
   type TabInfo = { id: string; name: string; desc?: string; origin: string; url: string; title: string; loading: boolean; active: boolean }
 
@@ -57,9 +57,10 @@
     ;(document.activeElement as HTMLElement | null)?.blur()
   }
 
-  /* 内容区 rect 上报：ResizeObserver + 窗口 resize（主进程 setBounds 依据） */
+  /* 内容区 rect 上报：ResizeObserver + 窗口 resize（主进程 setBounds 依据）。
+     抽屉宽度过渡期间不上报（保持视图隐藏，见下面的 effect）。 */
   function reportRect() {
-    if (!content) return
+    if (!content || animating) return
     const rect = content.getBoundingClientRect()
     if (rect.width < 10 || rect.height < 10) return
     ezBrowser()?.reportRect({ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) })
@@ -79,20 +80,18 @@
 
   onDestroy(() => ro?.disconnect())
 
-  /* 抽屉显隐联动视图贴靠/收起（零矩形绕过 reportRect 的 <10 守卫） */
+  /* 抽屉显隐/过渡联动视图贴靠：过渡期间报零矩形**把视图藏起来**——真实内容是
+     原生 WebContentsView，跟不上 CSS 等宽动画（逐帧 IPC setBounds 必然滞后一拍，
+     看着就是抖）；藏起来期间面板是纯 DOM，等宽动画丝滑。过渡结束（animating 变
+     false）再报真实矩形贴上去。切换工具时若抽屉宽度也变了同样适用。 */
   $effect(() => {
     const api = ezBrowser()
     if (!api) return
-    if (!active) {
+    if (!active || animating) {
       api.reportRect({ x: 0, y: 0, width: 0, height: 0 })
       return
     }
-    let frames = 21 // ~350ms（60fps）：覆盖抽屉宽度过渡全程
-    const tick = () => {
-      reportRect()
-      if (frames-- > 0) requestAnimationFrame(tick)
-    }
-    tick()
+    reportRect()
   })
 
   /* 用户点标签条才算"切换意图"：只在这里告诉主进程。不做 $effect 跟随

@@ -4,67 +4,79 @@
 
   /*
   安全：对 agent 的操作管控（区别于应用设置——这里全是 agent 域）。
-  工具行与真实工具一一对应。名单概念只有两处：终端工具按命令、mcp 按
-  server.tool（这两类四档：审批/黑名单/白名单/免审；白名单=前缀命中才
-  放行、黑名单=包含命中就拦审）；其余工具纯按工具名两档（每次审批 / 全部免审）。
-  策略数据由后端下发（toolRules.json），保存即时生效（无需重建 agent）。
+  一行一条策略，键是工具名，或"工具名:action"（term_action / browser_action
+  逐 action 配档）。名单概念只有三类：终端命令（terminal、term_action:send）、
+  文件路径（write_file/edit_file 白名单）、mcp（server.tool）；其中命令与 mcp
+  四档（审批/黑名单/白名单/免审），路径只有 审批/白名单/免审，其余工具纯按
+  工具名两档（每次审批 / 全部免审）。策略数据由后端下发（toolRules.json），
+  保存即时生效（无需重建 agent）。
   */
   type Level = ApproveLevel
-  const simpleLevels: { key: Level; label: string; full: string }[] = [
-    { key: 'ask', label: '审批', full: '每次审批' },
-    { key: 'auto', label: '免审', full: '全部免审' },
-  ]
-  const listLevels: { key: Level; label: string; full: string }[] = [
-    { key: 'ask', label: '审批', full: '每次审批' },
-    { key: 'black', label: '黑名单', full: '黑名单审批：名单外的操作直接放行' },
-    { key: 'white', label: '白名单', full: '白名单免审：仅名单内的操作放行' },
-    { key: 'auto', label: '免审', full: '全部免审' },
-  ]
-  type ListKind = 'command' | 'mcpTool'
+  type ListKind = 'command' | 'path' | 'mcpTool'
+
+  const LABELS: Record<Level, string> = { ask: '审批', black: '黑名单', white: '白名单', auto: '免审' }
+  const FULL: Record<Level, string> = {
+    ask: '每次审批',
+    black: '黑名单审批：名单外的操作直接放行',
+    white: '白名单免审：仅名单内的操作放行',
+    auto: '全部免审',
+  }
   const listMeta: Record<ListKind, { label: string; ph: string }> = {
     command: { label: '命令词（白名单=前缀放行，黑名单=包含拦审）', ph: 'git status' },
+    path: { label: '路径前缀（命中即免审）', ph: 'C:/Users/me/projects' },
     mcpTool: { label: 'server 或 server.tool', ph: 'github.create_issue' },
   }
 
+  /* 档位可用集：路径只有白名单（无黑名单），命令/mcp 四档齐全，其余两档 */
+  function levelsOf(key: string): Level[] {
+    const base = baseOf(key)
+    if (base === 'write_file' || base === 'edit_file') return ['ask', 'white', 'auto']
+    if (base === 'terminal' || base === 'mcp.*' || key === 'term_action:send') return ['ask', 'black', 'white', 'auto']
+    return ['ask', 'auto']
+  }
+  function kindOf(key: string): ListKind | undefined {
+    const base = baseOf(key)
+    if (base === 'write_file' || base === 'edit_file') return 'path'
+    if (base === 'terminal' || key === 'term_action:send') return 'command'
+    if (base === 'mcp.*') return 'mcpTool'
+    return undefined
+  }
+  const baseOf = (key: string) => key.split(':')[0]
+
+  /* 说明文案（按完整 key） */
+  const descs: Record<string, string> = {
+    read_file: '读取任意文件',
+    write_file: '写入 / 创建文件',
+    edit_file: '精确替换文件内容',
+    terminal: '执行命令（独立进程一次性，阻塞到结束/超时）',
+    term_tab: '共享终端标签管理（new 新建 / close 关闭；list 只读恒免审）',
+    'term_action:send': '向共享终端发送命令（立即返回，不等输出）',
+    'term_action:read': '读取共享终端新输出（只读）',
+    browser_tab: '共享浏览器标签管理（open 新建 / close 关闭；list 只读恒免审）',
+    'browser_action:navigate': '打开网址',
+    'browser_action:click': '点击页面元素',
+    'browser_action:type': '输入文本',
+    'browser_action:key': '按键 / 组合键',
+    'browser_action:scroll': '滚动页面',
+    'browser_action:screenshot': '页面截图（只读）',
+    'browser_action:read': '读正文 / DOM / 元素 / 链接（只读）',
+    'browser_action:eval': '页面内执行 JS（可改 DOM）',
+    'browser_action:console': '读 / 清控制台',
+    'browser_action:network': '读网络请求',
+    task: 'fork 分身执行子任务（分身继承主 agent 策略）',
+    save_app: '保存快应用 html',
+    ask_user: '向用户提问收集信息（交互工具）',
+    trim_context: '模型整理压缩上下文（内部整理）',
+    load_skill: '加载技能指令集（内部读取）',
+    'mcp.*': 'MCP 工具调用（名单填 server 或 server.tool；发现类恒免审）',
+  }
+
   interface RuleRow {
-    tool: string
+    key: string
     desc: string
     level: Level
-    kind?: ListKind // 有名单能力的工具才有（终端系 command / mcp 系 mcpTool）
     list: string[]
   }
-
-  /* 展示元数据（说明/名单类型）；档位与名单以后端下发为准
-  （后端会把内置默认与用户档合并，全部工具都会出现在清单里） */
-  const meta: Record<string, { desc: string; kind?: ListKind }> = {
-    read_file: { desc: '读取任意文件' },
-    write_file: { desc: '写入 / 创建文件' },
-    edit_file: { desc: '精确替换文件内容' },
-    terminal: { desc: '执行命令（独立进程一次性）', kind: 'command' },
-    term_start: { desc: '新建共享终端（可带首条命令）', kind: 'command' },
-    term_send: { desc: '向共享终端发送命令 / 控制键', kind: 'command' },
-    term_read: { desc: '读取共享终端新输出' },
-    term_list: { desc: '列出共享终端' },
-    term_close: { desc: '关闭共享终端' },
-    browser_tab: { desc: '共享浏览器标签管理（open 新建 / close 关闭；list 只读恒免审）' },
-    browser_action: { desc: '页面操作（导航 / 点击 / 输入 / 按键 / 滚动）' },
-    browser_read: { desc: '读页面正文 / 链接清单 / 截图（只读）' },
-    task: { desc: 'fork 分身执行子任务（分身继承主 agent 策略）' },
-    save_app: { desc: '保存快应用 html' },
-    ask_user: { desc: '向用户提问收集信息（交互工具）' },
-    trim_context: { desc: '模型整理压缩上下文（内部整理）' },
-    load_skill: { desc: '加载技能指令集（内部读取）' },
-    'mcp.*': {
-      desc: 'MCP 工具调用（名单填 server 或 server.tool，如 time.getCurrentTime；发现类恒免审）',
-      kind: 'mcpTool',
-    },
-  }
-
-  let rules = $state<RuleRow[]>([])
-  let loaded = $state(false)
-  let saving = $state(false)
-  let message = $state('')
-  let newList = $state<Record<string, string>>({})
 
   /* 分组展示：文件 / 终端 / 浏览器 / MCP / 系统自带（未知工具归系统自带） */
   const GROUPS: { key: string; label: string; desc: string }[] = [
@@ -75,26 +87,42 @@
     { key: 'system', label: '系统自带工具', desc: '分身 / 快应用等内置能力' },
   ]
 
-  function groupOf(tool: string): string {
-    if (/^(read|write|edit)_file$/.test(tool)) return 'file'
-    if (tool === 'terminal' || tool.startsWith('term_')) return 'term'
-    if (tool.startsWith('browser_')) return 'browser'
-    if (tool.startsWith('mcp')) return 'mcp'
+  function groupOf(key: string): string {
+    const base = baseOf(key)
+    if (/^(read|write|edit)_file$/.test(base)) return 'file'
+    if (base === 'terminal' || base.startsWith('term_')) return 'term'
+    if (base.startsWith('browser_')) return 'browser'
+    if (base.startsWith('mcp')) return 'mcp'
     return 'system'
   }
+
+  /* 稳定排序：先按工具、再按 action，避免后端返回顺序抖动导致行乱跳 */
+  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
+  const ACTION_ORDER: Record<string, string[]> = {
+    term_action: ['send', 'read'],
+    browser_action: ['navigate', 'click', 'type', 'key', 'scroll', 'screenshot', 'read', 'eval', 'console', 'network'],
+  }
+  function orderOf(key: string): number {
+    const base = baseOf(key)
+    const bi = BASE_ORDER.indexOf(base) * 100
+    const ai = key.includes(':') ? (ACTION_ORDER[base]?.indexOf(key.slice(key.indexOf(':') + 1)) ?? 0) + 1 : 0
+    return bi + ai
+  }
+
+  let rules = $state<RuleRow[]>([])
+  let loaded = $state(false)
+  let saving = $state(false)
+  let message = $state('')
+  let newList = $state<Record<string, string>>({})
 
   const hasList = (lv: Level) => lv === 'black' || lv === 'white'
 
   onMount(async () => {
     try {
       const { rules: rs } = await api.getSecurity()
-      rules = rs.map((r) => ({
-        tool: r.tool,
-        level: r.level,
-        list: r.list ?? [],
-        desc: meta[r.tool]?.desc ?? '',
-        kind: meta[r.tool]?.kind,
-      }))
+      rules = rs
+        .map((r) => ({ key: r.key, level: r.level, list: r.list ?? [], desc: descs[r.key] ?? '' }))
+        .sort((a, b) => orderOf(a.key) - orderOf(b.key))
     } catch {
       message = '策略加载失败（后端不可达）'
     }
@@ -107,7 +135,7 @@
     saving = true
     message = ''
     try {
-      await api.saveSecurity(rules.map(({ tool, level, list }) => ({ tool, level, list })))
+      await api.saveSecurity(rules.map(({ key, level, list }) => ({ key, level, list })))
       message = '已保存，即时生效'
     } catch (e) {
       message = `保存失败：${(e as Error).message}`
@@ -117,15 +145,14 @@
   }
 
   function setRule(r: RuleRow, lv: Level) {
-    if (!r.kind && hasList(lv)) return
     r.level = lv
     void persist()
   }
 
   function addEntry(r: RuleRow) {
-    const v = (newList[r.tool] || '').trim()
+    const v = (newList[r.key] || '').trim()
     if (v && !r.list.includes(v)) r.list = [...r.list, v]
-    newList[r.tool] = ''
+    newList[r.key] = ''
     void persist()
   }
 
@@ -147,9 +174,9 @@
       {/if}
     </div>
     <p class="hint">
-      大多数工具两档：每次审批 / 全部免审。终端工具可按命令词、MCP 可按
-      server.tool 配黑白名单——白名单按前缀命中放行，黑名单按包含命中
-      拦下审批（选黑/白名单时展开配置）。变更自动保存。
+      多数工具两档：每次审批 / 全部免审。终端命令与 MCP 可配黑白名单（白名单按前缀
+      命中放行，黑名单按包含命中拦下审批）；写文件可配路径前缀白名单。合并式工具
+      （term_action、browser_action）逐 action 单独配档。变更自动保存。
     </p>
     {#if message}
       <p class="msg">{message}</p>
@@ -160,7 +187,7 @@
       <p class="hint">策略为空（后端将按内置默认执行：未配置工具一律审批）。</p>
     {:else}
       {#each GROUPS as g (g.key)}
-        {@const groupRules = rules.filter((r) => groupOf(r.tool) === g.key)}
+        {@const groupRules = rules.filter((r) => groupOf(r.key) === g.key)}
         {#if groupRules.length}
           <div class="group">
             <div class="group-head">
@@ -168,30 +195,35 @@
               <span class="group-desc">{g.desc}</span>
             </div>
             <div class="list">
-              {#each groupRules as r (r.tool)}
-                <div class="rule-wrap">
+              {#each groupRules as r, i (r.key)}
+                {@const base = baseOf(r.key)}
+                {#if r.key.includes(':') && (i === 0 || baseOf(groupRules[i - 1].key) !== base)}
+                  <div class="sub-head">{base}</div>
+                {/if}
+                <div class="rule-wrap" class:sub={r.key.includes(':')}>
                   <div class="rule">
                     <div class="info">
-                      <span class="name">{r.tool}</span>
+                      <span class="name">{r.key.includes(':') ? r.key.slice(r.key.indexOf(':') + 1) : r.key}</span>
                       <span class="desc">{r.desc}</span>
                     </div>
-                    <div class="seg" role="radiogroup" aria-label={r.tool}>
-                      {#each (r.kind ? listLevels : simpleLevels) as lv (lv.key)}
+                    <div class="seg" role="radiogroup" aria-label={r.key}>
+                      {#each levelsOf(r.key) as lv (lv)}
                         <button
                           class="seg-btn"
-                          class:active={r.level === lv.key}
-                          onclick={() => setRule(r, lv.key)}
-                          title={lv.full}
+                          class:active={r.level === lv}
+                          onclick={() => setRule(r, lv)}
+                          title={FULL[lv]}
                         >
-                          {lv.label}
+                          {LABELS[lv]}
                         </button>
                       {/each}
                     </div>
                   </div>
-                  {#if r.kind && hasList(r.level)}
+                  {#if kindOf(r.key) && hasList(r.level)}
+                    {@const kind = kindOf(r.key)!}
                     <div class="list-edit">
                       <p class="list-hint">
-                        {r.level === 'black' ? '黑名单' : '白名单'}（{listMeta[r.kind].label}）——{r.level === 'black'
+                        {r.level === 'black' ? '黑名单' : '白名单'}（{listMeta[kind].label}）——{r.level === 'black'
                           ? '命中才审批'
                           : '命中即放行'}
                       </p>
@@ -209,8 +241,8 @@
                         <span class="chip-add">
                           <input
                             type="text"
-                            placeholder={r.kind ? listMeta[r.kind].ph : ''}
-                            bind:value={newList[r.tool]}
+                            placeholder={listMeta[kind].ph}
+                            bind:value={newList[r.key]}
                             onkeydown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault()
@@ -218,7 +250,7 @@
                               }
                             }}
                           />
-                          <button class="add-btn" onclick={() => addEntry(r)} disabled={!(newList[r.tool] || '').trim()}>
+                          <button class="add-btn" onclick={() => addEntry(r)} disabled={!(newList[r.key] || '').trim()}>
                             添加
                           </button>
                         </span>
@@ -317,12 +349,23 @@
   .rule-wrap + .rule-wrap {
     border-top: 1px solid var(--line);
   }
+  .sub-head {
+    padding: 8px 14px 2px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg-soft);
+  }
   .rule {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
     padding: 10px 14px;
+  }
+  .rule-wrap.sub .rule {
+    padding-left: 26px;
   }
   .info {
     display: flex;
@@ -366,12 +409,6 @@
   .seg-btn.active {
     background: var(--bg-invert);
     color: var(--fg-invert);
-  }
-  .seg-btn.dim {
-    opacity: 0.35;
-  }
-  .seg-btn:disabled {
-    cursor: default;
   }
   .list-edit {
     padding: 0 14px 12px 34px;

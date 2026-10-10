@@ -130,16 +130,13 @@
   let resizing = $state(false)
   let resize: { pointerId: number; startX: number; startChatW: number } | null = null
 
-  /* 开/关抽屉时：①首次打开把默认主列宽落成固定 px（默认公式含 42vw
-  随窗口缩放，不落 px 的话拉窗口主列抽屉会一起变宽，主列应是不动锚点）；
-  ②进入 300ms 动画窗，width 过渡仅在此期间启用，平时宽度即时跟随
-  窗口/侧栏变化 */
+  /* 开/关抽屉时：①把默认主列宽落成固定 px（默认公式含 42vw 随窗口缩放，
+  不落 px 的话拉窗口主列抽屉会一起变宽，主列应是不动锚点）；②进入 300ms
+  动画窗，width 过渡仅在此期间启用，平时宽度即时跟随窗口/侧栏变化 */
   let animating = $state(false)
-  let widthSeeded = false
   $effect(() => {
     open
-    if (open && !widthSeeded) {
-      widthSeeded = true
+    if (open && !store.chatWidth) {
       store.chatWidth = Math.round(Math.max(480, window.innerWidth * 0.42))
     }
     animating = true
@@ -245,7 +242,7 @@
         <ResourcePane active={open && tool === 'file'} />
       </div>
       <div class="pane" class:hidden={tool !== 'browser'}>
-        <BrowserPane active={open && tool === 'browser'} />
+        <BrowserPane active={open && tool === 'browser'} {animating} />
       </div>
     </div>
   </div>

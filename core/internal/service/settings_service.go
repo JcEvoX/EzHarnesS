@@ -160,13 +160,16 @@ func (s *SettingsService) UpdateModels(ctx context.Context, m domain.ModelsConfi
 func (s *SettingsService) SecurityRules() []domain.ToolRule {
 	rules := s.Hub.ToolRulesSnapshot()
 	seen := map[string]bool{}
-	out := make([]domain.ToolRule, 0, len(rules)+4)
+	out := make([]domain.ToolRule, 0, len(rules)+8)
 	for _, r := range rules {
+		if r.Key == "" {
+			continue // 旧格式残档（无 key）不展示，由内置默认补位
+		}
 		out = append(out, r)
-		seen[r.Tool] = true
+		seen[r.Key] = true
 	}
 	for _, r := range domain.DefaultToolRules() {
-		if !seen[r.Tool] {
+		if !seen[r.Key] {
 			out = append(out, r)
 		}
 	}
@@ -175,16 +178,12 @@ func (s *SettingsService) SecurityRules() []domain.ToolRule {
 
 /* UpdateSecurity 保存审批策略。needsApprove 运行时读设置快照，即时生效。 */
 func (s *SettingsService) UpdateSecurity(ctx context.Context, rules []domain.ToolRule) error {
-	valid := map[domain.Level]bool{
-		domain.LevelAsk: true, domain.LevelBlack: true,
-		domain.LevelWhite: true, domain.LevelAuto: true,
-	}
 	for _, r := range rules {
-		if !valid[r.Level] {
-			return fmt.Errorf("非法档位 %q（tool %s）", r.Level, r.Tool)
+		if r.Key == "" {
+			return errors.New("工具策略缺少 key")
 		}
-		if r.Tool == "task" && (r.Level == domain.LevelBlack || r.Level == domain.LevelWhite) {
-			return errors.New("task 只支持 审批/免审（分身继承主 agent 策略）")
+		if !domain.ValidLevel(r.Key, r.Level) {
+			return fmt.Errorf("非法档位 %q（%s）", r.Level, r.Key)
 		}
 	}
 	if err := SaveToolRules(ctx, s.Hub.Fsys, rules); err != nil {

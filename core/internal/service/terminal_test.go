@@ -120,7 +120,7 @@ func TestRemoveClearsLastAi(t *testing.T) {
 func TestReadMarkConsume(t *testing.T) {
 	sess := &TermSession{ring: newRing(64)}
 	sess.ring.append([]byte("hello"))
-	sess.readMark = sess.ring.mark() // term_start:读位点取创建时刻
+	sess.readMark = sess.ring.mark() // NewTerm:读位点取创建时刻
 	sess.ring.append([]byte(" world"))
 
 	if got := string(sess.ring.since(sess.readMark)); got != " world" {

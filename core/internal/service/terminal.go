@@ -2,7 +2,7 @@
 魔法看板·共享终端:多终端全局公共池(跨会话共享,个人助手语义:任何
 会话都能操作全部终端)。每个终端是一个 ConPTY + shell 进程,用户
 (WS 输入)与 AI(term_* 工具)共写同一终端。输出进环形缓冲(WS 重连
-hello 恢复),AI 读走游标式增量(term_send/term_read 共用读位点,读即
+hello 恢复),AI 读走游标式增量(term_action send/read 共用读位点,读即
 消费)。终端清单供 agent_status 基线对比(每会话的 ResSnapshot 独立
 ——A 会话首轮见到 B 会话开的终端同样报"新增",模型各自知悉全局
 终端水位)。
@@ -27,7 +27,7 @@ import (
 	pty "github.com/aymanbagabas/go-pty"
 )
 
-/* TermInfo 是终端清单条目(WS/REST/AI term_list 共用)。 */
+/* TermInfo 是终端清单条目(WS/REST/AI 清单共用)。 */
 type TermInfo struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -143,11 +143,8 @@ type TermSession struct {
 	pty      pty.Pty
 	cmd      *pty.Cmd
 	ring     *ringBuffer
-	lastOut  time.Time
 	exited   bool
-	readMark int64 // agent 读位点(term_send/term_read 共用,读即消费)
-
-	condCh chan struct{} // 静默等待(写泵 close 广播)
+	readMark int64 // agent 读位点(term_action send/read 共用,读即消费)
 }
 
 /* ── 服务 ── */
@@ -216,7 +213,6 @@ func (s *TerminalService) create(dir, name, desc, origin string) (*TermInfo, err
 	sess := &TermSession{
 		ID: id, Name: name, Desc: desc, Origin: origin,
 		pty: p, cmd: cmd, ring: newRing(termRingSize),
-		lastOut: time.Now(), condCh: make(chan struct{}),
 	}
 	s.sessions[id] = sess
 	s.mu.Unlock()
@@ -240,7 +236,7 @@ func (sess *TermSession) info() *TermInfo {
 		Exited: sess.exited, LastCmd: sess.LastCmd}
 }
 
-/* readPump 持续读 PTY 输出:入 ring、刷新静默时钟、广播给 WS 订阅者。 */
+/* readPump 持续读 PTY 输出:入 ring 并广播给 WS 订阅者。 */
 func (sess *TermSession) readPump(s *TerminalService) {
 	buf := make([]byte, termReadBuf)
 	for {
@@ -249,9 +245,6 @@ func (sess *TermSession) readPump(s *TerminalService) {
 			data := append([]byte(nil), buf[:n]...)
 			sess.mu.Lock()
 			sess.ring.append(data)
-			sess.lastOut = time.Now()
-			close(sess.condCh)
-			sess.condCh = make(chan struct{})
 			sess.mu.Unlock()
 			s.broadcast(TermFrame{Type: "data", ID: sess.ID, Data: data})
 		}
@@ -266,9 +259,6 @@ func (sess *TermSession) waitPump(s *TerminalService) {
 	_ = sess.cmd.Wait()
 	sess.mu.Lock()
 	sess.exited = true
-	ch := sess.condCh
-	close(ch)
-	sess.condCh = make(chan struct{})
 	sess.mu.Unlock()
 	s.broadcast(TermFrame{Type: "terminals", Sessions: s.List()})
 }
@@ -289,7 +279,7 @@ func (s *TerminalService) Get(id string) (*TermSession, error) {
 	sess, ok := s.sessions[id]
 	s.mu.Unlock()
 	if !ok {
-		return nil, fmt.Errorf("终端 %q 不存在(可用 term_list 查看)", id)
+		return nil, fmt.Errorf("终端 %q 不存在(可用 term_tab 查看)", id)
 	}
 	return sess, nil
 }
@@ -311,7 +301,7 @@ func (s *TerminalService) List() []TermInfo {
 }
 
 /*
-	ListTermsJSON 终端清单的 JSON 文本(term_list 工具直接返回;
+	ListTermsJSON 终端清单的 JSON 文本(term_tab 工具直接返回;
 
 tools 侧不能引用 service 类型,走字符串解耦)。
 */
@@ -324,15 +314,12 @@ func (s *TerminalService) ListTermsJSON() string {
 }
 
 /*
-	StartTerm 新建终端(name 简短标识,desc 用途描述);带 command 时立即
+	NewTerm 新建终端(name 简短标识,desc 用途描述)并立即返回终端状态。
 
-运行并等输出静默返回(等价"新建+send"一步到位)。读位点取注入前的当前
-位置(欢迎横幅不计入 agent 可读增量)。返回 termResult JSON。
+读位点取创建时刻的当前位置(欢迎横幅不计入 agent 可读增量)。返回
+termResult JSON。
 */
-func (s *TerminalService) StartTerm(ctx context.Context, name, desc, command string, quietMs, timeoutMs int) (string, error) {
-	quiet := clampInt(quietMs, 100, 5000, 800)
-	timeout := clampInt(timeoutMs, 1000, 60000, 30000)
-
+func (s *TerminalService) NewTerm(name, desc string) (string, error) {
 	info, err := s.Create(name, desc, "AI")
 	if err != nil {
 		return "", err
@@ -344,21 +331,7 @@ func (s *TerminalService) StartTerm(ctx context.Context, name, desc, command str
 	sess.mu.Lock()
 	sess.readMark = sess.ring.mark()
 	sess.mu.Unlock()
-	if command == "" {
-		return termResultJSON(*info, nil, "已创建(分支绑定,用户可在看板查看接管),后续用 term_send 发送命令"), nil
-	}
-
-	sess.mu.Lock()
-	sess.lastOut = time.Now()
-	gen := sess.ring.mark()
-	sess.mu.Unlock()
-	s.writeAI(sess, command, termPayload(command))
-
-	out, exited, timedOut := waitQuiet(ctx, sess, gen, quiet, timeout)
-	sess.mu.Lock()
-	sess.readMark = sess.ring.mark()
-	sess.mu.Unlock()
-	return termResultJSON(*sess.info(), out, quietNote(exited, timedOut, timeout, info.ID)), nil
+	return termResultJSON(*info, nil, "已创建(用户可在看板查看接管),后续用 term_action action=send 发送命令"), nil
 }
 
 /*
@@ -378,7 +351,6 @@ func (s *TerminalService) Launch(dir, name, desc, origin, command string) (*Term
 	}
 	sess.mu.Lock()
 	sess.readMark = sess.ring.mark()
-	sess.lastOut = time.Now()
 	sess.mu.Unlock()
 	s.writeAI(sess, command, termPayload(command))
 	return info, nil
@@ -459,59 +431,21 @@ func (s *TerminalService) writeAI(sess *TermSession, lastCmd string, b []byte) {
 }
 
 /*
-	Send 在终端执行命令并等待输出静默,返回本次新增输出。收集起点取
+	SendTerm 在终端写入命令并**立即返回**,不等输出。
 
-读位点与写前位置的较早者(此前未读的增量一并交付,不丢输出),返回后
-推进读位点(send 与 read 共用,读即消费)。
+返回仅含终端身份/状态与提示(要拿结果稍后用 ReadTerm)。读位点不动:
+未读增量留给 read 一并交付,不因 send 丢弃。
 */
-func (s *TerminalService) Send(ctx context.Context, id, cmd string, quietMs, timeoutMs int) (string, error) {
-	quiet := clampInt(quietMs, 100, 5000, 800)
-	timeout := clampInt(timeoutMs, 1000, 60000, 30000)
-
+func (s *TerminalService) SendTerm(_ context.Context, id, cmd string) (string, error) {
 	sess, err := s.Get(id)
 	if err != nil {
 		return "", err
 	}
-	sess.mu.Lock()
-	sess.lastOut = time.Now() // 静默计时从写入后起算(命令回显/结果未出时不误判)
-	gen := sess.ring.mark()
-	if sess.readMark < gen { // 旧未读增量一并带回
-		gen = sess.readMark
-	}
-	sess.mu.Unlock()
 	s.writeAI(sess, cmd, termPayload(cmd))
-
-	out, exited, timedOut := waitQuiet(ctx, sess, gen, quiet, timeout)
 	sess.mu.Lock()
-	sess.readMark = sess.ring.mark() // 游标推进:已交付内容不再重复
 	info := *sess.info()
 	sess.mu.Unlock()
-	return termResultJSON(info, out, quietNote(exited, timedOut, timeout, sess.ID)), nil
-}
-
-/* waitQuiet 等待输出静默/退出/超时,返回期间新增输出。 */
-func waitQuiet(ctx context.Context, sess *TermSession, gen int64, quiet, timeout int) (out []byte, exited, timedOut bool) {
-	deadline := time.Now().Add(time.Duration(timeout) * time.Millisecond)
-	for {
-		sess.mu.Lock()
-		ch := sess.condCh
-		out = sess.ring.since(gen)
-		quieted := time.Since(sess.lastOut) >= time.Duration(quiet)*time.Millisecond
-		exited = sess.exited
-		sess.mu.Unlock()
-		if exited || quieted {
-			return out, exited, false
-		}
-		if time.Now().After(deadline) {
-			return out, exited, true
-		}
-		select {
-		case <-ctx.Done():
-			return out, exited, false
-		case <-ch:
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
+	return termResultJSON(info, nil, "已发送,未等待输出;稍后用 term_action action=read 读取结果;需要等待请用 terminal 同步执行"), nil
 }
 
 /*
@@ -538,20 +472,6 @@ func termResultJSON(info TermInfo, out []byte, note string) string {
 		return "{}"
 	}
 	return string(b)
-}
-
-/* quietNote 拼等静默返回的状态注记(超时/退出提示模型续读路径)。 */
-func quietNote(exited, timedOut bool, timeout int, id string) string {
-	var parts []string
-	if timedOut {
-		parts = append(parts, fmt.Sprintf("等待超时(>%ds),命令可能仍在运行,可用 term_read(termId=%s) 续读", timeout/1000, id))
-	} else {
-		parts = append(parts, "输出已静默")
-	}
-	if exited {
-		parts = append(parts, "shell 已退出,连接保留可看残留输出")
-	}
-	return strings.Join(parts, "; ")
 }
 
 /* ReadTerm 游标式读取终端新输出(读即消费,下次只返回新增)。 */
@@ -658,19 +578,6 @@ func (s *TerminalService) Snapshot(id string) []byte {
 	return sess.ring.snapshot()
 }
 
-func clampInt(v, lo, hi, def int) int {
-	if v == 0 {
-		return def
-	}
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
 /* Subscribe 订阅广播帧(WS 连接用);返回退订函数。 */
 func (s *TerminalService) Subscribe() (<-chan TermFrame, func()) {
 	ch := make(chan TermFrame, termSubsBuf)
@@ -729,7 +636,7 @@ func (s *TerminalService) Shutdown(_ time.Duration) {
 	}
 }
 
-/* ── ANSI 剥离(term_send/term_read 输出净化) ── */
+/* ── ANSI 剥离(term_action send/read 输出净化) ── */
 
 var (
 	csiRe  = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)       // CSI 序列

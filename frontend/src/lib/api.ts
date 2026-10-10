@@ -293,7 +293,7 @@ export interface TraceSpan {
 
 export type ApproveLevel = 'ask' | 'black' | 'white' | 'auto'
 export interface ToolRule {
-  tool: string
+  key: string
   level: ApproveLevel
   list: string[]
 }

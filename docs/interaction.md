@@ -25,7 +25,7 @@ agent 的能力边界再大，落到用户手里的也只是几个交互面。ez
 设计定位：**人机共用同一个真实 shell**。agent 的 workDir 与终端一致，用户可以随时接管、演示、纠错。
 
 - 后端 `core/internal/service/terminal.go`：Windows ConPTY 全局公共池（跨会话共享），环形缓冲 256KB（WS 重连恢复快照）
-- `readMark` 单游标：term_send/term_read 共用，读即消费——agent 拿到的是用户上次阅读位置之后的新输出
+- `readMark` 单游标：term_action send/read 共用，读即消费——agent 拿到的是用户上次阅读位置之后的新输出
 - 用户手动输入聚合（转义序列过滤）进入 agent_status 的 Changes，agent 每轮知道用户在终端干了什么
 - 前端 `lib/term.ts`：**单条 WebSocket 多路复用全部终端**（帧带 id 路由，hello/terminals 帧同步清单，指数退避重连）；工作区抽屉收起仅滑出，WS 与 xterm 常驻保活
 
