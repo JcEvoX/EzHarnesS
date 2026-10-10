@@ -111,6 +111,7 @@
     background: var(--bg-soft);
   }
   .arrow {
+    flex: none;
     color: var(--faint);
     font-size: 10px;
     transition: transform var(--dur-fast) var(--ease-out);
@@ -118,13 +119,17 @@
   .name {
     color: var(--fg);
   }
+  /* 这几个状态点必须 flex: none——空 span 的 flex 自动最小尺寸是 0，
+     行内内容一挤（结果摘要那行）就被压成一条线，圆点看着像没画全 */
   .dot {
+    flex: none;
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--line-strong);
   }
   .spinner {
+    flex: none;
     width: 10px;
     height: 10px;
     border: 1.5px solid var(--line);
@@ -133,6 +138,7 @@
     animation: spin 0.8s linear infinite;
   }
   .breath {
+    flex: none;
     width: 8px;
     height: 8px;
     border-radius: 50%;

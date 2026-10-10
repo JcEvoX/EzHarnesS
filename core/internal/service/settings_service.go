@@ -153,22 +153,28 @@ func (s *SettingsService) UpdateModels(ctx context.Context, m domain.ModelsConfi
 }
 
 /*
-	SecurityRules 返回当前审批策略：用户档为准，DefaultToolRules 补缺
+	SecurityRules 返回当前审批策略：用户档为准，DefaultToolRules 补缺。
 
-（精简档没覆盖的新工具按内置默认档出现，安全页可配全部工具）。
+DefaultToolRules 同时是「合法键全集」——落盘档里的键对不上它的，一律不展示：
+工具/动作已经删了，它的策略也就没有了（安全页只呈现真实存在的工具面）。
+旧键留在文件里不碍事，用户下次保存时自然写掉。
 */
 func (s *SettingsService) SecurityRules() []domain.ToolRule {
-	rules := s.Hub.ToolRulesSnapshot()
+	defaults := domain.DefaultToolRules()
+	known := make(map[string]bool, len(defaults))
+	for _, r := range defaults {
+		known[r.Key] = true
+	}
 	seen := map[string]bool{}
-	out := make([]domain.ToolRule, 0, len(rules)+8)
-	for _, r := range rules {
-		if r.Key == "" {
-			continue // 旧格式残档（无 key）不展示，由内置默认补位
+	out := make([]domain.ToolRule, 0, len(defaults))
+	for _, r := range s.Hub.ToolRulesSnapshot() {
+		if r.Key == "" || !known[r.Key] {
+			continue // 无 key 的旧格式残档 / 已删掉的工具与动作，都由内置默认补位
 		}
 		out = append(out, r)
 		seen[r.Key] = true
 	}
-	for _, r := range domain.DefaultToolRules() {
+	for _, r := range defaults {
 		if !seen[r.Key] {
 			out = append(out, r)
 		}
