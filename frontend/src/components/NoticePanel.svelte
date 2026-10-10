@@ -44,6 +44,8 @@
     }
   }
   const pendingCount = $derived(notices.filter((n) => n.status === 'pending').length)
+  /* 完成通知（info）：非待处理，但也要挂上小点（收起态的铃铛） */
+  const infoCount = $derived(notices.filter((n) => n.kind === 'info').length)
 </script>
 
 {#if collapsed}
@@ -56,7 +58,7 @@
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.7 21a2 2 0 0 1-3.4 0" />
     </svg>
-    {#if pendingCount > 0}
+    {#if pendingCount + infoCount > 0}
       <i class="dot"></i>
     {/if}
   </button>
@@ -75,12 +77,12 @@
     </div>
 
   {#if notices.length === 0}
-    <p class="empty">暂无通知——审批与提问会出现在这里</p>
+    <p class="empty">暂无通知——审批、提问与执行完成会出现在这里</p>
   {:else}
     <div class="list">
       {#each notices as n (`${n.rootId}:${n.id}`)}
         <div class="notice" class:pending={n.status === 'pending'} class:done={n.status === 'done'}>
-          <div class="row" role={n.target ? 'button' : undefined} tabindex="0" onclick={() => n.target && onJump?.(n)}>
+          <div class="row" role={n.rootId ? 'button' : undefined} tabindex="0" onclick={() => n.rootId && onJump?.(n)}>
             <span class="kind-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 {@html kindMeta[n.kind].icon}

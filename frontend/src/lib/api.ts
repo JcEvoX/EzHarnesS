@@ -198,10 +198,11 @@ export interface TopicEntry {
   origin?: ForkOrigin
 }
 
-/* 全分支未决人机请求（GET /api/notifications，通知栏轮询数据源） */
+/* 全分支未决人机请求 + 各会话最近一轮完成通知（GET /api/notifications，
+   通知栏轮询数据源；kind=info 是完成通知，非待处理） */
 export interface NotificationGroup {
   rootId: string
-  items: { callId: string; forkId?: string; kind: 'approve' | 'ask'; tool: string; args?: string; ts: number }[]
+  items: { callId: string; forkId?: string; kind: 'approve' | 'ask' | 'info'; tool: string; args?: string; ts: number }[]
 }
 
 /* 分支面板条目（GET /api/topics 响应，含运行态合成） */
@@ -366,6 +367,10 @@ export const api = {
     post<{ ok: boolean }>(`/api/sessions/${id}/decisions/answer`, { callId, input }),
 
   listNotifications: () => fetch('/api/notifications').then(json<NotificationGroup[]>),
+
+  /* 关闭完成通知（info 条）：服务端置空该会话的完成记录 */
+  dismissNotification: (id: string, callId: string) =>
+    post<{ ok: boolean }>(`/api/sessions/${id}/notifications/dismiss`, { callId }),
 
   getSettings: () => fetch('/api/settings').then(json<Settings>),
 

@@ -278,7 +278,7 @@ class AppStore {
 
   async bootstrap() {
     const b = await api.bootstrap()
-    this.activeId = b.sessionId
+    this.activate(b.sessionId)
     this.branches = b.branches ?? []
     this.settings = b.settings
     this.status = b.status
@@ -866,7 +866,7 @@ class AppStore {
     if (rootId === this.activeId) return
     try {
       const r = await api.activateBranch(rootId)
-      this.activeId = r.id
+      this.activate(r.id)
       await this.loadHistory()
       this.resubscribe()
       await this.refreshStatus()
@@ -880,7 +880,7 @@ class AppStore {
   async newBranch() {
     try {
       const r = await api.newBranch()
-      this.activeId = r.id
+      this.activate(r.id)
       await this.loadHistory()
       this.resubscribe()
       await this.refreshStatus()
@@ -915,7 +915,7 @@ class AppStore {
     }
     this.unsub?.()
     this.unsub = null
-    this.activeId = ''
+    this.activate('')
     this.leafId = ''
     this.resetView()
   }
@@ -979,7 +979,7 @@ class AppStore {
   async forkFrom(owner: string, msgIdx: number) {
     try {
       const r = await api.forkSession(owner, msgIdx + 1)
-      this.activeId = r.id
+      this.activate(r.id)
       await this.loadHistory()
       this.resubscribe()
       await this.refreshStatus()
@@ -1047,12 +1047,15 @@ class AppStore {
         const name = this.branches.find((b) => b.id === g.rootId)?.title || ''
         for (const it of g.items) {
           let question = ''
+          let info = ''
           try {
             const a = it.args ? JSON.parse(it.args) : {}
             question = a.question || ''
+            info = a.detail || ''
           } catch {
             /* 非法 JSON 忽略 */
           }
+          const done = it.kind === 'info' // 完成通知（非待处理）
           out.push({
             id: it.callId,
             rootId: g.rootId,
@@ -1060,11 +1063,11 @@ class AppStore {
             source: it.forkId ? '分身' : name || 'agent',
             forkId: it.forkId || '',
             title: it.tool,
-            detail: question,
+            detail: done ? info : question,
             time: new Date(it.ts || Date.now()).toTimeString().slice(0, 5),
-            status: 'pending',
-            resolution: '',
-            target: `decision-${it.callId}`,
+            status: done ? 'done' : 'pending',
+            resolution: done ? '已完成' : '',
+            target: done ? '' : `decision-${it.callId}`,
           })
         }
       }
@@ -1075,6 +1078,8 @@ class AppStore {
           return c.id === n.id && c.rootId === n.rootId && c.detail === n.detail && c.time === n.time
         })
       if (!same) this.notices = out
+      // 当前会话的完成通知即刻已读（正在看它，不必刷红点）
+      this.readCompletions(this.activeId)
     } catch {
       /* 后端不可达静默（下一轮重试） */
     }
@@ -1095,8 +1100,8 @@ class AppStore {
   /* jumpToNotice 跳转到通知来源：跨分支先切换（等待历史加载），分身请求
   打开抽屉定位，主时间线经 jumpMain 锚点由 ChatView 滚动。 */
   async jumpToNotice(n: NoticeData) {
-    if (!n.target) return
     if (n.rootId && n.rootId !== this.activeId) await this.openTab(n.rootId)
+    if (!n.target) return // 完成通知：切到该会话即可，无时间线锚点
     if (n.forkId) {
       this.openFork(n.forkId, n.id)
       return
@@ -1105,7 +1110,25 @@ class AppStore {
   }
 
   dismissNotice(id: string) {
+    const n = this.notices.find((x) => x.id === id)
     this.notices = this.notices.filter((x) => x.id !== id)
+    // 完成通知（info）在服务端置空——否则下一轮轮询又拉回来
+    if (n?.kind === 'info') void api.dismissNotification(n.rootId, n.id).catch(() => this.refreshNotices())
+  }
+
+  /* activate 切换活动会话（分支三操作/分叉/新建/引导都走它）：该会话的完成
+     通知随之视为已读——"打开对话=已读"，与入口无关 */
+  private activate(rootId: string) {
+    this.activeId = rootId
+    this.readCompletions(rootId)
+  }
+
+  /* readCompletions 把某会话的完成通知标记已读（本地移除 + 服务端置空） */
+  private readCompletions(rootId: string) {
+    if (!rootId) return
+    for (const n of [...this.notices]) {
+      if (n.kind === 'info' && n.rootId === rootId) this.dismissNotice(n.id)
+    }
   }
 
   /* ── 事件归约 ── */

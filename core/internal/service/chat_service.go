@@ -9,6 +9,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -99,7 +100,13 @@ func (c *ChatService) Send(rootID, text string, refs []hooks.RefFile) error {
 			}
 			_ = c.Hub.Topics.UpdateLeaf(s.RootID, s.ID, "", time.Now().UnixMilli(), len(msgs))
 		}
-		s.Publish(domain.TurnEnd(stop, iters, usage, waitErr, time.Since(started).Milliseconds()))
+		elapsed := time.Since(started).Milliseconds()
+		s.Publish(domain.TurnEnd(stop, iters, usage, waitErr, elapsed))
+		// 轮末记一条完成通知（会话级只留最近一条，通知栏轮询取用，关闭即清）；
+		// 主动取消不算完成（发起者自己知道，别刷通知）
+		if !errors.Is(waitErr, context.Canceled) {
+			s.MarkCompleted(fmt.Sprintf("%s · %d 轮 · %.1fs", hooks.FriendlyStop(stop), iters, float64(elapsed)/1000))
+		}
 	}()
 	return nil
 }
