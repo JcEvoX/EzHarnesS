@@ -46,8 +46,8 @@ function completeURL(raw) {
 /* 用户新建标签的默认起始页（AI 的 browser_tab open 不带 url 仍为空白） */
 const HOME_PAGE = 'https://cn.bing.com/'
 
-/* 浏览器标签默认缩放：抽屉/弹窗的视图比桌面浏览器窗口窄，缩到 80% 同屏多看点 */
-const BROWSER_ZOOM = 0.8
+/* 浏览器标签的原生缩放（不预设缩放，就是真实渲染比例）；Ctrl+0 回到这里 */
+const BROWSER_ZOOM = 1
 
 /* Ctrl+滚轮/快捷键的缩放档（factor，非 zoomLevel） */
 const ZOOM_MIN = 0.25
@@ -222,9 +222,6 @@ function createTab(name, desc, origin, startURL) {
   tabs.set(id, tab)
 
   const wc = view.webContents
-  /* 默认缩到 80%：抽屉/弹窗那块视图通常比桌面浏览器窗口窄，80% 相当于把布局
-     视口放宽到窗口宽的 1.25 倍，同屏能多看到内容（标签内一致，跨导航保留） */
-  wc.setZoomFactor(BROWSER_ZOOM)
   wc.setWindowOpenHandler(({ url: target }) => {
     /* target=_blank 就地开新标签（同浏览习惯），不弹独立窗口 */
     createTab(hostOf(target) || '新标签', '', '用户', target)
@@ -645,21 +642,26 @@ function viewAttached(tab) {
   return false
 }
 
-/* domScroll 页面内 JS 滚动（后台标签的兜底）：从视口中心向上找最近的可滚容器，
-   没有就滚文档；返回实时页面状态（与 pageState 同构）。 */
-function domScroll(wc, deltaY) {
+/* domScroll 页面内 JS 滚动（后台标签 / 横向滚动）：从视口中心向上找能滚**该轴**的
+   最近容器，没有就滚文档；返回实时页面状态（与 pageState 同构）。 */
+function domScroll(wc, dx, dy) {
   return wc.executeJavaScript(`
     (() => {
       const cx = Math.round(window.innerWidth / 2)
       const cy = Math.round(window.innerHeight / 2)
+      const needX = ${dx} !== 0
       let el = document.elementFromPoint(cx, cy)
       while (el) {
         const st = getComputedStyle(el)
-        if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll|overlay)/.test(st.overflowY)) break
+        const ox = /(auto|scroll|overlay)/.test(st.overflowX)
+        const oy = /(auto|scroll|overlay)/.test(st.overflowY)
+        const can = needX ? el.scrollWidth > el.clientWidth + 1 && ox : el.scrollHeight > el.clientHeight + 1 && oy
+        if (can) break
         el = el.parentElement
       }
       const target = el || document.scrollingElement || document.documentElement
-      target.scrollTop += ${Math.round(deltaY)}
+      target.scrollLeft += ${dx}
+      target.scrollTop += ${dy}
       return { url: location.href, title: document.title, scrollY: Math.round(window.scrollY) }
     })()
   `, true).catch(() => null)
@@ -746,15 +748,23 @@ const executors = {
     }
     wc.focus()
     wc.insertText(text)
+    let note = ''
     if (submit) {
-      await withSurface(tab, async () => {
-        await delay(120)
-        sendKey(wc, 'Enter', [])
-        await delay(500)
-      })
+      /* 回车"提交表单"是浏览器的默认行为，合成键盘事件（sendKey）触发不了——
+         直接调 form.requestSubmit()（等价于在输入框里按回车的隐式提交：校验 +
+         submit 事件 + 导航）。找不到所属 form 时退回报错让模型去点提交按钮。 */
+      const ok = await runDeep(wc, `
+        const el = document.activeElement
+        const form = el && (el.form || (el.closest && el.closest('form')))
+        if (!form) return false
+        form.requestSubmit()
+        return true
+      `)
+      note = ok ? '已提交表单（requestSubmit）' : '未找到所属 form，提交未执行；请 click 提交按钮'
+      await delay(600)
     }
     const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
+    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), ...(note ? { note } : {}) }) }
   },
 
   async key({ tabId, combo }) {
@@ -784,10 +794,13 @@ const executors = {
     const tab = tabOf(tabId)
     const amount = amountPx > 0 ? amountPx : 600
     const wc = tab.view.webContents
-    /* 视图没挂在任何窗口上（后台标签）= 没有合成面：滚轮是合成线程滚动，事件会被
-       直接丢弃（scrollY 纹丝不动）。这种走页面内 JS 滚动，后台照样生效。 */
-    if (!viewAttached(tab)) {
-      const live = await domScroll(wc, direction === 'down' ? amount : -amount)
+    const horiz = direction === 'left' || direction === 'right'
+    const dx = horiz ? (direction === 'right' ? amount : -amount) : 0
+    const dy = horiz ? 0 : direction === 'down' ? amount : -amount
+    /* 横向一律走页面内 JS（滚动容器的 scrollLeft，方向确定），竖向在没有合成面
+       （后台标签）时也走 JS——滚轮是合成线程滚动，没合成面事件会被直接丢弃。 */
+    if (horiz || !viewAttached(tab)) {
+      const live = await domScroll(wc, dx, dy)
       return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
     }
     const bounds = tab.view.getBounds() // 视口尺寸是 WebContentsView 的 bounds（webContents 上没有 getBounds——曾因此报 "wc.getBounds is not a function"）
@@ -798,7 +811,7 @@ const executors = {
     wc.sendInputEvent({
       type: 'mouseWheel',
       x: w / 2, y: h / 2,
-      deltaY: direction === 'down' ? -amount : amount,
+      deltaY: -dy,
     })
     await delay(200)
     const live = await pageState(wc)
@@ -870,33 +883,6 @@ const executors = {
     return { result: JSON.stringify({ ...tabState(tab.id), note: `已向 ${selector} 设置 ${list.length} 个文件` }) }
   },
 
-  /* drag 指针拖拽：源/目标元素中心之间发 mouseDown→多次 mouseMove→mouseUp。
-     基于 HTML5 DnD（dragstart/dataTransfer）的拖拽模拟不了，只对指针事件有效。 */
-  async drag({ tabId, selector, to }) {
-    const tab = tabOf(tabId)
-    if (!selector || !to) throw new Error('drag 需要 selector 与 to')
-    const wc = tab.view.webContents
-    const from = await elementPoint(wc, selector)
-    const dest = await elementPoint(wc, to)
-    if (!from) throw new Error(`源元素 ${selector} 未找到`)
-    if (!dest) throw new Error(`目标元素 ${to} 未找到`)
-    await withSurface(tab, async () => {
-      wc.sendInputEvent({ type: 'mouseMove', x: Math.round(from[0]), y: Math.round(from[1]), button: 'none' })
-      wc.sendInputEvent({ type: 'mouseDown', x: Math.round(from[0]), y: Math.round(from[1]), button: 'left', clickCount: 1 })
-      const steps = 8
-      for (let i = 1; i <= steps; i++) {
-        const x = Math.round(from[0] + ((dest[0] - from[0]) * i) / steps)
-        const y = Math.round(from[1] + ((dest[1] - from[1]) * i) / steps)
-        wc.sendInputEvent({ type: 'mouseMove', x, y, button: 'left' })
-        await delay(40)
-      }
-      wc.sendInputEvent({ type: 'mouseUp', x: Math.round(dest[0]), y: Math.round(dest[1]), button: 'left', clickCount: 1 })
-      await delay(200)
-    })
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-  },
-
   /* wait 等条件成立：selector 出现 / text 出现在正文 / time 直接等 / networkIdle 无在途
      请求。这是补"点完马上读读到渲染前"的关键原语；超时返回 wasTimeout 而非报错。 */
   async wait({ tabId, mode, selector, text, timeoutMs }) {
@@ -936,16 +922,17 @@ const executors = {
     return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), ...(detail ? { note: detail } : {}) }) }
   },
 
-  /* dialog 给下一个原生对话框定应答（一次性）：accept=true 确认（prompt 可带 text），
-     否则取消。不 arm 时默认一律取消——页面永远不会被对话框挂住。 */
-  async dialog({ tabId, accept, text }) {
+  /* dialog 给下一个原生对话框定应答（一次性）：accept=true 确认，否则取消。不 arm 时
+     默认一律取消——页面永远不会被对话框挂住。（prompt() 在 Electron 下不可用，只覆盖
+     alert/confirm。） */
+  async dialog({ tabId, accept }) {
     const tab = tabOf(tabId)
-    devtools.armDialog(tab, !!accept, text || '')
+    devtools.armDialog(tab, !!accept)
     const last = devtools.dialogInfo(tab)
     return {
       result: JSON.stringify({
         ...tabState(tab.id),
-        note: `下一个对话框将${accept ? '确认' : '取消'}${accept && text ? `（prompt 输入 ${text}）` : ''}` +
+        note: `下一个对话框将${accept ? '确认' : '取消'}` +
           (last ? `；最近一次：${last.type}「${last.message}」已${last.accepted ? '确认' : '取消'}` : ''),
       }),
     }
@@ -1060,6 +1047,33 @@ const executors = {
     }
   },
 
+  /* reset 复位 eval 留下的全局视觉变形：清掉 <html>/<body> 上内联的
+     zoom / transform / filter（改了它们会持续偏移所有元素坐标、selector 截图会
+     截到空白，且没有任何"看起来就不对"的信号）。注入的节点、其它内联样式它管不了
+     ——那两样要彻底干净只能同 URL 重载（navigate）。 */
+  async reset({ tabId }) {
+    const tab = tabOf(tabId)
+    const fixed = await runDeep(tab.view.webContents, `
+      const out = []
+      for (const pair of [['html', document.documentElement], ['body', document.body]]) {
+        const el = pair[1]
+        if (!el || !el.style) continue
+        for (const p of ['zoom', 'transform', 'filter']) {
+          const v = el.style.getPropertyValue(p)
+          if (v) {
+            el.style.removeProperty(p)
+            out.push(pair[0] + '.' + p + '=' + v)
+          }
+        }
+      }
+      return out
+    `).catch(() => [])
+    const note = fixed && fixed.length
+      ? `已清除：${fixed.join('、')}`
+      : '没有发现 html/body 上的 zoom/transform/filter 内联改动'
+    return { result: JSON.stringify({ ...tabState(tab.id), note: `${note}；注入的节点/其它内联样式请自行 eval 清，或 navigate 同 URL 重载彻底归零` }) }
+  },
+
   async eval({ tabId, js }) {
     const tab = tabOf(tabId)
     const wc = tab.view.webContents
@@ -1077,6 +1091,23 @@ const executors = {
       try { text = JSON.stringify(val) } catch { text = String(val) }
     }
     if (text && text.length > 8000) text = text.slice(0, 8000) + '\n…(过长已截断)'
+    /* 全局视觉变形会持续污染后续所有截图与坐标（曾有人用 zoom 缩页面把二维码挪进
+       视口，结果 selector 截图截到空白）——改了就当场提示，并给出复位入口。 */
+    const deformed = await runDeep(wc, `
+      const out = []
+      for (const pair of [['html', document.documentElement], ['body', document.body]]) {
+        const el = pair[1]
+        if (!el || !el.style) continue
+        for (const p of ['zoom', 'transform', 'filter']) {
+          const v = el.style.getPropertyValue(p)
+          if (v) out.push(pair[0] + '.' + p + '=' + v)
+        }
+      }
+      return out
+    `).catch(() => [])
+    if (deformed && deformed.length) {
+      text += `\n⚠ 你改动了页面全局视觉属性（${deformed.join('、')}）——这会持续偏移所有元素坐标、selector 截图会截到空白。还原用 action=reset`
+    }
     return { result: JSON.stringify({ ...tabState(tab.id), output: text }) }
   },
 

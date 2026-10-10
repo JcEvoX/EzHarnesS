@@ -52,17 +52,23 @@
     term_tab: '共享终端标签管理（new 新建 / close 关闭；list 只读恒免审）',
     'term_action:send': '向共享终端发送命令（立即返回，不等输出）',
     'term_action:read': '读取共享终端新输出（只读）',
-    browser_tab: '共享浏览器标签管理（open 新建 / close 关闭；list 只读恒免审）',
+    browser_tab: '共享浏览器标签管理（open 新建 / select 切前台 / close 关闭；list 只读恒免审）',
     'browser_action:navigate': '打开网址',
     'browser_action:click': '点击页面元素',
+    'browser_action:hover': '悬停元素（触发悬浮菜单 / 提示）',
     'browser_action:type': '输入文本',
+    'browser_action:select': '选下拉项',
     'browser_action:key': '按键 / 组合键',
     'browser_action:scroll': '滚动页面',
+    'browser_action:upload': '给文件输入框传本机文件',
     'browser_action:screenshot': '页面截图（只读）',
-    'browser_action:read': '读正文 / DOM / 元素 / 链接（只读）',
+    'browser_action:read': '读正文 / DOM / 元素 / 链接 / 子帧（只读）',
+    'browser_action:wait': '等条件成立（选择器 / 文本 / 网络空闲）',
     'browser_action:eval': '页面内执行 JS（可改 DOM）',
+    'browser_action:reset': '复位 eval 改的全局样式（zoom / transform / filter）',
     'browser_action:console': '读 / 清控制台',
     'browser_action:network': '读网络请求',
+    'browser_action:dialog': '预设原生对话框应答',
     task: 'fork 分身执行子任务（分身继承主 agent 策略）',
     save_app: '保存快应用 html',
     ask_user: '向用户提问收集信息（交互工具）',
@@ -100,7 +106,7 @@
   const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
   const ACTION_ORDER: Record<string, string[]> = {
     term_action: ['send', 'read'],
-    browser_action: ['navigate', 'click', 'type', 'key', 'scroll', 'screenshot', 'read', 'eval', 'console', 'network'],
+    browser_action: ['navigate', 'click', 'hover', 'type', 'select', 'key', 'scroll', 'upload', 'screenshot', 'read', 'wait', 'eval', 'reset', 'console', 'network', 'dialog'],
   }
   function orderOf(key: string): number {
     const base = baseOf(key)
@@ -149,6 +155,45 @@
     void persist()
   }
 
+  /* 合并式工具（term_action / browser_action）的逐 action 行折叠在工具行里 */
+  const TOOL_LEVELS: Level[] = ['ask', 'auto']
+  let expanded = $state<Record<string, boolean>>({})
+  function toggleSection(base: string) {
+    expanded[base] = !expanded[base]
+  }
+  /* 工具级一键：把该工具所有 action 设成同一档（只改允许该档的项） */
+  function setAll(rows: RuleRow[], lv: Level) {
+    for (const r of rows) if (levelsOf(r.key).includes(lv)) r.level = lv
+    void persist()
+  }
+  /* 全部 action 同档时返回该档，否则空（工具行两个按钮都不点亮） */
+  function sharedLevel(rows: RuleRow[]): Level | '' {
+    return rows.every((r) => r.level === rows[0].level) ? rows[0].level : ''
+  }
+  interface Section {
+    base: string
+    simple?: RuleRow
+    rows?: RuleRow[]
+  }
+  /* 把一组规则切成"段落"：普通工具一段一行；合并式工具一段含它全部 action 行 */
+  function sectionsOf(rs: RuleRow[]): Section[] {
+    const out: Section[] = []
+    const byBase: Record<string, Section> = {}
+    for (const r of rs) {
+      if (!r.key.includes(':')) {
+        out.push({ base: r.key, simple: r })
+        continue
+      }
+      const base = baseOf(r.key)
+      if (!byBase[base]) {
+        byBase[base] = { base, rows: [] }
+        out.push(byBase[base])
+      }
+      byBase[base].rows!.push(r)
+    }
+    return out
+  }
+
   function addEntry(r: RuleRow) {
     const v = (newList[r.key] || '').trim()
     if (v && !r.list.includes(v)) r.list = [...r.list, v]
@@ -161,6 +206,62 @@
     void persist()
   }
 </script>
+
+<!-- 名单编辑框（终端命令 / 文件路径 / mcp 共用） -->
+{#snippet listEditor(r: RuleRow)}
+  {@const kind = kindOf(r.key) ?? 'command'}
+  <div class="list-edit">
+    <p class="list-hint">
+      {r.level === 'black' ? '黑名单' : '白名单'}（{listMeta[kind].label}）——{r.level === 'black' ? '命中才审批' : '命中即放行'}
+    </p>
+    <div class="chips">
+      {#each r.list as entry (entry)}
+        <span class="chip">
+          {entry}
+          <button class="chip-x" onclick={() => removeEntry(r, entry)} title="移除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </span>
+      {/each}
+      <span class="chip-add">
+        <input
+          type="text"
+          placeholder={listMeta[kind].ph}
+          bind:value={newList[r.key]}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              addEntry(r)
+            }
+          }}
+        />
+        <button class="add-btn" onclick={() => addEntry(r)} disabled={!(newList[r.key] || '').trim()}>添加</button>
+      </span>
+    </div>
+  </div>
+{/snippet}
+
+<!-- 一条策略行（sub = 折叠在工具行下的逐 action 行） -->
+{#snippet ruleRow(r: RuleRow, label: string, sub: boolean)}
+  <div class="rule-wrap" class:sub>
+    <div class="rule">
+      <div class="info">
+        <span class="name">{label}</span>
+        <span class="desc">{r.desc}</span>
+      </div>
+      <div class="seg" role="radiogroup" aria-label={r.key}>
+        {#each levelsOf(r.key) as lv (lv)}
+          <button class="seg-btn" class:active={r.level === lv} onclick={() => setRule(r, lv)} title={FULL[lv]}>{LABELS[lv]}</button>
+        {/each}
+      </div>
+    </div>
+    {#if kindOf(r.key) && hasList(r.level)}
+      {@render listEditor(r)}
+    {/if}
+  </div>
+{/snippet}
 
 <div class="page">
   <h1>安全</h1>
@@ -176,7 +277,8 @@
     <p class="hint">
       多数工具两档：每次审批 / 全部免审。终端命令与 MCP 可配黑白名单（白名单按前缀
       命中放行，黑名单按包含命中拦下审批）；写文件可配路径前缀白名单。合并式工具
-      （term_action、browser_action）逐 action 单独配档。变更自动保存。
+      （term_action、browser_action）先点 ▸ 展开逐 action 单独配档，也可以直接用工具行
+      右边的「全部审批 / 全部免审」一键定。变更自动保存。
     </p>
     {#if message}
       <p class="msg">{message}</p>
@@ -195,69 +297,36 @@
               <span class="group-desc">{g.desc}</span>
             </div>
             <div class="list">
-              {#each groupRules as r, i (r.key)}
-                {@const base = baseOf(r.key)}
-                {#if r.key.includes(':') && (i === 0 || baseOf(groupRules[i - 1].key) !== base)}
-                  <div class="sub-head">{base}</div>
-                {/if}
-                <div class="rule-wrap" class:sub={r.key.includes(':')}>
-                  <div class="rule">
-                    <div class="info">
-                      <span class="name">{r.key.includes(':') ? r.key.slice(r.key.indexOf(':') + 1) : r.key}</span>
-                      <span class="desc">{r.desc}</span>
-                    </div>
-                    <div class="seg" role="radiogroup" aria-label={r.key}>
-                      {#each levelsOf(r.key) as lv (lv)}
-                        <button
-                          class="seg-btn"
-                          class:active={r.level === lv}
-                          onclick={() => setRule(r, lv)}
-                          title={FULL[lv]}
-                        >
-                          {LABELS[lv]}
+              {#each sectionsOf(groupRules) as sec (sec.base)}
+                {#if sec.simple}
+                  {@render ruleRow(sec.simple, sec.simple.key, false)}
+                {:else}
+                  {@const rows = sec.rows!}
+                  {@const shared = sharedLevel(rows)}
+                  <div class="rule-wrap">
+                    <div class="rule">
+                      <div class="info tool">
+                        <button class="expander" onclick={() => toggleSection(sec.base)} title="展开 / 收起逐 action">
+                          {expanded[sec.base] ? '▾' : '▸'}
                         </button>
-                      {/each}
-                    </div>
-                  </div>
-                  {#if kindOf(r.key) && hasList(r.level)}
-                    {@const kind = kindOf(r.key)!}
-                    <div class="list-edit">
-                      <p class="list-hint">
-                        {r.level === 'black' ? '黑名单' : '白名单'}（{listMeta[kind].label}）——{r.level === 'black'
-                          ? '命中才审批'
-                          : '命中即放行'}
-                      </p>
-                      <div class="chips">
-                        {#each r.list as entry (entry)}
-                          <span class="chip">
-                            {entry}
-                            <button class="chip-x" onclick={() => removeEntry(r, entry)} title="移除">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-                                <path d="M6 6l12 12M18 6L6 18" />
-                              </svg>
-                            </button>
-                          </span>
-                        {/each}
-                        <span class="chip-add">
-                          <input
-                            type="text"
-                            placeholder={listMeta[kind].ph}
-                            bind:value={newList[r.key]}
-                            onkeydown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                addEntry(r)
-                              }
-                            }}
-                          />
-                          <button class="add-btn" onclick={() => addEntry(r)} disabled={!(newList[r.key] || '').trim()}>
-                            添加
+                        <span class="name">{sec.base}</span>
+                        <span class="desc">{rows.length} 个动作{shared === 'ask' ? ' · 全部审批' : shared === 'auto' ? ' · 全部免审' : ' · 逐项'}</span>
+                      </div>
+                      <div class="seg" role="radiogroup" aria-label={sec.base}>
+                        {#each TOOL_LEVELS as lv (lv)}
+                          <button class="seg-btn" class:active={shared === lv} onclick={() => setAll(rows, lv)} title={FULL[lv]}>
+                            全部{LABELS[lv]}
                           </button>
-                        </span>
+                        {/each}
                       </div>
                     </div>
-                  {/if}
-                </div>
+                    {#if expanded[sec.base]}
+                      {#each rows as r (r.key)}
+                        {@render ruleRow(r, r.key.slice(r.key.indexOf(':') + 1), true)}
+                      {/each}
+                    {/if}
+                  </div>
+                {/if}
               {/each}
             </div>
           </div>
@@ -349,13 +418,25 @@
   .rule-wrap + .rule-wrap {
     border-top: 1px solid var(--line);
   }
-  .sub-head {
-    padding: 8px 14px 2px;
-    border-top: 1px solid var(--line);
-    font-family: var(--font-mono);
+  /* 工具行（合并式工具）：展开钮 + 工具名 + 动作数，右侧一键全审/全免 */
+  .info.tool {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .expander {
+    width: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--faint);
     font-size: 11px;
-    color: var(--muted);
-    background: var(--bg-soft);
+    line-height: 1;
+    flex: none;
+    align-self: center;
+  }
+  .expander:hover {
+    color: var(--fg);
   }
   .rule {
     display: flex;

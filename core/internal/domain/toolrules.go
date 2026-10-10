@@ -47,18 +47,26 @@ func DefaultToolRules() []ToolRule {
 		{Key: "term_tab", Level: LevelAsk},
 		{Key: "term_action:send", Level: LevelWhite, List: defaultCommandWhite},
 		{Key: "term_action:read", Level: LevelAuto},
-		/* 共享浏览器：标签开关一档；页面动作逐 action 配档（默认免审） */
+		/* 共享浏览器：标签开关一档；页面动作逐 action 配档（默认免审）。
+		每一项都必须在这里列全——漏掉的 action 在 needsApprove 里查不到规则会
+		一律要求审批，安全页也不会出现该行。 */
 		{Key: "browser_tab", Level: LevelAsk},
 		{Key: "browser_action:navigate", Level: LevelAuto},
 		{Key: "browser_action:click", Level: LevelAuto},
+		{Key: "browser_action:hover", Level: LevelAuto},
 		{Key: "browser_action:type", Level: LevelAuto},
+		{Key: "browser_action:select", Level: LevelAuto},
 		{Key: "browser_action:key", Level: LevelAuto},
 		{Key: "browser_action:scroll", Level: LevelAuto},
+		{Key: "browser_action:upload", Level: LevelAuto},
 		{Key: "browser_action:screenshot", Level: LevelAuto},
 		{Key: "browser_action:read", Level: LevelAuto},
+		{Key: "browser_action:wait", Level: LevelAuto},
 		{Key: "browser_action:eval", Level: LevelAuto},
+		{Key: "browser_action:reset", Level: LevelAuto},
 		{Key: "browser_action:console", Level: LevelAuto},
 		{Key: "browser_action:network", Level: LevelAuto},
+		{Key: "browser_action:dialog", Level: LevelAuto},
 		/* 系统自带：两档，默认免审 */
 		{Key: "task", Level: LevelAuto},
 		{Key: "save_app", Level: LevelAuto},

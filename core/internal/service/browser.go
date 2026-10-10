@@ -289,15 +289,6 @@ func (s *BrowserService) UploadBrowser(ctx context.Context, tabID, selector, fil
 	return reply.Result, nil
 }
 
-/* DragBrowser 指针拖拽（源→目标元素中心;HTML5 DnD 不适用）。 */
-func (s *BrowserService) DragBrowser(ctx context.Context, tabID, selector, to string) (string, error) {
-	reply, err := s.call(ctx, "drag", map[string]any{"tabId": tabID, "selector": selector, "to": to}, bridgeOpTimeout)
-	if err != nil {
-		return "", err
-	}
-	return reply.Result, nil
-}
-
 /* WaitBrowser 等条件成立:mode=selector|text|time|networkIdle。 */
 func (s *BrowserService) WaitBrowser(ctx context.Context, tabID, mode, selector, text string, timeoutMs int) (string, error) {
 	timeout := bridgeOpTimeout
@@ -313,9 +304,18 @@ func (s *BrowserService) WaitBrowser(ctx context.Context, tabID, mode, selector,
 	return reply.Result, nil
 }
 
-/* DialogBrowser 给下一个原生对话框定应答（accept 确认,否则取消;text=prompt 输入）。 */
-func (s *BrowserService) DialogBrowser(ctx context.Context, tabID string, accept bool, text string) (string, error) {
-	reply, err := s.call(ctx, "dialog", map[string]any{"tabId": tabID, "accept": accept, "text": text}, bridgeOpTimeout)
+/* DialogBrowser 给下一个原生对话框定应答（accept 确认,否则取消）。prompt 在 Electron 下不可用。 */
+func (s *BrowserService) DialogBrowser(ctx context.Context, tabID string, accept bool) (string, error) {
+	reply, err := s.call(ctx, "dialog", map[string]any{"tabId": tabID, "accept": accept}, bridgeOpTimeout)
+	if err != nil {
+		return "", err
+	}
+	return reply.Result, nil
+}
+
+/* ResetBrowser 复位 eval 留下的全局视觉变形（html/body 上的 zoom/transform/filter）。 */
+func (s *BrowserService) ResetBrowser(ctx context.Context, tabID string) (string, error) {
+	reply, err := s.call(ctx, "reset", map[string]any{"tabId": tabID}, bridgeOpTimeout)
 	if err != nil {
 		return "", err
 	}
@@ -395,7 +395,7 @@ browser/<tabID>-<时间戳>-<序号>.png(每张一个新文件——图片按路
 image_loaded 标记(filetools 的 OnLoop 会把批内全部标记合并成一条多图 user
 消息),无视觉返回路径文字引导。
 */
-func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector string, scale float64, timeoutMs int) (string, error) {
+func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector string, timeoutMs int) (string, error) {
 	/* timeoutMs 透传:desktop 先等加载收尾(默认 10000ms)再截,消除
 	"返回即截图"撞首帧未合成的竞态;桥上限 = 等待 + 截图余量 */
 	timeout := bridgeOpTimeout
@@ -403,7 +403,7 @@ func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fu
 		timeout = time.Duration(timeoutMs+20000) * time.Millisecond
 	}
 	reply, err := s.call(ctx, "screenshot", map[string]any{
-		"tabId": tabID, "fullPage": fullPage, "selector": selector, "scale": scale, "timeoutMs": timeoutMs,
+		"tabId": tabID, "fullPage": fullPage, "selector": selector, "timeoutMs": timeoutMs,
 	}, timeout)
 	if err != nil {
 		return "", err

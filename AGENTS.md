@@ -326,8 +326,12 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 
 **原生对话框**：建标签即 `devtools.attachTab`（只 enable `Page`，开销极小）——对话框必须在弹出**之前**挂监听，否则 CDP 场景下渲染直接暂停（页面挂住）。一律**自动应答**（默认取消，`dialog` 动作可一次性预设 accept/prompt 文本），并记入控制台缓冲。`will-prevent-unload` 放行，beforeunload 不拦导航。
 
-**表单/交互**：`hover`（mouseMove）、`select`（设 value + 派发 change，合成点击在 `<select>` 上不可靠）、`upload`（只能走 CDP `DOM.setFileInputFiles`——页面 JS 改不了 files）、`drag`（指针拖拽；HTML5 DnD 的 dragstart/dataTransfer 模拟不了）。
+**表单/交互**：`hover`（mouseMove）、`select`（设 value + 派发 change，合成点击在 `<select>` 上不可靠）、`upload`（只能走 CDP `DOM.setFileInputFiles`——页面 JS 改不了 files）、`type submit=true`（走 `form.requestSubmit()`：合成键盘事件**触发不了**表单默认动作，回车提交必须用它或 click 提交按钮）。
 
-**局部截图**：`screenshot selector=...` 只截该元素矩形（`__ezAbsRect` + 滚动量→页面坐标）——验证组件/图表时不必截整屏。`network` 支持 `filter`/`errorsOnly` 过滤（SPA 请求太吵），响应体上限 128KB。
+**没有的工具（实测后砍掉，别再捡回来）**：`drag`（HTML5 DnD 的 dragstart/dataTransfer 模拟不了，装事件探针后全无触发；只有指针拖拽形态有效，用途太窄）；`screenshot scale`（CDP clip 的 `scale` 在真实页面上不生效，实测视口只从 635→650，量到的只是滚动条宽）。`prompt()` 在 Electron 下直接抛 "not supported"，所以 dialog 只覆盖 alert/confirm。
 
-**缩放**：浏览器标签默认 0.8（`BROWSER_ZOOM`，抽屉那块视图比桌面窗口窄，缩到 80% 相当于把 CSS 视口放宽 1.25 倍、更多内容落进桌面断点）；用户 Ctrl+滚轮 / Ctrl+±/Ctrl+0 调（preload 捕获 wheel + `before-input-event`）。**AI 侧要"放大看"用截图的 `scale`（1–3）**：同一块按更高分辨率重渲染（CDP clip 的 `scale`），不改页面布局——比改页面 zoom 好（zoom 会重排、破坏"截图=真实渲染"）。改 zoom 会连布局视口一起变，只有用户手动调。
+**局部截图**：`screenshot selector=...` 只截该元素矩形（`__ezAbsRect` + 滚动量→页面坐标）——验证组件/图表时不必截整屏。`network` 支持 `filter`/`errorsOnly` 过滤（SPA 请求太吵），响应体上限 128KB。`scroll direction=left/right` 走页面内 JS（滚动容器的 `scrollLeft`），横向溢出的页面用它而不是缩页面。
+
+**eval 的全局视觉变形（踩过的坑）**：AI 曾用 `eval: documentElement.style.zoom='0.55'` 把二维码"缩进"视口——内联 zoom 会持续偏移所有元素坐标、`selector` 截图截到空白，而且没有任何"看起来就不对"的信号。防线：`eval` 返回前检测 html/body 上的 `zoom`/`transform`/`filter`，有就当场在结果里警告；`action=reset` 清掉这三样。（内容在视口外是页面自身布局问题，正确解法是 `scroll` 或让用户拉宽抽屉/弹出窗口，不是缩页面。）
+
+**缩放**：浏览器标签**不预设缩放**——按原比例渲染（`BROWSER_ZOOM=1` 只是 Ctrl+0 的复位目标，建标签时不 setZoomFactor）。用户可用 Ctrl+滚轮 / Ctrl+± / Ctrl+0 自己调（preload 捕获 wheel 转发主进程 + `before-input-event`）。改 zoom 会连布局视口一起变（页面重排，破坏"截图=真实渲染"），所以**只有用户手动调**，工具侧不碰；AI 想看视口外内容用 `scroll`（含 left/right），细节看文字用 `read mode=text`。

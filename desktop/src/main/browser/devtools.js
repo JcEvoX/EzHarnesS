@@ -86,10 +86,11 @@ function ensureDevtools(tab) {
   return d
 }
 
-/* armDialog 给下一个原生对话框定应答策略（一次性；不 arm 一律 dismiss，永不挂页）。 */
-function armDialog(tab, accept, promptText) {
+/* armDialog 给下一个原生对话框定应答策略（一次性；不 arm 一律 dismiss，永不挂页）。
+   只支持 alert/confirm——prompt() 在 Electron 下直接抛 "not supported"。 */
+function armDialog(tab, accept) {
   const d = dt(tab)
-  d.dialogPolicy = { accept: !!accept, promptText: promptText || '' }
+  d.dialogPolicy = { accept: !!accept }
 }
 
 /* dialogInfo 最近一次对话框（含是否被接受），无则 null。 */
@@ -124,9 +125,7 @@ function onDialog(d, p) {
     stack: [],
     source: 'dialog',
   })
-  const params = { accept }
-  if (accept && pol && pol.promptText) params.promptText = pol.promptText
-  d.wc.debugger.sendCommand('Page.handleJavaScriptDialog', params).catch(() => {})
+  d.wc.debugger.sendCommand('Page.handleJavaScriptDialog', { accept }).catch(() => {})
 }
 
 /* detachDevtools 摘掉本标签的采集（用户开 devtools / 关标签时调用）。 */

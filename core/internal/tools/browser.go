@@ -44,16 +44,16 @@ type BrowserIO interface {
 	SelectOptionBrowser(ctx context.Context, tabID, selector, value string) (string, error)
 	/* UploadBrowser 给 <input type=file> 设置文件(files=本机绝对路径,逗号分隔) */
 	UploadBrowser(ctx context.Context, tabID, selector, files string) (string, error)
-	/* DragBrowser 指针拖拽(源→目标元素中心) */
-	DragBrowser(ctx context.Context, tabID, selector, to string) (string, error)
 	/* WaitBrowser 等条件成立(mode=selector|text|time|networkIdle) */
 	WaitBrowser(ctx context.Context, tabID, mode, selector, text string, timeoutMs int) (string, error)
-	/* DialogBrowser 给下一个原生对话框定应答(accept 确认,否则取消;text=prompt 输入) */
-	DialogBrowser(ctx context.Context, tabID string, accept bool, text string) (string, error)
+	/* DialogBrowser 给下一个原生对话框定应答(accept 确认,否则取消) */
+	DialogBrowser(ctx context.Context, tabID string, accept bool) (string, error)
+	/* ResetBrowser 复位 eval 留下的全局视觉变形(html/body 的 zoom/transform/filter) */
+	ResetBrowser(ctx context.Context, tabID string) (string, error)
 	/* ReadBrowser 读页面(modes 见工具说明;selector 供 html/element 定位) */
 	ReadBrowser(ctx context.Context, tabID, mode, selector string, chars, timeoutMs int) (string, error)
 	/* ScreenshotBrowser 截图(默认视口,fullPage=true 截整页;落盘+image_loaded 标记;timeoutMs=等首帧上限) */
-	ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector string, scale float64, timeoutMs int) (string, error)
+	ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector string, timeoutMs int) (string, error)
 	/* EvalBrowser 页面内执行 JS(改 DOM / 读状态;返回求值结果) */
 	EvalBrowser(ctx context.Context, tabID, js string) (string, error)
 	/* ConsoleBrowser 读/清控制台(errorsOnly 只留 error;mode=read|clear) */
@@ -80,28 +80,26 @@ type browserTabArgs struct {
 }
 
 type browserActionArgs struct {
-	Action     string  `json:"action" desc:"navigate=打开网址;click=点击;hover=悬停;type=输入文本;select=选下拉项;key=按键;scroll=滚动;upload=上传文件;drag=拖拽;screenshot=截图;read=读页面;wait=等条件;eval=页面内执行JS;console=读/清控制台;network=读网络请求;dialog=应答原生对话框"`
-	TabID      string  `json:"tabId" desc:"目标标签 id(browser_tab 的 list 可查)"`
-	URL        string  `json:"url,omitempty" desc:"navigate:要打开的网址"`
-	TimeoutMs  int     `json:"timeoutMs,omitempty" desc:"navigate/screenshot/read/wait:等待上限毫秒(navigate 默认 20000,截图 10000,读取 8000,wait 15000;慢页可调大)"`
-	Selector   string  `json:"selector,omitempty" desc:"CSS 选择器(click/hover/type/select/upload/drag/screenshot/read mode=element·html;支持穿透 shadow DOM 与同源 iframe)"`
-	FullPage   bool    `json:"fullPage,omitempty" desc:"screenshot:截整页(默认只截当前视口;整页按视口高分段,段数超上限只截前几段并带说明)"`
-	Scale      float64 `json:"scale,omitempty" desc:"screenshot:放大倍数 1-3(默认 1)。图看不清细节时给 2 或 3——同一块按更高分辨率重渲染,不改页面布局(整页不支持)"`
-	Mode       string  `json:"mode,omitempty" desc:"read:text=正文(默认);html=DOM;elements=可交互元素清单(含选择器);links=链接;element=单元素详情;frames=子帧清单。wait:selector(默认)/text/time/networkIdle。console:read(默认)/clear"`
-	Index      int     `json:"index,omitempty" desc:"network:清单里的序号 #n,给了就返回该条详情(请求/响应头 + 响应体)"`
-	ErrorsOnly bool    `json:"errorsOnly,omitempty" desc:"console:只看 error;network:只看失败/4xx/5xx"`
-	Filter     string  `json:"filter,omitempty" desc:"network:URL 子串过滤"`
-	Chars      int     `json:"chars,omitempty" desc:"read:text/html/elements/links:返回字符数上限,默认 4000,上限 20000"`
-	JS         string  `json:"js,omitempty" desc:"eval:在页面内执行的 JS(可改 DOM、读状态;返回求值结果。已注入 __ezOne/__ezAll 深查询辅助)"`
-	Text       string  `json:"text,omitempty" desc:"type:要输入的文本(支持中文);wait mode=text:要出现的文本;dialog:prompt 输入内容"`
-	Submit     bool    `json:"submit,omitempty" desc:"type:输入后回车提交(搜索框/登录框常用)"`
-	Value      string  `json:"value,omitempty" desc:"select:要选的 option 值或可见文本"`
-	Files      string  `json:"files,omitempty" desc:"upload:本机文件绝对路径,多个用逗号分隔"`
-	To         string  `json:"to,omitempty" desc:"drag:目标元素选择器"`
-	Accept     bool    `json:"accept,omitempty" desc:"dialog:true=确认 false=取消(不调用 dialog 时默认取消,页面永不挂住)"`
-	Combo      string  `json:"combo,omitempty" desc:"key:按键,如 Enter、Escape、Tab、ArrowDown、Control+A、Shift+ArrowDown"`
-	Direction  string  `json:"direction,omitempty" desc:"scroll:方向 up 或 down"`
-	AmountPx   int     `json:"amountPx,omitempty" desc:"scroll:像素量,默认 600"`
+	Action     string `json:"action" desc:"navigate=打开网址;click=点击;hover=悬停;type=输入文本;select=选下拉项;key=按键;scroll=滚动;upload=上传文件;screenshot=截图;read=读页面;wait=等条件;eval=页面内执行JS;console=读/清控制台;network=读网络请求;dialog=应答原生对话框;reset=复位eval改的全局样式"`
+	TabID      string `json:"tabId" desc:"目标标签 id(browser_tab 的 list 可查)"`
+	URL        string `json:"url,omitempty" desc:"navigate:要打开的网址"`
+	TimeoutMs  int    `json:"timeoutMs,omitempty" desc:"navigate/screenshot/read/wait:等待上限毫秒(navigate 默认 20000,截图 10000,读取 8000,wait 15000;慢页可调大)"`
+	Selector   string `json:"selector,omitempty" desc:"CSS 选择器(click/hover/type/select/upload/screenshot/read mode=element·html;支持穿透 shadow DOM 与同源 iframe)"`
+	FullPage   bool   `json:"fullPage,omitempty" desc:"screenshot:截整页(默认只截当前视口;整页按视口高分段,段数超上限只截前几段并带说明)"`
+	Mode       string `json:"mode,omitempty" desc:"read:text=正文(默认);html=DOM;elements=可交互元素清单(含选择器);links=链接;element=单元素详情;frames=子帧清单。wait:selector(默认)/text/time/networkIdle。console:read(默认)/clear"`
+	Index      int    `json:"index,omitempty" desc:"network:清单里的序号 #n,给了就返回该条详情(请求/响应头 + 响应体)"`
+	ErrorsOnly bool   `json:"errorsOnly,omitempty" desc:"console:只看 error;network:只看失败/4xx/5xx"`
+	Filter     string `json:"filter,omitempty" desc:"network:URL 子串过滤"`
+	Chars      int    `json:"chars,omitempty" desc:"read:text/html/elements/links:返回字符数上限,默认 4000,上限 20000"`
+	JS         string `json:"js,omitempty" desc:"eval:在页面内执行的 JS(可改 DOM、读状态;返回求值结果。已注入 __ezOne/__ezAll 深查询辅助)"`
+	Text       string `json:"text,omitempty" desc:"type:要输入的文本(支持中文,追加不覆盖);wait mode=text:要出现的文本"`
+	Submit     bool   `json:"submit,omitempty" desc:"type:输入后提交所属表单(走 form.requestSubmit,等效回车隐式提交)"`
+	Value      string `json:"value,omitempty" desc:"select:要选的 option 值或可见文本"`
+	Files      string `json:"files,omitempty" desc:"upload:本机文件绝对路径,多个用逗号分隔"`
+	Accept     bool   `json:"accept,omitempty" desc:"dialog:true=确认 false=取消(不调用 dialog 时默认取消,页面永不挂住)"`
+	Combo      string `json:"combo,omitempty" desc:"key:按键,如 Enter、Escape、Tab、ArrowDown、Control+A、Shift+ArrowDown"`
+	Direction  string `json:"direction,omitempty" desc:"scroll:方向 up/down/left/right"`
+	AmountPx   int    `json:"amountPx,omitempty" desc:"scroll:像素量,默认 600"`
 }
 
 /* SharedBrowser 构造浏览器两工具(b 为 nil 返回 nil,测试装配可不注入)。 */
@@ -133,11 +131,11 @@ func SharedBrowser(b BrowserIO) []types.Tool {
 		types.NewTool("browser_action",
 			"操作/观察一个浏览器标签页(tabId 必填,browser_tab list 可查)。"+
 				"操作页:action=navigate 打开网址并等加载;click 点击——给 CSS 选择器(先 read mode=elements 拿可交互元素与选择器),"+
-				"选择器拿不到时用 eval 在页面里按文本/结构找到元素直接 .click(),不要靠截图估像素坐标(不可靠);type 输入文本(selector 定位输入框,省略=当前焦点处,submit=true 回车提交);"+
-				"key 按键或组合键;scroll 滚动(direction=up|down)。"+
-				"观察页:action=screenshot 截图(默认当前视口——就是浏览器真实渲染的那一块,尺寸与用户所见一致、像素坐标与页面视口一致;fullPage=true 截整页看整体结构,宽取 scrollWidth 拉满、按视口高分段,避免一张超高图被压糊。不做设备仿真,截的就是真实大小。经 image_loaded 转图片消息,多模态模型直接看图,只用于看外观/布局);"+
-				"read 读页面内容(见 mode)。"+
-				"devtools(排障):action=eval 在页面内执行 JS(改 DOM、读状态、控制台求值);console 读控制台(含未捕获异常与浏览器日志如 CSP/混合内容,errorsOnly 只看 error,mode=clear 清空);network 读网络请求清单(序号 #n),network index=n 取该条详情(请求/响应头 + 响应体,调试 API 关键)。首次读 console/network 会挂上开发者采集,之后正常读即可。"+
+				"选择器拿不到时用 eval 在页面里按文本/结构找到元素直接 .click(),不要靠截图估像素坐标(不可靠);type 输入文本(selector 定位输入框,省略=当前焦点处;追加不覆盖,要提交给 submit=true——走 form.requestSubmit,合成回车触发不了提交);hover 悬停(触发悬浮菜单/提示);select 选下拉项(selector+value);"+
+				"key 按键/组合键(合成按键不触发默认动作——不要用它提交表单);scroll 滚动(direction=up/down/left/right,横向溢出用 left/right);upload 给 <input type=file> 传本机文件(selector+files)。"+
+				"观察页:action=screenshot 截图(默认当前视口——就是浏览器真实渲染的那一块,尺寸与用户所见一致;fullPage=true 截整页看整体结构,按视口高分段;给 selector 只截该元素。不做设备仿真,截的就是真实大小。经 image_loaded 转图片消息,多模态模型直接看图,只用于看外观/布局);"+
+				"read 读页面内容(见 mode;跨域 iframe 读不到会用 frames 列出帧地址);wait 等条件成立再往下(mode=selector/text/time/networkIdle)——点完别急着 read,先 wait 免读到渲染前。"+
+				"devtools(排障):action=eval 在页面内执行 JS(改 DOM、读状态;已注入 __ezOne/__ezAll 深查询辅助。改了 html/body 的 zoom/transform/filter 会持续污染后续所有截图与坐标,会当场警告,用 reset 还原);console 读控制台(含未捕获异常与浏览器日志如 CSP/混合内容,errorsOnly 只看 error,mode=clear 清空);network 读网络请求(序号 #n;index=n 取该条详情:请求/响应头+响应体;filter 过滤 URL;errorsOnly 只看失败)。首次读 console/network 才挂采集,在它之前的请求看不到。"+
 				"操作类返回含页面实时 url/title/scrollY(以此判断是否生效);点击打开新标签时 note 会明示。",
 			func(ctx context.Context, in *browserActionArgs) (string, error) {
 				switch in.Action {
@@ -157,10 +155,8 @@ func SharedBrowser(b BrowserIO) []types.Tool {
 					return b.ScrollBrowser(ctx, in.TabID, in.Direction, in.AmountPx)
 				case "upload":
 					return b.UploadBrowser(ctx, in.TabID, in.Selector, in.Files)
-				case "drag":
-					return b.DragBrowser(ctx, in.TabID, in.Selector, in.To)
 				case "screenshot":
-					return b.ScreenshotBrowser(ctx, in.TabID, in.FullPage, in.Selector, in.Scale, in.TimeoutMs)
+					return b.ScreenshotBrowser(ctx, in.TabID, in.FullPage, in.Selector, in.TimeoutMs)
 				case "read":
 					return b.ReadBrowser(ctx, in.TabID, in.Mode, in.Selector, in.Chars, in.TimeoutMs)
 				case "wait":
@@ -172,9 +168,11 @@ func SharedBrowser(b BrowserIO) []types.Tool {
 				case "network":
 					return b.NetworkBrowser(ctx, in.TabID, in.Index, in.Filter, in.ErrorsOnly)
 				case "dialog":
-					return b.DialogBrowser(ctx, in.TabID, in.Accept, in.Text)
+					return b.DialogBrowser(ctx, in.TabID, in.Accept)
+				case "reset":
+					return b.ResetBrowser(ctx, in.TabID)
 				}
-				return "", fmt.Errorf("未知 action %q(navigate/click/hover/type/select/key/scroll/upload/drag/screenshot/read/wait/eval/console/network/dialog)", in.Action)
+				return "", fmt.Errorf("未知 action %q(navigate/click/hover/type/select/key/scroll/upload/screenshot/read/wait/eval/console/network/dialog/reset)", in.Action)
 			}),
 	}
 }
