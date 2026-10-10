@@ -297,42 +297,39 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 - desktop `withSurface`：截图前查目标视图是否挂在任一宿主（主窗+paneWindows），未挂则临时 `addChildView` 到主窗 + 屏幕外 bounds（x:-30000，attach 有合成面但不可见），截完摘除并 `syncHost()` 收敛
 - `browser_action` action=read mode=elements：页面内采集可见可交互元素（a/button/input/select/textarea/[role]/[contenteditable]），每行 `tag [CSS选择器] "文本" -> 链接`；selector 生成优先 `#id` > `[name]` > `[aria-label]` > `[placeholder]` > `nth-of-type` 路径。工具描述引导：click/type 优先 elements 拿 selector，截图只做视觉确认
 
-### 5.4 浏览器操作三连坑：滚轮符号 / 合成点击不导航 / 返回值滞后（2026-09-27 诊断页实测）
+### 5.4 浏览器输入类动作的几个坑（动作已删，留档）
 
-**现象**：①`scroll down` 纹丝不动、`up 400` 反而向下滚 400；②selector 点击 JS 事件能收到（计数器/SPA 菜单生效）但 `<a>` 链接不导航、语言切换无效；③操作返回的 url/title 常是上一拍缓存，模型没有成功判据、同动作无限重试 25 次。
+**2026-10-10 把 `click`/`type`/`key`/`scroll`/`hover`/`select` 整体删除**，改为模型用 `eval` 自己写——下面这些是当初为什么这么实现、以及"为什么最后干脆删掉"的依据：
 
-**根因与防线（改动时别拆）**：
-- `mouseWheel` 的 `deltaY` **负值=向下滚**（与直觉相反）：`direction==='down' ? -amount : +amount`。up 发负值实测反而 scrollY 增、down 发正值在顶部无空间——符号反了正好吻合两个"怪象"
-- selector 点击走 `domClick`（页面内 `el.click()` 原生点击）：合成输入（sendInputEvent）JS 监听收得到但**不触发链接导航等默认行为**；click **只认 selector**——不做坐标点击（AI 估不准像素坐标，选择器拿不到就让它用 `eval` 自己按文本/结构找元素再 `.click()`）
-- click 后对比 `tabs.size`：`target=_blank` 类点击就地开新标签（原标签不跳转），返回 `note` 明示——模型不再误判"点击无效"
-- click/type/scroll/key 返回统一融合 `pageState()`（页面内实读 url/title/scrollY，不取缓存）——操作自带成功判据（scrollY 不变即没滚动）；工具描述明示"以此判断生效，别原样重试"
-- `<action>` 第 7 条重试纪律：同手段 2 次无可见效果即停换手段、调试先建可观测信号、子任务约 10 次无进展停手汇报、长任务每几步报进度
+- **合成输入不触发默认行为**：`sendInputEvent` 合成的事件 JS 监听收得到（计数器/SPA 菜单生效），但 `<a>` 链接**不导航**、表单**不提交**。所以当时的 `click` 走页内 `el.click()`、表单提交只能靠 `form.requestSubmit()`——绕来绕去都是"eval 能做的事包装了一层"，这正是收敛的依据。
+- **鼠标滚轮的 `deltaY` 符号与直觉相反**（负值=向下滚），当年 `scroll` 因此翻车；现在页内 `scrollTo`/`scrollTop` 没有这个问题。
+- **`target=_blank` 点击会就地开新标签**（原标签不跳转）：模型若只看 url 会误判"点击无效"——用 eval 点击时同样要留意新标签。
+- 重试纪律（`<action>` 第 7 条）：同手段 2 次无可见效果即停换手段，别原样重试。
 
-### 5.5 后台标签的输入动作失效（scroll 不动 / key 受限）
+### 5.5 后台标签没有合成面（截图必须 withSurface）
 
-**现象**：点 `_blank` 打开新标签后原标签转后台（`list` 里 `active:false`），此时 `scroll` 完全无效（up/down 都不动）、`key` 受限；关掉新标签、原标签恢复激活后立刻恢复。`eval`/`screenshot`/`type` 在后台仍正常。
+**根因**：`syncHost` 只把**激活**标签的 View 挂到窗口上，后台标签的 View 被 `removeChildView` 摘除——没有合成面，`capturePage`/CDP 截图会报 UnknownVizError 或等不到首帧。**唯一防线**：`withSurface` 临时把视图挂到窗口外沿（离屏但上屏）再截，完事摘除。
 
-**根因**：`syncHost` 只把**激活**标签的 View 挂到窗口上，后台标签的 View 被 `removeChildView` 摘除——于是 ①没有合成面，滚轮是 compositor（合成线程）滚动，事件被直接丢弃；②`sendInputEvent` 要求 webContents 所属窗口存在且获焦（Electron 文档明确），按键投不出去。后台仍正常的三者都绕开了这两条：`eval` 主线程 JS、`type` 走 `wc.insertText()`、`screenshot` 用 `withSurface` 临时挂离屏合成面。
+配套的另两条事实（当年 `scroll`/`key` 受限的原因，留档）：滚轮是 compositor 线程滚动，脱离上屏窗口的事件被直接丢弃；`sendInputEvent` 要求 webContents 所属窗口存在且获焦。`eval` 走主线程 JS，不受这两条影响——这也是 DOM 操作交给它的原因之一。
 
-**防线（改动时别拆）**：
-- `withSurface` 不只是截图用：`key`/`type` 这类含 `sendInputEvent` 的动作都要套（视图已上屏时是空操作，后台临时挂离屏面 + `focus()`）
-- `scroll` 用 `viewAttached(tab)` 分流：挂在窗口上 → 真滚轮（保留 wheel 语义）；后台 → `domScroll`（页面内 JS，自视口中心向上找最近可滚容器）
-- 别默认 `sendInputEvent` 一定生效——它一旦脱离上屏窗口就**静默失效**（不报错、scrollY 不动）
+### 5.6 浏览器工具的覆盖面（七动作 / 可达性 / 采集 / 截图）
 
-### 5.6 浏览器工具的覆盖面（等待 / 可达性 / 对话框 / 表单 / 局部截图）
+**动作面就七个**（2026-10-10 收敛，原先 16 个）：`navigate` / `read` / `eval` / `console` / `network` / `screenshot` / `upload`。砍掉的九个别再往回加——页面里的 DOM 操作全交给 `eval`（它本来就在同一层：`click` 动作的实现就是页内 `el.click()`，`select` 是设 value + 派发 change，`type` 是 IME `insertText`，`scroll`/`wait` 页内 JS 都能写）。守卫在 `needsApprove` 的查表逻辑不变：新增/删减 action 时必须同步 `DefaultToolRules`，否则漏掉的 action 查不到规则会一律要求审批、安全页也不出现该行。
 
-**等待原语是刚需**：`wait`（mode=selector/text/time/networkIdle）——SPA 里点完马上 `read` 必然读到渲染前，工具描述明确要求"点/提交后先 wait 再 read"。`networkIdle` 依赖 CDP 采集（未开采集时退化为 `webContents.isLoading()`）。
+**两条真做不到的、因此永久失去**（用户已在需求侧确认）：
+- **上传之外的文件操作**：`upload` 留着是因为 file input 的 `files` 对页面 JS **只读**，只有 CDP `DOM.setFileInputFiles` 塞得进去（eval 代替不了）；非 multiple 的 input 只设第一个，并在 note 里说明。
+- **CSS `:hover`**：`dispatchEvent` 骗得过 JS 监听、骗不过样式系统，只有真实 mouseMove 能触发——悬浮类菜单（hover 弹出的下拉）驱动不了。
 
-**可达性**：`read`/`click`/`type` 等的选择器统一走 `runDeep` 注入的 `__ezAll/__ezOne`——**穿透 shadow root 与同源 iframe**（`document.querySelector` 两者都进不去）；`__ezAbsRect` 把 iframe 内元素的矩形折算到顶层视口坐标（鼠标类动作对 iframe 内元素才不会错位）。**跨域 iframe 够不着**（contentDocument 抛错），`read mode=frames` + elements 输出里附帧清单，引导模型 `navigate` 直达帧 URL。
+**可达性**：`read`/`screenshot`/`upload` 的选择器与 `eval` 注入的 `__ezOne/__ezAll` 同源，**穿透 shadow root 与同源 iframe**（`document.querySelector` 两者都进不去）。**跨域 iframe 够不着**（contentDocument 抛错），`read mode=frames` 只给帧地址，引导模型 `navigate` 直达。
 
-**原生对话框**：建标签即 `devtools.attachTab`（只 enable `Page`，开销极小）——对话框必须在弹出**之前**挂监听，否则 CDP 场景下渲染直接暂停（页面挂住）。一律**自动应答**（默认取消，`dialog` 动作可一次性预设 accept/prompt 文本），并记入控制台缓冲。`will-prevent-unload` 放行，beforeunload 不拦导航。
+**采集**：`console`/`network` 走 CDP，建标签即 enable（含首次加载）；用户一开该标签的开发者工具就 detach 让出槽位（attach 是独占的），期间只读接口报"采集不可用"。
 
-**表单/交互**：`hover`（mouseMove）、`select`（设 value + 派发 change，合成点击在 `<select>` 上不可靠）、`upload`（只能走 CDP `DOM.setFileInputFiles`——页面 JS 改不了 files）、`type submit=true`（走 `form.requestSubmit()`：合成键盘事件**触发不了**表单默认动作，回车提交必须用它或 click 提交按钮）。
+**原生对话框**：一律**自动取消**并记进控制台缓冲——不接管的活，页面会被弹窗挂死（CDP 场景下不回应 `javascriptDialogOpening` = 渲染暂停）。`prompt()` 在 Electron 下直接抛 "not supported"，所以只有 alert/confirm。
 
-**没有的工具（实测后砍掉，别再捡回来）**：`drag`（HTML5 DnD 的 dragstart/dataTransfer 模拟不了，装事件探针后全无触发；只有指针拖拽形态有效，用途太窄）；`screenshot scale`（CDP clip 的 `scale` 在真实页面上不生效，实测视口只从 635→650，量到的只是滚动条宽）。`prompt()` 在 Electron 下直接抛 "not supported"，所以 dialog 只覆盖 alert/confirm。
+**截图**：默认视口；`fullPage=true` 按视口高分段（逐段滚动到位再抓、抓完还原滚动位置）；`selector=` 只截该元素矩形。一律抓**可见视口的合成画面**，不走 `captureBeyondViewport`——那条扩展视口路径在 Electron 上会把没合成到的区域回成黑色。
 
-**局部截图**：`screenshot selector=...` 只截该元素矩形（`__ezAbsRect` + 滚动量→页面坐标）——验证组件/图表时不必截整屏。`network` 支持 `filter`/`errorsOnly` 过滤（SPA 请求太吵），响应体上限 128KB。`scroll direction=left/right` 走页面内 JS（滚动容器的 `scrollLeft`），横向溢出的页面用它而不是缩页面。
+**实测做不到的（两条真机链路验过，别再试、也别再捡回来）**：`drag`（HTML5 DnD 的 dragstart/dataTransfer 模拟不了，装事件探针后全无触发——已删）；`screenshot scale`（CDP clip 的 `scale` 在真实页面上不生效，实测视口只从 635→650，量到的只是滚动条宽——已删）；`prompt()`；`key Enter` 不触发浏览器默认动作（合成按键提交不了表单，要提交得页内 `form.requestSubmit()`——`key` 动作已删）；跨域 iframe 的 DOM。
 
-**eval 的全局视觉变形（踩过的坑）**：AI 曾用 `eval: documentElement.style.zoom='0.55'` 把二维码"缩进"视口——内联 zoom 会持续偏移所有元素坐标、`selector` 截图截到空白，而且没有任何"看起来就不对"的信号。防线：`eval` 返回前检测 html/body 上的 `zoom`/`transform`/`filter`，有就当场在结果里警告；`action=reset` 清掉这三样。（内容在视口外是页面自身布局问题，正确解法是 `scroll` 或让用户拉宽抽屉/弹出窗口，不是缩页面。）
+**eval 的全局视觉变形（踩过的坑）**：AI 曾用 `eval: documentElement.style.zoom='0.55'` 把二维码"缩进"视口——内联 zoom 会持续偏移所有元素坐标、`selector` 截图截到空白，而且没有任何"看起来就不对"的信号。防线：`eval` 返回前检测 html/body 上的 `zoom`/`transform`/`filter`，有就当场在结果里警告；修复也用它自己（eval 就是那个万能逃生口），或 `navigate` 同 URL 重载。（内容在视口外是页面自身布局问题，正确解法是页内滚动或让用户拉宽抽屉/弹出窗口，不是缩页面。）
 
-**缩放**：浏览器标签**不预设缩放**——按原比例渲染（`BROWSER_ZOOM=1` 只是 Ctrl+0 的复位目标，建标签时不 setZoomFactor）。用户可用 Ctrl+滚轮 / Ctrl+± / Ctrl+0 自己调（preload 捕获 wheel 转发主进程 + `before-input-event`）。改 zoom 会连布局视口一起变（页面重排，破坏"截图=真实渲染"），所以**只有用户手动调**，工具侧不碰；AI 想看视口外内容用 `scroll`（含 left/right），细节看文字用 `read mode=text`。
+**缩放**：浏览器标签**不预设缩放**——按原比例渲染（`BROWSER_ZOOM=1` 只是 Ctrl+0 的复位目标，建标签时不 setZoomFactor）。用户可用 Ctrl+滚轮 / Ctrl+± / Ctrl+0 自己调（preload 捕获 wheel 转发主进程 + `before-input-event`）。改 zoom 会连布局视口一起变（页面重排，破坏"截图=真实渲染"），所以**只有用户手动调**，工具侧不碰。

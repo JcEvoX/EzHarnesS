@@ -2,11 +2,12 @@
 浏览器开发者数据采集（CDP）：控制台/异常/浏览器日志 + 网络请求。
 走 Chrome DevTools Protocol —— 和 F12 同一套信息源。
 
-懒加载：某标签首次用到 console/network 时才 attach 并 enable
-Runtime/Log/Network（不碰 Debugger 域，拖慢 V8 的是它）。用户一旦打开该
-标签的开发者工具（index.js 监听 devtools-opened）立即 detach，把槽位让给
-人工调试，绝不阻塞；标签关闭同样 detach。缓冲按标签常驻（主框架导航时
-清空），不做空闲释放。
+建标签即 attach 并 enable 全部采集域（Page + Runtime/Log/Network）：首次加载的
+请求与控制台就在缓冲里，wait networkIdle 也从一开始判得准（曾懒加载到首次读，
+结果模型永远看不到首次加载的网络）。代价是每条标签常驻一份网络缓冲（CDP 侧
+上限 16MB）。不碰 Debugger 域——拖慢 V8 的是它。用户一旦打开该标签的开发者工具
+（index.js 监听 devtools-opened）立即 detach，把槽位让给人工调试，绝不阻塞；
+标签关闭同样 detach。缓冲按标签常驻（主框架导航时清空），不做空闲释放。
 */
 const CDP_VERSION = '1.3'
 const CONSOLE_MAX = 300
@@ -18,7 +19,7 @@ function dt(tab) {
   if (!tab.dt) {
     tab.dt = {
       attached: false, error: '', console: [], net: [], pending: new Map(), seq: 0, wc: null,
-      pageOn: false, domainsOn: false, dialog: null, dialogPolicy: null,
+      pageOn: false, domainsOn: false,
     }
   }
   return tab.dt
@@ -56,76 +57,54 @@ function ensureAttached(tab) {
 }
 
 /*
-	attachTab 建标签时调用：只 enable Page（原生对话框接管）。
+	attachTab 建标签时调用：attach + enable 采集域（幂等）。
 
 对话框必须在它弹出**之前**就挂上监听，否则页面会被 Chromium 挂住（CDP 场景下
-javascriptDialogOpening 不回应 = 渲染暂停），所以这一档不能懒加载。Page.enable
-本身开销很小；Runtime/Log/Network（开销大些）仍留到首次 console/network 再开。
+javascriptDialogOpening 不回应 = 渲染暂停），所以这一档不能懒加载；采集域一并
+在这里开，页面首次加载的网络/控制台才不会漏掉。
 */
 function attachTab(tab) {
   const d = ensureAttached(tab)
-  if (!d.attached || d.pageOn) return
-  d.pageOn = true
-  d.wc.debugger.sendCommand('Page.enable').catch(() => {})
+  if (!d.attached) return d
+  if (!d.pageOn) {
+    d.pageOn = true
+    d.wc.debugger.sendCommand('Page.enable').catch(() => {})
+  }
+  enableDomains(d)
+  return d
 }
 
-/* ensureDevtools 懒加载 enable 开发域（Runtime/Log/Network）；失败记 error 交调用方呈现。 */
-function ensureDevtools(tab) {
-  const d = attachTab(tab) || dt(tab)
-  if (!d.attached || d.domainsOn) return d
+/* enableDomains 开 Runtime/Log/Network（幂等）。三者开销都不大，重的是 Debugger 域
+   ——本模块从不碰它。网络要给缓冲设上限，否则长会话撑内存。 */
+function enableDomains(d) {
+  if (d.domainsOn) return
   d.domainsOn = true
   for (const m of ['Runtime.enable', 'Log.enable']) {
     d.wc.debugger.sendCommand(m).catch(() => {})
   }
-  /* 给网络缓冲设上限，避免长会话撑爆内存 */
   d.wc.debugger.sendCommand('Network.enable', {
     maxTotalBufferSize: 16 << 20,
     maxResourceBufferSize: 2 << 20,
     maxPostDataSize: 64 << 10,
   }).catch(() => {})
-  return d
 }
 
-/* armDialog 给下一个原生对话框定应答策略（一次性；不 arm 一律 dismiss，永不挂页）。
-   只支持 alert/confirm——prompt() 在 Electron 下直接抛 "not supported"。 */
-function armDialog(tab, accept) {
-  const d = dt(tab)
-  d.dialogPolicy = { accept: !!accept }
+/* ensureDevtools 读取侧入口（console/network/upload）：幂等，保证采集已开。 */
+function ensureDevtools(tab) {
+  return attachTab(tab)
 }
 
-/* dialogInfo 最近一次对话框（含是否被接受），无则 null。 */
-function dialogInfo(tab) {
-  const d = dt(tab)
-  return d.dialog ? { ...d.dialog, accepted: !!d.dialog.accepted } : null
-}
-
-/* netIdlePending 采集开启时返回在途请求数，未开启返回 -1（无法判定）。 */
-function netIdlePending(tab) {
-  const d = tab.dt
-  if (!d || !d.domainsOn) return -1
-  return d.pending.size
-}
-
-/* onDialog 对话框接管：记录 + 按策略应答（默认 dismiss，防挂页）。 */
+/* onDialog 原生对话框接管：一律**自动取消**（dismiss），页面永远不会被弹窗挂住，
+   并把这件事记进控制台缓冲让模型知道。只覆盖 alert/confirm——prompt() 在 Electron
+   下直接抛 "not supported"。 */
 function onDialog(d, p) {
-  const pol = d.dialogPolicy
-  d.dialogPolicy = null // 一次性
-  const accept = !!(pol && pol.accept)
-  const entry = {
-    type: p.type || 'alert',
-    message: p.message || '',
-    defaultPrompt: p.defaultPrompt || '',
-    accepted: accept,
-    ts: Date.now(),
-  }
-  d.dialog = entry
   pushConsole(d, {
     level: 'warn',
-    text: `[原生对话框 ${entry.type}] ${entry.message}${entry.defaultPrompt ? `（默认值 ${entry.defaultPrompt}）` : ''} → 已${accept ? '确认' : '取消'}`,
+    text: `[原生对话框 ${p.type || 'alert'}] ${p.message || ''}${p.defaultPrompt ? `（默认值 ${p.defaultPrompt}）` : ''} → 已自动取消`,
     stack: [],
     source: 'dialog',
   })
-  d.wc.debugger.sendCommand('Page.handleJavaScriptDialog', { accept }).catch(() => {})
+  d.wc.debugger.sendCommand('Page.handleJavaScriptDialog', { accept: false }).catch(() => {})
 }
 
 /* detachDevtools 摘掉本标签的采集（用户开 devtools / 关标签时调用）。 */
@@ -418,6 +397,5 @@ function shortURL(u) {
 
 module.exports = {
   attachTab, ensureDevtools, detachDevtools, clearDevtools,
-  armDialog, dialogInfo, netIdlePending,
   formatConsole, formatNetworkList, formatNetworkDetail, dt,
 }

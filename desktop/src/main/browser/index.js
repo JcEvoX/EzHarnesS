@@ -7,11 +7,11 @@ ResizeObserver/显隐联动上报、主进程 setBounds——视图宿主跟随�
 流内，显隐与位置全由这里管理。
 
 AI 链路：桥客户端连 core 的 /api/browser/bridge，browser_* 工具调用
-（start/navigate/click/type/key/scroll/read/screenshot/eval/console/
-network/list/close）在本模块直接操作对应标签的 webContents
-（executeJavaScript / sendInputEvent / capturePage / CDP 整页截图）后回执。
-console/network 的开发数据由 devtools.js 经 CDP 采集（懒加载 attach，
-用户开 devtools 即让出槽位）。
+（start/navigate/read/eval/console/network/screenshot/upload/list/close）
+在本模块直接操作对应标签的 webContents（executeJavaScript / capturePage /
+CDP 截图与上传）后回执。页面里的点击/填值/滚动不设独立动作——模型用 eval
+自己写（见 AGENTS 5.6）。console/network 的开发数据由 devtools.js 经 CDP
+采集（建标签即 attach，用户开 devtools 即让出槽位）。
 
 共见语义：AI start 或 browser:// chip 触发时由前端展开浏览器抽屉页，
 视图贴抽屉内容区；抽屉收起/切走时前端上报零矩形，视图随之下线
@@ -322,15 +322,6 @@ async function waitIdle(wc, capMs) {
 
 /* ── 执行器（browser_* 工具的直接实现） ── */
 
-/* pageState 页面内实时状态（操作返回的成功判据：url/title 不取缓存、
-scrollY 让滚动可观测）。读不到（页面跳转中）返回 null，调用方回落缓存态。 */
-async function pageState(wc) {
-  try {
-    return await wc.executeJavaScript(
-      '({ url: location.href, title: document.title, scrollY: Math.round(window.scrollY) })', true)
-  } catch { return null }
-}
-
 /*
 	深查询前置（注入到每个页面脚本）：穿透 shadow root 与**同源** iframe——
 	`document.querySelector` 两者都进不去，而后台管理系统常常整片在 iframe 里。
@@ -377,53 +368,6 @@ function __ezAbsRect(el) {
 /* runDeep 在页面里执行一段代码（带深查询前置）。code 是 IIFE 体，可 return。 */
 function runDeep(wc, code) {
   return wc.executeJavaScript(`(() => { ${DEEP_JS} ${code} })()`, true)
-}
-
-/* domClick 页面内原生点击（深查询定位）：链接跳转（同窗导航）与 SPA onClick 都可靠；
-   合成输入（sendInputEvent）两者都可能不生效（JS 收得到事件但不触发默认行为）。 */
-function domClick(wc, selector) {
-  const safe = JSON.stringify(selector)
-  return runDeep(wc, `
-    const el = __ezOne(${safe})
-    if (!el) return false
-    el.scrollIntoView({ block: 'center', inline: 'center' })
-    el.click()
-    return true
-  `)
-}
-
-/* clickAt 视口坐标点击（move 前置：悬浮态/hover 依赖）。 */
-function clickAt(wc, x, y) {
-  wc.sendInputEvent({ type: 'mouseMove', x, y, button: 'none' })
-  wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
-  wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
-}
-
-/* elementPoint selector → 顶层视口中心坐标（元素不存在返回 null）。 */
-function elementPoint(wc, selector) {
-  const safe = JSON.stringify(selector)
-  return runDeep(wc, `
-    const el = __ezOne(${safe})
-    if (!el) return null
-    el.scrollIntoView({ block: 'center', inline: 'center' })
-    const r = __ezAbsRect(el)
-    return [r.left + r.width / 2, r.top + r.height / 2]
-  `)
-}
-
-/* DOM 键名 → Electron keyCode。 */
-const KEY_CODES = {
-  Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape', Space: 'Space',
-  Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
-  PageUp: 'PageUp', PageDown: 'PageDown',
-  ArrowLeft: 'Left', ArrowUp: 'Up', ArrowRight: 'Right', ArrowDown: 'Down',
-}
-
-/* sendKey 组合键 down+up（modifiers 数组形）。 */
-function sendKey(wc, key, modifiers) {
-  const keyCode = KEY_CODES[key] || key
-  wc.sendInputEvent({ type: 'keyDown', modifiers, keyCode })
-  wc.sendInputEvent({ type: 'keyUp', modifiers, keyCode })
 }
 
 /* withSurface 截图前的上屏保障：视图未挂任何窗口时（浏览器抽屉没开过/
@@ -617,40 +561,6 @@ function tabOf(tabId) {
   return tab
 }
 
-/* viewAttached 目标标签的视图当前是否挂在某个窗口上（挂上才有合成面、
-   才能收 sendInputEvent）。后台标签的视图被 syncHost 摘掉了，返回 false。 */
-function viewAttached(tab) {
-  for (const w of [getParentWindow(), ...paneWindows]) {
-    if (w && !w.isDestroyed() && w.contentView.children.includes(tab.view)) return true
-  }
-  return false
-}
-
-/* domScroll 页面内 JS 滚动（后台标签 / 横向滚动）：从视口中心向上找能滚**该轴**的
-   最近容器，没有就滚文档；返回实时页面状态（与 pageState 同构）。 */
-function domScroll(wc, dx, dy) {
-  return wc.executeJavaScript(`
-    (() => {
-      const cx = Math.round(window.innerWidth / 2)
-      const cy = Math.round(window.innerHeight / 2)
-      const needX = ${dx} !== 0
-      let el = document.elementFromPoint(cx, cy)
-      while (el) {
-        const st = getComputedStyle(el)
-        const ox = /(auto|scroll|overlay)/.test(st.overflowX)
-        const oy = /(auto|scroll|overlay)/.test(st.overflowY)
-        const can = needX ? el.scrollWidth > el.clientWidth + 1 && ox : el.scrollHeight > el.clientHeight + 1 && oy
-        if (can) break
-        el = el.parentElement
-      }
-      const target = el || document.scrollingElement || document.documentElement
-      target.scrollLeft += ${dx}
-      target.scrollTop += ${dy}
-      return { url: location.href, title: document.title, scrollY: Math.round(window.scrollY) }
-    })()
-  `, true).catch(() => null)
-}
-
 /* frameReport 列出子 frame。深查询穿不过**跨域** iframe，这里把帧清单报出来，让
    模型知道可以改用 navigate 直达该 frame 的 URL。拿不到（未 attach）返回空串。 */
 async function frameReport(tab) {
@@ -696,154 +606,8 @@ const executors = {
     return { result: JSON.stringify(state) }
   },
 
-  async click({ tabId, selector }) {
-    const tab = tabOf(tabId)
-    const wc = tab.view.webContents
-    const before = tabs.size
-    let note
-    if (!selector) throw new Error('click 需要 selector')
-    const ok = await domClick(wc, selector)
-    if (!ok) throw new Error(`元素 ${selector} 未找到`)
-    await delay(300)
-    /* target=_blank 类点击会就地开新标签（原标签不跳转）——明示给模型，别误判"点击无效" */
-    if (tabs.size > before) {
-      const newIds = [...tabs.keys()].slice(-tabs.size + before)
-      note = `点击打开了新标签 ${newIds.join('、')}（原标签未跳转）`
-    }
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), ...(note ? { note } : {}) }) }
-  },
-
-  async type({ tabId, selector, text, submit }) {
-    const tab = tabOf(tabId)
-    const wc = tab.view.webContents
-    /* 聚焦走 JS el.focus()（深查询定位，iframe 内也不会错位，且不需要合成面）；
-       只有回车提交是 sendInputEvent，后台标签要临时挂离屏面 */
-    if (selector) {
-      const ok = await runDeep(wc, `
-        const el = __ezOne(${JSON.stringify(selector)})
-        if (!el) return false
-        el.scrollIntoView({ block: 'center', inline: 'center' })
-        el.focus()
-        return true
-      `)
-      if (!ok) throw new Error(`输入框 ${selector} 未找到`)
-      await delay(80)
-    }
-    wc.focus()
-    wc.insertText(text)
-    let note = ''
-    if (submit) {
-      /* 回车"提交表单"是浏览器的默认行为，合成键盘事件（sendKey）触发不了——
-         直接调 form.requestSubmit()（等价于在输入框里按回车的隐式提交：校验 +
-         submit 事件 + 导航）。找不到所属 form 时退回报错让模型去点提交按钮。 */
-      const ok = await runDeep(wc, `
-        const el = document.activeElement
-        const form = el && (el.form || (el.closest && el.closest('form')))
-        if (!form) return false
-        form.requestSubmit()
-        return true
-      `)
-      note = ok ? '已提交表单（requestSubmit）' : '未找到所属 form，提交未执行；请 click 提交按钮'
-      await delay(600)
-    }
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), ...(note ? { note } : {}) }) }
-  },
-
-  async key({ tabId, combo }) {
-    const tab = tabOf(tabId)
-    const parts = String(combo || '').split('+').map((s) => s.trim()).filter(Boolean)
-    const key = parts[parts.length - 1]
-    const modifiers = parts.slice(0, -1).map((m) => {
-      const lower = m.toLowerCase()
-      if (lower === 'control' || lower === 'ctrl') return 'control'
-      if (lower === 'alt' || lower === 'option') return 'alt'
-      if (lower === 'shift') return 'shift'
-      if (lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === 'os') return 'meta'
-      throw new Error(`未知修饰键 ${m}`)
-    })
-    /* sendInputEvent 要 webContents 所属窗口存在且获焦——后台标签的视图被摘掉了，
-       临时挂回一块离屏合成面（同截图）并聚焦，按键才投得出去 */
-    await withSurface(tab, async () => {
-      tab.view.webContents.focus()
-      sendKey(tab.view.webContents, key, modifiers)
-      await delay(300)
-    })
-    const live = await pageState(tab.view.webContents)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-  },
-
-  async scroll({ tabId, direction, amountPx }) {
-    const tab = tabOf(tabId)
-    const amount = amountPx > 0 ? amountPx : 600
-    const wc = tab.view.webContents
-    const horiz = direction === 'left' || direction === 'right'
-    const dx = horiz ? (direction === 'right' ? amount : -amount) : 0
-    const dy = horiz ? 0 : direction === 'down' ? amount : -amount
-    /* 横向一律走页面内 JS（滚动容器的 scrollLeft，方向确定），竖向在没有合成面
-       （后台标签）时也走 JS——滚轮是合成线程滚动，没合成面事件会被直接丢弃。 */
-    if (horiz || !viewAttached(tab)) {
-      const live = await domScroll(wc, dx, dy)
-      return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-    }
-    const bounds = tab.view.getBounds() // 视口尺寸是 WebContentsView 的 bounds（webContents 上没有 getBounds——曾因此报 "wc.getBounds is not a function"）
-    const w = bounds.width || 800 // 视图从未上屏时 0×0：兜底常量尺寸，滚轮落视口中部
-    const h = bounds.height || 600
-    /* deltaY 符号：负值向下滚（scrollY 增）、正值向上——与直觉相反，
-       实测 up 发负值反而向下滚 400、down 发正值在顶部无空间不动 */
-    wc.sendInputEvent({
-      type: 'mouseWheel',
-      x: w / 2, y: h / 2,
-      deltaY: -dy,
-    })
-    await delay(200)
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-  },
-
-  async hover({ tabId, selector }) {
-    const tab = tabOf(tabId)
-    if (!selector) throw new Error('hover 需要 selector')
-    const wc = tab.view.webContents
-    const point = await elementPoint(wc, selector)
-    if (!point) throw new Error(`元素 ${selector} 未找到`)
-    await withSurface(tab, async () => {
-      /* 只发 mouseMove（不带按键）——CSS :hover / 悬浮菜单靠它触发 */
-      wc.sendInputEvent({ type: 'mouseMove', x: Math.round(point[0]), y: Math.round(point[1]), button: 'none' })
-      await delay(200)
-    })
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-  },
-
-  /* selectOption 选下拉项：直接设 value + 派发 change/input（合成点击在 <select> 上不可靠）。 */
-  async selectOption({ tabId, selector, value }) {
-    const tab = tabOf(tabId)
-    if (!selector) throw new Error('select 需要 selector')
-    const wc = tab.view.webContents
-    const out = await runDeep(wc, `
-      const el = __ezOne(${JSON.stringify(selector)})
-      if (!el) return { ok: false, why: '未找到元素' }
-      if (el.tagName !== 'SELECT') return { ok: false, why: '不是 select 元素（' + el.tagName + '）' }
-      const want = ${JSON.stringify(value)}
-      const opt = Array.from(el.options).find(o => o.value === want || o.text.trim() === want)
-      if (!opt) return { ok: false, why: '没有匹配的选项', options: Array.from(el.options).map(o => o.value + '|' + o.text.trim()).slice(0, 30) }
-      el.value = opt.value
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-      return { ok: true, value: el.value, text: opt.text.trim() }
-    `)
-    if (!out || !out.ok) {
-      const opts = out && out.options ? `；可选：${out.options.join('、')}` : ''
-      throw new Error(`select 失败：${(out && out.why) || '未知'}${opts}`)
-    }
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), note: `已选中 ${out.value}（${out.text}）` }) }
-  },
-
   /* upload 给 <input type=file> 塞文件：只能走 CDP DOM.setFileInputFiles（页面 JS 改不了
-     files）。files 是本机绝对路径，逗号分隔。 */
+     files）。files 是本机绝对路径，逗号分隔；非 multiple 的 input 只设第一个。 */
   async upload({ tabId, selector, files }) {
     const tab = tabOf(tabId)
     if (!selector) throw new Error('upload 需要 selector')
@@ -852,74 +616,23 @@ const executors = {
     const d = devtools.ensureDevtools(tab)
     if (!d.attached) throw new Error(`上传需要 CDP（${d.error || '未挂上'}）`)
     const wc = tab.view.webContents
-    const r = await runDeep(wc, `
+    const info = await runDeep(wc, `
       const el = __ezOne(${JSON.stringify(selector)})
-      return el ? true : false
+      return el ? { multiple: !!el.multiple } : null
     `)
-    if (!r) throw new Error(`元素 ${selector} 未找到`)
+    if (!info) throw new Error(`元素 ${selector} 未找到`)
+    /* 非 multiple 的 file input 只认第一个文件（浏览器会静默丢掉其余），
+       这里就只传第一个并把这件事说出来，别让模型以为全传上去了 */
+    const apply = info.multiple ? list : list.slice(0, 1)
+    const trimNote = !info.multiple && list.length > 1 ? `（该 input 非 multiple，只设置第一个，其余 ${list.length - 1} 个被忽略）` : ''
     const obj = await d.wc.debugger.sendCommand('Runtime.evaluate', {
       expression: `${DEEP_JS}\n__ezOne(${JSON.stringify(selector)})`,
       includeCommandLineAPI: false,
     })
     if (!obj.result || !obj.result.objectId) throw new Error(`定位 ${selector} 失败`)
-    await d.wc.debugger.sendCommand('DOM.setFileInputFiles', { files: list, objectId: obj.result.objectId })
+    await d.wc.debugger.sendCommand('DOM.setFileInputFiles', { files: apply, objectId: obj.result.objectId })
     await delay(200)
-    return { result: JSON.stringify({ ...tabState(tab.id), note: `已向 ${selector} 设置 ${list.length} 个文件` }) }
-  },
-
-  /* wait 等条件成立：selector 出现 / text 出现在正文 / time 直接等 / networkIdle 无在途
-     请求。这是补"点完马上读读到渲染前"的关键原语；超时返回 wasTimeout 而非报错。 */
-  async wait({ tabId, mode, selector, text, timeoutMs }) {
-    const tab = tabOf(tabId)
-    const wc = tab.view.webContents
-    const kind = mode || 'selector'
-    const budget = timeoutMs > 0 ? timeoutMs : 15000
-    const deadline = Date.now() + budget
-    let ok = false
-    let detail = ''
-    while (Date.now() < deadline) {
-      if (kind === 'selector') {
-        if (!selector) throw new Error('wait mode=selector 需要 selector')
-        ok = !!(await runDeep(wc, `return !!__ezOne(${JSON.stringify(selector)})`).catch(() => false))
-      } else if (kind === 'text') {
-        ok = !!(await wc.executeJavaScript(
-          `!!(document.body && document.body.innerText.includes(${JSON.stringify(text || '')}))`, true,
-        ).catch(() => false))
-      } else if (kind === 'time') {
-        ok = true
-      } else if (kind === 'networkIdle') {
-        const pending = devtools.netIdlePending(tab)
-        if (pending < 0) {
-          /* 采集未开：退化为"加载中"判定 */
-          ok = !wc.isLoading()
-        } else {
-          ok = pending === 0
-        }
-      } else {
-        throw new Error(`未知 wait mode ${kind}（selector/text/time/networkIdle）`)
-      }
-      if (ok) break
-      await delay(200)
-    }
-    if (!ok) detail = `等待超时（${budget}ms）`
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), ...(detail ? { note: detail } : {}) }) }
-  },
-
-  /* dialog 给下一个原生对话框定应答（一次性）：accept=true 确认，否则取消。不 arm 时
-     默认一律取消——页面永远不会被对话框挂住。（prompt() 在 Electron 下不可用，只覆盖
-     alert/confirm。） */
-  async dialog({ tabId, accept }) {
-    const tab = tabOf(tabId)
-    devtools.armDialog(tab, !!accept)
-    const last = devtools.dialogInfo(tab)
-    return {
-      result: JSON.stringify({
-        ...tabState(tab.id),
-        note: `下一个对话框将${accept ? '确认' : '取消'}` +
-          (last ? `；最近一次：${last.type}「${last.message}」已${last.accepted ? '确认' : '取消'}` : ''),
-      }),
-    }
+    return { result: JSON.stringify({ ...tabState(tab.id), note: `已向 ${selector} 设置 ${apply.length} 个文件${trimNote}` }) }
   },
 
   async read({ tabId, mode, selector, chars, timeoutMs }) {
@@ -1029,33 +742,6 @@ const executors = {
         note: truncated ? '过长已截断' : undefined,
       }),
     }
-  },
-
-  /* reset 复位 eval 留下的全局视觉变形：清掉 <html>/<body> 上内联的
-     zoom / transform / filter（改了它们会持续偏移所有元素坐标、selector 截图会
-     截到空白，且没有任何"看起来就不对"的信号）。注入的节点、其它内联样式它管不了
-     ——那两样要彻底干净只能同 URL 重载（navigate）。 */
-  async reset({ tabId }) {
-    const tab = tabOf(tabId)
-    const fixed = await runDeep(tab.view.webContents, `
-      const out = []
-      for (const pair of [['html', document.documentElement], ['body', document.body]]) {
-        const el = pair[1]
-        if (!el || !el.style) continue
-        for (const p of ['zoom', 'transform', 'filter']) {
-          const v = el.style.getPropertyValue(p)
-          if (v) {
-            el.style.removeProperty(p)
-            out.push(pair[0] + '.' + p + '=' + v)
-          }
-        }
-      }
-      return out
-    `).catch(() => [])
-    const note = fixed && fixed.length
-      ? `已清除：${fixed.join('、')}`
-      : '没有发现 html/body 上的 zoom/transform/filter 内联改动'
-    return { result: JSON.stringify({ ...tabState(tab.id), note: `${note}；注入的节点/其它内联样式请自行 eval 清，或 navigate 同 URL 重载彻底归零` }) }
   },
 
   async eval({ tabId, js }) {

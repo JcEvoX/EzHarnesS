@@ -54,21 +54,12 @@
     'term_action:read': '读取共享终端新输出（只读）',
     browser_tab: '共享浏览器标签管理（open 新建 / select 切前台 / close 关闭；list 只读恒免审）',
     'browser_action:navigate': '打开网址',
-    'browser_action:click': '点击页面元素',
-    'browser_action:hover': '悬停元素（触发悬浮菜单 / 提示）',
-    'browser_action:type': '输入文本',
-    'browser_action:select': '选下拉项',
-    'browser_action:key': '按键 / 组合键',
-    'browser_action:scroll': '滚动页面',
-    'browser_action:upload': '给文件输入框传本机文件',
-    'browser_action:screenshot': '页面截图（只读）',
     'browser_action:read': '读正文 / DOM / 元素 / 链接 / 子帧（只读）',
-    'browser_action:wait': '等条件成立（选择器 / 文本 / 网络空闲）',
-    'browser_action:eval': '页面内执行 JS（可改 DOM）',
-    'browser_action:reset': '复位 eval 改的全局样式（zoom / transform / filter）',
-    'browser_action:console': '读 / 清控制台',
-    'browser_action:network': '读网络请求',
-    'browser_action:dialog': '预设原生对话框应答',
+    'browser_action:eval': '页面内执行 JS（点击 / 填值 / 滚动 / 断言都走这里，可改 DOM）',
+    'browser_action:console': '读 / 清控制台（只读，clear 除外）',
+    'browser_action:network': '读网络请求（只读）',
+    'browser_action:screenshot': '页面截图（只读）',
+    'browser_action:upload': '给文件输入框传本机文件',
     task: 'fork 分身执行子任务（分身继承主 agent 策略）',
     save_app: '保存快应用 html',
     ask_user: '向用户提问收集信息（交互工具）',
@@ -106,7 +97,7 @@
   const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
   const ACTION_ORDER: Record<string, string[]> = {
     term_action: ['send', 'read'],
-    browser_action: ['navigate', 'click', 'hover', 'type', 'select', 'key', 'scroll', 'upload', 'screenshot', 'read', 'wait', 'eval', 'reset', 'console', 'network', 'dialog'],
+    browser_action: ['navigate', 'read', 'eval', 'console', 'network', 'screenshot', 'upload'],
   }
   function orderOf(key: string): number {
     const base = baseOf(key)
