@@ -286,7 +286,8 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 - `read/screenshot` 前过 `waitIdle`（轮询 isLoading，封顶放行——降级语义，不报错）；`browser_action` 的 read/screenshot 有显式 `timeoutMs` 透传
 - `cdpScreenshot` 20s 护栏 + target/session 类错误按当前 target 重挂重试一次；桥等待上限 = 等待 + 余量（core 侧 `timeoutMs+N` 秒），别让 desktop 内部等待吃光桥超时
 - **截图默认视口**（`fullPage=true` 才截整页）：视口图尺寸就是浏览器真实渲染的那一块，像素坐标与页面视口坐标系一致（要被点/被看的就是这一屏）；**别做设备仿真**（`Emulation.setDeviceMetricsOverride` 造出来的"标准尺寸"不是真实渲染，和交互/坐标都对不上）
-- **整页必须分段**：视觉模型会把大图缩到约 1.15MP，一张超高的整页图会被压成糊图。按视口高逐段 `clip`（`captureBeyondViewport` + 显式 clip——只给 `captureBeyondViewport` 不保证覆盖整页），段数上限 5、宽取 `scrollWidth` 拉满（上限 2400）；`withShotEnv` 里顺带 `Emulation.setScrollbarsHidden` 藏滚动条
+- **抓图一律「可见视口的合成画面」**：视口截图直接 `Page.captureScreenshot`，不设 clip、不走 `captureBeyondViewport`——那条扩展视口路径在 Electron 上会把没合成到的区域回成黑色（表现就是截图右侧一条黑边）
+- **整页必须分段**：视觉模型会把大图缩到约 1.15MP，一张超高的整页图会被压成糊图。按视口高逐段**滚动到位再抓视口**，段数上限 5，抓完还原原滚动位置；代价是横向溢出到视口外的部分不在图里（附注让模型 `scroll left/right` 看）；`withShotEnv` 里顺带 `Emulation.setScrollbarsHidden` 藏滚动条
 
 ### 5.3 视图未上屏截图挂死 + 元素定位缺失（2026-09-27）
 

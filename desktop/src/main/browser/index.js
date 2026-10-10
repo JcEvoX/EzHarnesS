@@ -454,10 +454,10 @@ async function withSurface(tab, fn) {
 /* screenshot 截图。默认**视口**——就是浏览器真实渲染的那一块，尺寸与用户所见一致、
    像素坐标与页面视口坐标系一致（最贴近真实交互）；fullPage=true 才截整页，用于看
    整体结构（按视口高分段、每段原生分辨率，避免一张超高图被视觉模型压糊）。
-   不做设备仿真：截的就是浏览器真实大小。getLayoutMetrics 拿尺寸作 clip（只给
-   captureBeyondViewport 不保证真覆盖整页，这是"窗口多大截多少"的根因）。CDP 在
-   target 换代（导航提交/渲染进程重建的瞬间）会报 target closed 类错误——重挂**当前**
-   target 重试一次再定论；仍不行则退 capturePage 保底。 */
+   不做设备仿真：截的就是浏览器真实大小。一律抓「可见视口的合成画面」，不走
+   captureBeyondViewport 那条扩展视口路径——它在 Electron 上会把没合成到的区域回成
+   黑色。CDP 在 target 换代（导航提交/渲染进程重建的瞬间）会报 target closed 类
+   错误——重挂**当前** target 重试一次再定论；仍不行则退 capturePage 保底。 */
 async function screenshot(wc, fullPage, selector) {
   const shoot = () => (selector ? cdpElementShot(wc, selector) : fullPage ? cdpShot(wc) : cdpViewportShot(wc))
   try {
@@ -490,7 +490,6 @@ async function captureViewport(wc) {
 
 const CDP_VERSION = '1.3'
 const SHOT_TILES = 5 // 整页分段段数上限（控制一次进上下文的图片数）
-const SHOT_MAX_W = 2400 // 整页截图宽度上限（页面横向溢出极宽时兜底）
 
 /*
 	withShotEnv 截图共用环境：藏滚动条（分段会溢出，滚动条落图难看），跑完还原；
@@ -544,20 +543,11 @@ async function scrollPos(cdp) {
   return { x: 0, y: 0 }
 }
 
-/* cdpViewportShot 视口截图：当前滚动位置的一屏，尺寸即浏览器真实视口。 */
+/* cdpViewportShot 视口截图：直接抓当前可见视口那一屏。不设 clip、不走扩展视口
+   ——视口截图本来就不需要"截到视口之外"，而那条路径会把没合成到的区域回成黑色。 */
 async function cdpViewportShot(wc) {
   return withShotEnv(wc, async (cdp) => {
-    const m = await cdp('Page.getLayoutMetrics')
-    const lv = m.cssLayoutViewport || m.layoutViewport || {}
-    const width = Math.max(1, Math.ceil(lv.clientWidth || 0))
-    const height = Math.max(1, Math.ceil(lv.clientHeight || 0))
-    const pos = await scrollPos(cdp)
-    const data = await shotCapture(cdp, {
-      format: 'png',
-      captureBeyondViewport: true,
-      clip: { x: pos.x, y: pos.y, width, height, scale: 1 },
-    })
-    return { images: [data] }
+    return { images: [await shotCapture(cdp, { format: 'png' })] }
   })
 }
 
@@ -583,42 +573,36 @@ async function cdpElementShot(wc, selector) {
   })
 }
 
-/* cdpShot 整页分段截图：宽取 scrollWidth（横向溢出拉满），按视口高逐段 clip。 */
+/* cdpShot 整页分段截图：逐段滚动到视口、抓真实画面，完了还原滚动位置。
+   不用扩展视口取"宽度拉满"——那条路径在 Electron 上会把没合成到的区域回成黑色。
+   代价：横向溢出到视口外的部分不在图里（附注提示用 scroll left/right 看）。 */
 async function cdpShot(wc) {
   return withShotEnv(wc, async (cdp) => {
     const m = await cdp('Page.getLayoutMetrics')
     const cs = m.cssContentSize || m.contentSize || {}
     const lv = m.cssLayoutViewport || m.layoutViewport || {}
-    let width = Math.ceil(cs.width || 0)
-    const total = Math.ceil(cs.height || 0)
+    const vw = Math.max(1, Math.ceil(lv.clientWidth || 0))
     const segH = Math.max(200, Math.ceil(lv.clientHeight || 0) || 800)
-    /* 横向能滚的页面：文档 scrollWidth 常大于视口宽，取它才是"拉满" */
-    try {
-      const r = await cdp('Runtime.evaluate', {
-        expression: 'Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0)',
-        returnByValue: true,
-      })
-      const sw = Math.ceil((r.result && r.result.value) || 0)
-      if (sw > width) width = sw
-    } catch { /* 拿不到就用 metrics 宽 */ }
-    const capW = Math.min(width, SHOT_MAX_W)
-    const notes = []
-    if (width > capW) notes.push(`页面宽 ${width}px，超出 ${SHOT_MAX_W}px 上限，右侧可能截断`)
-    if (capW <= 0 || total <= 0) {
-      return { images: [await shotCapture(cdp, { format: 'png' })], note: notes.join('；') } // 尺寸拿不到：退单张
-    }
+    const total = Math.ceil(cs.height || 0)
+    if (total <= 0) return { images: [await shotCapture(cdp, { format: 'png' })] } // 尺寸拿不到：退单张
     const segs = Math.max(1, Math.ceil(total / segH))
     const n = Math.min(segs, SHOT_TILES)
+    const pos = await scrollPos(cdp)
     const images = []
-    for (let i = 0; i < n; i++) {
-      const y = i * segH
-      images.push(await shotCapture(cdp, {
-        format: 'png',
-        captureBeyondViewport: true,
-        clip: { x: 0, y, width: capW, height: Math.min(segH, total - y), scale: 1 },
-      }))
+    try {
+      for (let i = 0; i < n; i++) {
+        await cdp('Runtime.evaluate', { expression: `window.scrollTo(${pos.x}, ${i * segH})` })
+        await delay(120) // 等这一屏落帧再抓
+        images.push(await shotCapture(cdp, { format: 'png' }))
+      }
+    } finally {
+      try {
+        await cdp('Runtime.evaluate', { expression: `window.scrollTo(${pos.x}, ${pos.y})` })
+      } catch { /* 页面可能已跳走 */ }
     }
-    if (segs > n) notes.push(`页面共 ${segs} 段，已截前 ${n} 段；其余用 scroll 后逐屏看或 viewport 截图`)
+    const notes = []
+    if (segs > n) notes.push(`页面共 ${segs} 段，已截前 ${n} 段；其余滚动后逐屏看或 viewport 截图`)
+    if (Math.ceil(cs.width || 0) > vw + 1) notes.push(`页面有横向溢出（宽 ${Math.ceil(cs.width || 0)}，视口 ${vw}），横向部分用 scroll left/right 看`)
     return { images, note: notes.join('；') }
   })
 }
