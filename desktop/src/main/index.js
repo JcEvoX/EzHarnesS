@@ -5,7 +5,7 @@ core 伺服的页面；托盘常驻；关闭语义（托盘隐藏/确认退出�
 用子窗口；共享浏览器（WebContentsView，browser 模块）。
 core 是唯一业务后端——本进程只做壳与桌面资产，不做业务。
 */
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, screen } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -19,6 +19,10 @@ let tray = null
 let coreProc = null
 let quitting = false
 let corePort = 5260
+/* 桌面宠物：一块透明的置顶小窗，只有一个头像，双击打开主窗口。位置固定
+   在屏幕右下（拖动/多档面板/鼠标穿透等先全去掉，待重写）。 */
+let petWindow = null
+const PET_SIZE = 96
 /* API 令牌：每次启动随机生成，env 注入 core、URL query 带入页面。 */
 const coreToken = crypto.randomBytes(18).toString('hex')
 let findBrowserPopout = () => null // registerIpc 注入：当前浏览器页的独立窗口（无则 null）
@@ -201,6 +205,37 @@ async function saveCloseToTray(value) {
   }
 }
 
+/* createPetWindow 桌面宠物：透明置顶小窗，落在鼠标所在屏右下。只有一个
+   头像——拖动走渲染层 app-region（与主窗标题栏同套，零 JS），点小按钮经
+   ez:pet-open-main 打开主窗口。 */
+function createPetWindow() {
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const win = new BrowserWindow({
+    width: PET_SIZE,
+    height: PET_SIZE,
+    x: area.x + area.width - PET_SIZE - 24,
+    y: area.y + area.height - PET_SIZE - 24,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+    },
+  })
+  win.loadURL(pageUrl('/?desktop=1&pet=1'))
+  guardWebContents(win.webContents)
+  win.once('ready-to-show', () => win.show())
+  win.on('closed', () => {
+    petWindow = null
+  })
+  return win
+}
+
 /* handleCloseRequest 点 X：已配置托盘则直接隐藏；否则让前端弹确认框 */
 async function handleCloseRequest() {
   const settings = await coreSettings()
@@ -289,6 +324,8 @@ function registerIpc() {
     win.loadURL(pageUrl(url))
     guardWebContents(win.webContents)
   })
+  /* 桌面宠物：点小按钮 → 显示主窗口（拖动走渲染层 app-region，无 IPC） */
+  ipcMain.on('ez:pet-open-main', () => showMain())
   /* 抽屉工具弹出窗口：view → BrowserWindow。popoutState 是各工具最新
      的 pane 状态快照（file 弹出时由弹窗持续上报），关窗回流给主窗口。 */
   const popoutWindows = new Map()
@@ -376,6 +413,7 @@ app.whenReady().then(async () => {
   createTray()
   registerIpc()
   startBrowserModule({ corePort, token: coreToken, getParentWindow: () => mainWindow, findBrowserOwner: () => findBrowserPopout() })
+  petWindow = createPetWindow()
 }).catch((err) => console.error('启动失败:', err))
 
 /* 托盘常驻：全部窗口关闭不退出（退出只走托盘菜单/关闭确认） */

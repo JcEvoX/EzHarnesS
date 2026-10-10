@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld('ez', {
     onClosed: (cb) => ipcRenderer.on('ez:popout-closed', (_e, view, state) => cb(view, state)),
     onSignal: (cb) => ipcRenderer.on('ez:popout-signal', (_e, name, value) => cb(name, value)),
   },
+  /* 桌面宠物：打开主窗口（拖动走渲染层 app-region，不需要 IPC） */
+  pet: {
+    openMain: () => ipcRenderer.send('ez:pet-open-main'),
+  },
   browser: {
     /* 标签清单（JSON 字符串）订阅与拉取 */
     onTabs: (cb) => ipcRenderer.on('ez-browser:tabs', (_e, payload) => cb(payload)),
