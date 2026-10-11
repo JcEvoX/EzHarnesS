@@ -11,11 +11,15 @@
     onResolve,
     onJump,
     onDismiss,
+    standalone = false,
   }: {
     notices?: NoticeData[]
     onResolve?: (id: string, action: string, input?: string) => void
     onJump?: (n: NoticeData) => void
     onDismiss?: (id: string) => void
+    /* standalone：独立通知窗里用——常驻展开、不写 localStorage（同源会污染
+       主窗的折叠记忆），也不显示收起按钮 */
+    standalone?: boolean
   } = $props()
 
   const kindMeta: Record<NoticeData['kind'], { label: string; icon: string }> = {
@@ -28,13 +32,15 @@
 
   /* 收起为小方块：有待处理通知时右上角红点提示，localStorage 记忆收起态 */
   const collapsedKey = 'ezh.noticePanel.collapsed'
-  let collapsed = $state((() => {
-    try {
-      return localStorage.getItem(collapsedKey) !== '0' // 无记录默认折叠
-    } catch {
-      return true
-    }
-  })())
+  let collapsed = $state(standalone
+    ? false
+    : (() => {
+        try {
+          return localStorage.getItem(collapsedKey) !== '0' // 无记录默认折叠
+        } catch {
+          return true
+        }
+      })())
   function fold(v: boolean) {
     collapsed = v
     try {
@@ -69,11 +75,13 @@
       {#if pendingCount > 0}
         <span class="badge">{pendingCount} 待处理</span>
       {/if}
-      <button class="fold" onclick={() => fold(true)} title="收起">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-          <path d="M5 12h14" />
-        </svg>
-      </button>
+      {#if !standalone}
+        <button class="fold" onclick={() => fold(true)} title="收起">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
   {#if notices.length === 0}

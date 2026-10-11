@@ -17,6 +17,7 @@
   import ResourcePane from './components/viewer/ResourcePane.svelte'
   import BrowserPane from './components/board/BrowserPane.svelte'
   import AssistantPet from './components/AssistantPet.svelte'
+  import NoticeWindow from './components/NoticeWindow.svelte'
 
   let view = $state<'chat' | 'models' | 'memory' | 'tools' | 'mcp' | 'security' | 'settings'>('chat')
   let expanded = $state(false)
@@ -27,6 +28,8 @@
   /* 桌面宠物（ez:pet 创建）：只有头像 + 状态角标（AssistantPet 内自轮询
   notifications/topics，不走 bootstrap/SSE/store） */
   const petView = new URLSearchParams(location.search).get('pet') === '1'
+  /* 独立通知窗（铃铛球打开）：复用 NoticePanel + store 轮询，不 bootstrap */
+  const noticeView = new URLSearchParams(location.search).get('notice') === '1'
   const ez = (window as any).ez
 
   /* 资源页弹出侧：状态变化防抖上报主进程（关窗回流取最新快照） */
@@ -39,6 +42,8 @@
   onMount(() => {
     /* 桌面宠物：无 bootstrap / SSE / store（状态感知在 AssistantPet 内轮询） */
     if (petView) return
+    /* 独立通知窗：自管 refreshBranches/refreshNotices 轮询，不 bootstrap */
+    if (noticeView) return
     if (popoutView) {
       /* 弹出窗口：装载初始状态 + 接收主窗口转发的外部定位请求 */
       if (popoutView === 'file') {
@@ -55,6 +60,10 @@
     /* 主窗口：弹窗关窗回流（重开抽屉带回状态）+ 弹出清单同步 */
     ez?.popout?.onClosed((view: string, stateJson: string | null) => store.popoutClosed(view, stateJson))
     void store.syncPopoutTools()
+    /* 独立通知窗点条目 → 主进程亮起主窗并转发跳转载荷 */
+    ez?.notice?.onJump?.((ref: { rootId: string; forkId: string; id: string; target: string }) =>
+      void store.jumpToNoticeRef(ref),
+    )
     void store.bootstrap().catch((e) => {
       console.error('bootstrap 失败', e)
       store.lastStatus = `启动失败：${(e as Error).message}`
@@ -79,6 +88,8 @@
 
 {#if petView}
   <AssistantPet />
+{:else if noticeView}
+  <NoticeWindow />
 {:else if popoutView}
   <div class="popout-pane">
     {#if popoutView === 'term'}

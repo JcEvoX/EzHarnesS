@@ -24,6 +24,9 @@ import (
 /* AppsDir 是快应用目录（工作目录相对）。 */
 const AppsDir = "apps"
 
+/* PinMax 是桌面小助手钉选上限（钉满后再钉顶掉最早）。 */
+const PinMax = 3
+
 /* 应用形态：static 纯前端只开窗，service 声明了 backend 要起后端。 */
 const (
 	KindStatic  = "static"
@@ -105,8 +108,9 @@ func (s *AppsService) List(ctx context.Context) []AppEntry {
 
 /*
 TogglePin 把快应用钉到桌面小助手（再点一次取消）：翻转全局设置里的
-pinnedApps 并落盘。不重建 agent（钉选不影响任何 agent 行为）。不存在的
-应用报 ErrAppNotFound。
+pinnedApps 并落盘。钉满 PinMax 后再钉新的会把最早钉的顶掉（小助手
+只展示 3 个钉选）。不重建 agent（钉选不影响任何 agent 行为）。
+不存在的应用报 ErrAppNotFound。
 */
 func (s *AppsService) TogglePin(ctx context.Context, name string) (bool, error) {
 	if _, err := s.load(ctx, name); err != nil {
@@ -120,6 +124,9 @@ func (s *AppsService) TogglePin(ctx context.Context, name string) (bool, error) 
 		st.PinnedApps = slices.Delete(st.PinnedApps, i, i+1)
 	} else {
 		st.PinnedApps = append(st.PinnedApps, name)
+		for len(st.PinnedApps) > PinMax {
+			st.PinnedApps = st.PinnedApps[1:]
+		}
 	}
 	if err := SaveSettings(ctx, s.Hub.Fsys, st); err != nil {
 		return false, err

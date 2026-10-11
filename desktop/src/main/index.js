@@ -19,10 +19,16 @@ let tray = null
 let coreProc = null
 let quitting = false
 let corePort = 5260
-/* 桌面宠物：透明置顶小窗，头像 + 底部钉选快应用 dock（渲染层 AssistantPet）。 */
+/* 桌面宠物：透明置顶小窗，固定 288×288 一次到位（不动态扩缩）。默认
+   整窗鼠标穿透（透明区点击归下层应用）。悬浮/穿透判定：主进程 60ms 轮询
+   把光标换算成窗口内坐标推给渲染层（ez:pet-move），渲染层用
+   elementFromPoint 判断光标是否压在实体小部件（头像/球/应用栏）上——
+   压上才关穿透、并据此放展开动画；透明处一律保持穿透。不用"离中心多少
+   距离"的圆判定：那样圈内整片透明白区都会被吃掉，垃圾桶这类就点不到。 */
 let petWindow = null
-const PET_W = 96
-const PET_H = 128
+let noticeWindow = null
+const PET_SIZE = 288
+let petHoverTimer = null
 /* API 令牌：每次启动随机生成，env 注入 core、URL query 带入页面。 */
 const coreToken = crypto.randomBytes(18).toString('hex')
 let findBrowserPopout = () => null // registerIpc 注入：当前浏览器页的独立窗口（无则 null）
@@ -205,16 +211,15 @@ async function saveCloseToTray(value) {
   }
 }
 
-/* createPetWindow 桌面宠物：透明置顶小窗，落在鼠标所在屏右下。只有一个
-   头像——拖动走渲染层 app-region（与主窗标题栏同套，零 JS），点小按钮经
-   ez:pet-open-main 打开主窗口。 */
+/* createPetWindow 桌面宠物：透明置顶 288 固定小窗，头像中心落在鼠标
+   所在屏右下（距边 72）。默认整窗穿透，悬浮判定与穿透切换见 ez:pet-hover。 */
 function createPetWindow() {
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
   const win = new BrowserWindow({
-    width: PET_W,
-    height: PET_H,
-    x: area.x + area.width - PET_W - 24,
-    y: area.y + area.height - PET_H - 24,
+    width: PET_SIZE,
+    height: PET_SIZE,
+    x: area.x + area.width - PET_SIZE / 2 - 72,
+    y: area.y + area.height - PET_SIZE / 2 - 72,
     frame: false,
     transparent: true,
     resizable: false,
@@ -234,6 +239,43 @@ function createPetWindow() {
     petWindow = null
   })
   return win
+}
+
+/* createNoticeWindow 独立通知窗（铃铛球打开）：复用客户端通知面板，普通
+   有边框窗口——不用 alwaysOnTop/opacity/focusable（那些在 Windows 上会让
+   合成面白屏）。单例，已开则聚焦；位置摆在宠物窗左侧并夹进工作区。 */
+function createNoticeWindow() {
+  if (noticeWindow && !noticeWindow.isDestroyed()) {
+    noticeWindow.show()
+    noticeWindow.focus()
+    return
+  }
+  const W = 360
+  const H = 540
+  let at = {}
+  if (petWindow && !petWindow.isDestroyed()) {
+    const p = petWindow.getBounds()
+    const area = screen.getDisplayNearestPoint({ x: p.x, y: p.y }).workArea
+    const x = Math.min(Math.max(p.x - W + 48, area.x), area.x + area.width - W)
+    const y = Math.min(Math.max(p.y - H + 120, area.y), area.y + area.height - H)
+    at = { x: Math.round(x), y: Math.round(y) }
+  }
+  const win = new BrowserWindow({
+    width: W,
+    height: H,
+    title: 'ezharness · 通知',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+    },
+    ...at,
+  })
+  win.loadURL(pageUrl('/?desktop=1&notice=1'))
+  guardWebContents(win.webContents)
+  win.on('closed', () => {
+    noticeWindow = null
+  })
+  noticeWindow = win
 }
 
 /* handleCloseRequest 点 X：已配置托盘则直接隐藏；否则让前端弹确认框 */
@@ -330,6 +372,30 @@ function registerIpc() {
   })
   /* 桌面宠物：点小按钮 → 显示主窗口（拖动走渲染层 app-region，无 IPC） */
   ipcMain.on('ez:pet-open-main', () => showMain())
+  /* 通知：铃铛球开独立通知窗；通知窗点条目 → 亮主窗 + 把跳转载荷转给主窗渲染层 */
+  ipcMain.on('ez:notice-open', () => createNoticeWindow())
+  ipcMain.on('ez:notice-jump', (_e, payload) => {
+    showMain()
+    mainWindow?.webContents.send('ez:notice-jump', payload)
+  })
+  /* 宠物光标轮询：只把光标换算成窗口内坐标推给渲染层（穿透时渲染层收不到
+     DOM 鼠标事件，只能主进程喂坐标）。悬浮/穿透由渲染层 elementFromPoint
+     判定后回推 ez:pet-passthrough。 */
+  if (!petHoverTimer) {
+    petHoverTimer = setInterval(() => {
+      const win = petWindow
+      if (!win || win.isDestroyed()) return
+      const b = win.getBounds()
+      const pt = screen.getCursorScreenPoint()
+      win.webContents.send('ez:pet-move', pt.x - b.x, pt.y - b.y)
+    }, 60)
+  }
+  /* 宠物鼠标穿透：默认整窗穿透（透明区点击归下层应用，forward 保留
+     mousemove 转发），光标悬浮进圈后渲染层关穿透换实体可交互 */
+  ipcMain.on('ez:pet-passthrough', (_e, on) => {
+    const win = petWindow
+    if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!!on, { forward: true })
+  })
   /* 抽屉工具弹出窗口：view → BrowserWindow。popoutState 是各工具最新
      的 pane 状态快照（file 弹出时由弹窗持续上报），关窗回流给主窗口。 */
   const popoutWindows = new Map()

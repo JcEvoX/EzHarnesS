@@ -1099,16 +1099,22 @@ class AppStore {
     }
   }
 
-  /* jumpToNotice 跳转到通知来源：跨分支先切换（等待历史加载），分身请求
-  打开抽屉定位，主时间线经 jumpMain 锚点由 ChatView 滚动。 */
-  async jumpToNotice(n: NoticeData) {
-    if (n.rootId && n.rootId !== this.activeId) await this.openTab(n.rootId)
-    if (!n.target) return // 完成通知：切到该会话即可，无时间线锚点
-    if (n.forkId) {
-      this.openFork(n.forkId, n.id)
+  /* jumpToNoticeRef 跳转到通知来源（外部窗口传入的裸标识）：跨分支先
+  切换（等待历史加载），分身请求打开抽屉定位，主时间线经 jumpMain 锚点
+  由 ChatView 滚动。 */
+  async jumpToNoticeRef(ref: Pick<NoticeData, 'rootId' | 'forkId' | 'id' | 'target'>) {
+    if (ref.rootId && ref.rootId !== this.activeId) await this.openTab(ref.rootId)
+    if (!ref.target) return // 完成通知：切到该会话即可，无时间线锚点
+    if (ref.forkId) {
+      this.openFork(ref.forkId, ref.id)
       return
     }
-    this.jumpMain = n.target
+    this.jumpMain = ref.target
+  }
+
+  /* jumpToNotice 通知栏内跳转：委托裸标识版本。 */
+  async jumpToNotice(n: NoticeData) {
+    await this.jumpToNoticeRef(n)
   }
 
   dismissNotice(id: string) {

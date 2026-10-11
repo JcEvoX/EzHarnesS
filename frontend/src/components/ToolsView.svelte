@@ -32,11 +32,14 @@
     }
   }
 
-  /* 钉到桌面小助手/取消（图标常驻宠物窗，点击即启动） */
+  /* 钉到桌面小助手/取消（图标常驻宠物窗，点击即启动）。core 钉满 3 会
+  顶掉最早那颗——重拉整表让所有卡片的 pinned 标记跟服务端一致（只改被点
+  的那张会留下"多于 3 个都钉着"的假象，切页才自愈） */
   async function togglePin(a: AppEntry) {
     try {
-      const r = await api.pinApp(a.name)
-      a.pinned = r.pinned
+      await api.pinApp(a.name)
+      const { apps: list } = await api.getApps()
+      apps = list ?? []
     } catch (err) {
       store.lastStatus = `操作失败：${(err as Error).message}`
     }

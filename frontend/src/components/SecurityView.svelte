@@ -62,6 +62,7 @@
     'browser_action:upload': '给文件输入框传本机文件',
     task: 'fork 分身执行子任务（分身继承主 agent 策略）',
     save_app: '保存快应用 html',
+    sleep: '定时阻塞等待（等后端就绪/轮询间隔；用户停止即中断）',
     ask_user: '向用户提问收集信息（交互工具）',
     trim_context: '模型整理压缩上下文（内部整理）',
     load_skill: '加载技能指令集（内部读取）',
@@ -94,7 +95,7 @@
   }
 
   /* 稳定排序：先按工具、再按 action，避免后端返回顺序抖动导致行乱跳 */
-  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
+  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'sleep', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
   const ACTION_ORDER: Record<string, string[]> = {
     term_action: ['send', 'read'],
     browser_action: ['navigate', 'read', 'eval', 'console', 'network', 'screenshot', 'upload'],

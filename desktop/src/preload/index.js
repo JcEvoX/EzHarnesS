@@ -39,9 +39,19 @@ contextBridge.exposeInMainWorld('ez', {
     onClosed: (cb) => ipcRenderer.on('ez:popout-closed', (_e, view, state) => cb(view, state)),
     onSignal: (cb) => ipcRenderer.on('ez:popout-signal', (_e, name, value) => cb(name, value)),
   },
-  /* 桌面宠物：打开主窗口（拖动走渲染层 app-region，不需要 IPC） */
+  /* 桌面宠物：打开主窗口；主进程 60ms 推光标窗口内坐标（穿透时渲染层
+     收不到 DOM 鼠标事件），渲染层据此判定悬浮并回推是否穿透 */
   pet: {
     openMain: () => ipcRenderer.send('ez:pet-open-main'),
+    onMove: (cb) => ipcRenderer.on('ez:pet-move', (_e, x, y) => cb(x, y)),
+    passthrough: (on) => ipcRenderer.send('ez:pet-passthrough', !!on),
+  },
+  /* 通知：铃铛球开独立通知窗（open）；通知窗点条目 → 主进程亮主窗并把
+     跳转载荷（{rootId,forkId,id,target}）转给主窗渲染层（jump / onJump） */
+  notice: {
+    open: () => ipcRenderer.send('ez:notice-open'),
+    jump: (payload) => ipcRenderer.send('ez:notice-jump', payload),
+    onJump: (cb) => ipcRenderer.on('ez:notice-jump', (_e, payload) => cb(payload)),
   },
   browser: {
     /* 标签清单（JSON 字符串）订阅与拉取 */
