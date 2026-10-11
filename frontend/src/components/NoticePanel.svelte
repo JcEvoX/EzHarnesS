@@ -11,11 +11,15 @@
     onResolve,
     onJump,
     onDismiss,
+    standalone = false,
   }: {
     notices?: NoticeData[]
     onResolve?: (id: string, action: string, input?: string) => void
     onJump?: (n: NoticeData) => void
     onDismiss?: (id: string) => void
+    /* standalone：独立通知窗里用——常驻展开、不写 localStorage（同源会污染
+       主窗的折叠记忆），也不显示收起按钮 */
+    standalone?: boolean
   } = $props()
 
   const kindMeta: Record<NoticeData['kind'], { label: string; icon: string }> = {
@@ -28,13 +32,15 @@
 
   /* 收起为小方块：有待处理通知时右上角红点提示，localStorage 记忆收起态 */
   const collapsedKey = 'ezh.noticePanel.collapsed'
-  let collapsed = $state((() => {
-    try {
-      return localStorage.getItem(collapsedKey) !== '0' // 无记录默认折叠
-    } catch {
-      return true
-    }
-  })())
+  let collapsed = $state(standalone
+    ? false
+    : (() => {
+        try {
+          return localStorage.getItem(collapsedKey) !== '0' // 无记录默认折叠
+        } catch {
+          return true
+        }
+      })())
   function fold(v: boolean) {
     collapsed = v
     try {
@@ -44,6 +50,8 @@
     }
   }
   const pendingCount = $derived(notices.filter((n) => n.status === 'pending').length)
+  /* 完成通知（info）：非待处理，但也要挂上小点（收起态的铃铛） */
+  const infoCount = $derived(notices.filter((n) => n.kind === 'info').length)
 </script>
 
 {#if collapsed}
@@ -56,7 +64,7 @@
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.7 21a2 2 0 0 1-3.4 0" />
     </svg>
-    {#if pendingCount > 0}
+    {#if pendingCount + infoCount > 0}
       <i class="dot"></i>
     {/if}
   </button>
@@ -67,20 +75,22 @@
       {#if pendingCount > 0}
         <span class="badge">{pendingCount} 待处理</span>
       {/if}
-      <button class="fold" onclick={() => fold(true)} title="收起">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-          <path d="M5 12h14" />
-        </svg>
-      </button>
+      {#if !standalone}
+        <button class="fold" onclick={() => fold(true)} title="收起">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
   {#if notices.length === 0}
-    <p class="empty">暂无通知——审批与提问会出现在这里</p>
+    <p class="empty">暂无通知——审批、提问与执行完成会出现在这里</p>
   {:else}
     <div class="list">
       {#each notices as n (`${n.rootId}:${n.id}`)}
         <div class="notice" class:pending={n.status === 'pending'} class:done={n.status === 'done'}>
-          <div class="row" role={n.target ? 'button' : undefined} tabindex="0" onclick={() => n.target && onJump?.(n)}>
+          <div class="row" role={n.rootId ? 'button' : undefined} tabindex="0" onclick={() => n.rootId && onJump?.(n)}>
             <span class="kind-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 {@html kindMeta[n.kind].icon}

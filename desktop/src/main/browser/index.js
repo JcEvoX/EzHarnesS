@@ -7,16 +7,20 @@ ResizeObserver/显隐联动上报、主进程 setBounds——视图宿主跟随�
 流内，显隐与位置全由这里管理。
 
 AI 链路：桥客户端连 core 的 /api/browser/bridge，browser_* 工具调用
-（start/navigate/click/type/key/scroll/read/screenshot/list/close）在本
-模块直接操作对应标签的 webContents（executeJavaScript / sendInputEvent /
-capturePage / CDP 整页截图）后回执。
+（start/navigate/read/eval/console/network/screenshot/upload/list/close）
+在本模块直接操作对应标签的 webContents（executeJavaScript / capturePage /
+CDP 截图与上传）后回执。页面里的点击/填值/滚动不设独立动作——模型用 eval
+自己写（见 AGENTS 5.6）。console/network 的开发数据由 devtools.js 经 CDP
+采集（建标签即 attach，用户开 devtools 即让出槽位）。
 
 共见语义：AI start 或 browser:// chip 触发时由前端展开浏览器抽屉页，
 视图贴抽屉内容区；抽屉收起/切走时前端上报零矩形，视图随之下线
 （webContents 存活，AI 可继续操作）。应用退出时全部销毁。
 */
+const path = require('path')
 const { BrowserWindow, WebContentsView, ipcMain, session } = require('electron')
 const { attachInspectMenu } = require('../inspect')
+const devtools = require('./devtools')
 
 let corePort = 5260
 let coreToken = ''
@@ -41,6 +45,22 @@ function completeURL(raw) {
 
 /* 用户新建标签的默认起始页（AI 的 browser_tab open 不带 url 仍为空白） */
 const HOME_PAGE = 'https://cn.bing.com/'
+
+/* 浏览器标签的原生缩放（不预设缩放，就是真实渲染比例）；Ctrl+0 回到这里 */
+const BROWSER_ZOOM = 1
+
+/* Ctrl+滚轮/快捷键的缩放档（factor，非 zoomLevel） */
+const ZOOM_MIN = 0.25
+const ZOOM_MAX = 3
+const ZOOM_STEP = 1.1
+
+/* zoomTab 调整某个标签的缩放（Ctrl+滚轮 / Ctrl+±  / Ctrl+0 复位到默认）。 */
+function zoomTab(wc, dir) {
+  if (!wc || wc.isDestroyed()) return
+  const cur = wc.getZoomFactor()
+  const next = dir === 'reset' ? BROWSER_ZOOM : dir === 'in' ? Math.min(ZOOM_MAX, cur * ZOOM_STEP) : Math.max(ZOOM_MIN, cur / ZOOM_STEP)
+  wc.setZoomFactor(next)
+}
 
 /* tabList 标签清单（带 active 标记）：当前激活标签只有主进程知道（它决定
    显示哪个视图），渲染层据此高亮标签条、定地址栏——不能让各窗口自己猜，
@@ -195,6 +215,7 @@ function createTab(name, desc, origin, startURL) {
   const view = new WebContentsView({
     webPreferences: {
       session: session.fromPartition('persist:ezbrowser'),
+      preload: path.join(__dirname, '../../preload/browser.js'), // 只管 Ctrl+滚轮缩放
     },
   })
   const tab = { id, view, name: name || id, desc: desc || '', origin, url, title: '', loading: !!startURL }
@@ -207,6 +228,32 @@ function createTab(name, desc, origin, startURL) {
     return { action: 'deny' }
   })
   attachInspectMenu(wc)
+  /* Ctrl+＋/－/0 缩放（Ctrl+滚轮在 preload 里转发，见 preload/browser.js） */
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return
+    if (input.key === '=' || input.key === '+') {
+      event.preventDefault()
+      zoomTab(wc, 'in')
+    } else if (input.key === '-') {
+      event.preventDefault()
+      zoomTab(wc, 'out')
+    } else if (input.key === '0') {
+      event.preventDefault()
+      zoomTab(wc, 'reset')
+    }
+  })
+  /* 建标签即挂 CDP 的 Page 域（只为接管原生对话框——必须在弹窗之前就挂上，否则
+     页面会被对话框挂住） */
+  devtools.attachTab(tab)
+  /* 用户一开该标签的开发者工具，就摘掉我们的 CDP 采集，把调试器槽位让出去
+     （attach 是独占的，抢着人工调试不可接受） */
+  wc.on('devtools-opened', () => devtools.detachDevtools(tab))
+  /* beforeunload 的"确认离开"不让它拦住导航（AI 要能自由跳转） */
+  wc.on('will-prevent-unload', (e) => e.preventDefault())
+  /* 主框架导航清空采集缓冲（上一页的日志/请求不该混进新页面） */
+  wc.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) devtools.clearDevtools(tab)
+  })
   wc.on('did-start-loading', () => { tab.loading = true; broadcastTabs() })
   wc.on('did-stop-loading', () => { tab.loading = false; broadcastTabs() })
   wc.on('did-navigate', (_e, target) => { tab.url = target; broadcastTabs() })
@@ -228,6 +275,7 @@ function hostOf(raw) {
 function closeTab(id) {
   const tab = tabs.get(id)
   if (!tab) return
+  devtools.detachDevtools(tab)
   detachView(tab.view, null)
   tabs.delete(id)
   if (activeTab === id) {
@@ -274,64 +322,52 @@ async function waitIdle(wc, capMs) {
 
 /* ── 执行器（browser_* 工具的直接实现） ── */
 
-/* pageState 页面内实时状态（操作返回的成功判据：url/title 不取缓存、
-scrollY 让滚动可观测）。读不到（页面跳转中）返回 null，调用方回落缓存态。 */
-async function pageState(wc) {
-  try {
-    return await wc.executeJavaScript(
-      '({ url: location.href, title: document.title, scrollY: Math.round(window.scrollY) })', true)
-  } catch { return null }
+/*
+	深查询前置（注入到每个页面脚本）：穿透 shadow root 与**同源** iframe——
+	`document.querySelector` 两者都进不去，而后台管理系统常常整片在 iframe 里。
+	跨域 iframe 的 contentDocument 抛错被跳过（够不着，read mode=elements 另行报告
+	帧清单让模型知道）。__ezAbsRect 把元素矩形折算到最顶层视口坐标（iframe 内元素
+	的 getBoundingClientRect 是相对它自己那个 frame 的）。
+*/
+const DEEP_JS = `
+function __ezRoots(root) {
+  const out = [root]
+  const walk = (node) => {
+    let all
+    try { all = node.querySelectorAll('*') } catch { return }
+    for (const el of all) {
+      if (el.shadowRoot) { out.push(el.shadowRoot); walk(el.shadowRoot) }
+      if (el.tagName === 'IFRAME') {
+        let doc = null
+        try { doc = el.contentDocument } catch { doc = null }
+        if (doc) { out.push(doc); walk(doc) }
+      }
+    }
+  }
+  walk(root)
+  return out
 }
-
-/* domClick 页面内原生点击：链接跳转（同窗导航）与 SPA onClick 都可靠；
-合成输入（sendInputEvent）两者都可能不生效（JS 收得到事件但不触发默认行为）。 */
-async function domClick(wc, selector) {
-  const safe = JSON.stringify(selector)
-  return wc.executeJavaScript(`
-    (() => {
-      const el = document.querySelector(${safe})
-      if (!el) return false
-      el.scrollIntoView({ block: 'center', inline: 'center' })
-      el.click()
-      return true
-    })()
-  `, true)
+function __ezAll(sel) {
+  const res = []
+  for (const r of __ezRoots(document)) { try { res.push(...r.querySelectorAll(sel)) } catch {} }
+  return res
 }
-
-/* clickAt 视口坐标点击（move 前置：悬浮态/hover 依赖）。 */
-function clickAt(wc, x, y) {
-  wc.sendInputEvent({ type: 'mouseMove', x, y, button: 'none' })
-  wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
-  wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+function __ezOne(sel) { return __ezAll(sel)[0] || null }
+function __ezAbsRect(el) {
+  let r = el.getBoundingClientRect()
+  let win = el.ownerDocument && el.ownerDocument.defaultView
+  while (win && win.frameElement) {
+    const fr = win.frameElement.getBoundingClientRect()
+    r = { left: r.left + fr.left, top: r.top + fr.top, width: r.width, height: r.height }
+    win = win.frameElement.ownerDocument && win.frameElement.ownerDocument.defaultView
+  }
+  return r
 }
+`
 
-/* elementPoint selector → 视口中心坐标（元素不存在返回 null）。 */
-async function elementPoint(wc, selector) {
-  const safe = JSON.stringify(selector)
-  return wc.executeJavaScript(`
-    (() => {
-      const el = document.querySelector(${safe})
-      if (!el) return null
-      el.scrollIntoView({ block: 'center', inline: 'center' })
-      const r = el.getBoundingClientRect()
-      return [r.left + r.width / 2, r.top + r.height / 2]
-    })()
-  `, true)
-}
-
-/* DOM 键名 → Electron keyCode。 */
-const KEY_CODES = {
-  Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape', Space: 'Space',
-  Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
-  PageUp: 'PageUp', PageDown: 'PageDown',
-  ArrowLeft: 'Left', ArrowUp: 'Up', ArrowRight: 'Right', ArrowDown: 'Down',
-}
-
-/* sendKey 组合键 down+up（modifiers 数组形）。 */
-function sendKey(wc, key, modifiers) {
-  const keyCode = KEY_CODES[key] || key
-  wc.sendInputEvent({ type: 'keyDown', modifiers, keyCode })
-  wc.sendInputEvent({ type: 'keyUp', modifiers, keyCode })
+/* runDeep 在页面里执行一段代码（带深查询前置）。code 是 IIFE 体，可 return。 */
+function runDeep(wc, code) {
+  return wc.executeJavaScript(`(() => { ${DEEP_JS} ${code} })()`, true)
 }
 
 /* withSurface 截图前的上屏保障：视图未挂任何窗口时（浏览器抽屉没开过/
@@ -359,49 +395,160 @@ async function withSurface(tab, fn) {
   }
 }
 
-/* screenshot 视口截图；fullPage 走 CDP captureBeyondViewport。
-抽屉收起/视图卸载时 capturePage 可能空白甚至 reject(UnknownVizError:
-视图未上屏无合成 surface)——统一优先 capturePage,空图或抛错回落 CDP。
-CDP 在 target 换代（导航提交/渲染进程重建的瞬间）会报 target closed 类
-错误，与页面挂了无法区分——按 tabId 重挂**当前** target 重试一次再定论。 */
-async function screenshot(wc, fullPage) {
-  const params = fullPage ? { captureBeyondViewport: true } : {}
-  if (!fullPage) {
-    try {
-      const image = await wc.capturePage()
-      if (!image.isEmpty()) return image.toPNG().toString('base64')
-    } catch { /* 视图未上屏:回落 CDP */ }
-  }
+/* screenshot 截图。默认**视口**——就是浏览器真实渲染的那一块，尺寸与用户所见一致、
+   像素坐标与页面视口坐标系一致（最贴近真实交互）；fullPage=true 才截整页，用于看
+   整体结构（按视口高分段、每段原生分辨率，避免一张超高图被视觉模型压糊）。
+   不做设备仿真：截的就是浏览器真实大小。一律抓「可见视口的合成画面」，不走
+   captureBeyondViewport 那条扩展视口路径——它在 Electron 上会把没合成到的区域回成
+   黑色。CDP 在 target 换代（导航提交/渲染进程重建的瞬间）会报 target closed 类
+   错误——重挂**当前** target 重试一次再定论；仍不行则退 capturePage 保底。 */
+async function screenshot(wc, fullPage, selector) {
+  const shoot = () => (selector ? cdpElementShot(wc, selector) : fullPage ? cdpShot(wc) : cdpViewportShot(wc))
   try {
-    return await cdpScreenshot(wc, params)
+    return await shoot()
   } catch (err) {
-    if (!/target|session|context/i.test(String(err?.message || err))) throw err
-    await delay(600)
-    return cdpScreenshot(wc, params)
+    if (/target|session|context/i.test(String(err?.message || err))) {
+      await delay(600)
+      try {
+        return await shoot()
+      } catch (e2) {
+        err = e2
+      }
+    }
+    if (selector) throw err // 元素级截图（找不到元素等）不做整屏兜底
+    /* CDP 不可用（devtools 已占调试器）时退直接截图，别整个失败 */
+    const v = await captureViewport(wc)
+    if (v) return { images: [v], note: 'CDP 截图不可用（可能开发者工具已打开），已退为直接截图' }
+    throw err
   }
 }
 
+/* captureViewport 兜底截图：视图实际画面（未上屏时返回 null）。 */
+async function captureViewport(wc) {
+  try {
+    const image = await wc.capturePage()
+    if (!image.isEmpty()) return image.toPNG().toString('base64')
+  } catch { /* 视图未上屏无合成 surface */ }
+  return null
+}
+
 const CDP_VERSION = '1.3'
-async function cdpScreenshot(wc, extraParams) {
+const SHOT_TILES = 5 // 整页分段段数上限（控制一次进上下文的图片数）
+
+/*
+	withShotEnv 截图共用环境：藏滚动条（分段会溢出，滚动条落图难看），跑完还原；
+	用完即摘调试器（只摘自己挂的——长期挂着会让标签变慢）。fn(cdp) 在内层执行。
+*/
+async function withShotEnv(wc, fn) {
   const ours = !wc.debugger.isAttached()
   if (ours) wc.debugger.attach(CDP_VERSION)
+  const cdp = (method, params) => wc.debugger.sendCommand(method, params)
+  let hid = false
   try {
-    /* 首帧迟迟不合成时 sendCommand 可能无限挂——不设护栏会把整个桥调用
-       拖到 core 侧 30s 超时，报错还是一句不痛不痒的"操作超时" */
-    const { data } = await Promise.race([
-      wc.debugger.sendCommand('Page.captureScreenshot', { format: 'png', ...extraParams }),
-      delay(20000).then(() => { throw new Error('截图超时:页面长时间未合成首帧') }),
-    ])
-    return data
+    try {
+      await cdp('Emulation.setScrollbarsHidden', { hidden: true })
+      hid = true
+    } catch { /* 老版本无此命令，忽略 */ }
+    return await fn(cdp)
   } finally {
-    /* 用完即摘（只摘自己挂的）：调试器长期挂着会让该标签明显变慢，
-       也影响渲染进程的节流 */
+    if (hid) {
+      try {
+        await cdp('Emulation.setScrollbarsHidden', { hidden: false })
+      } catch { /* 忽略 */ }
+    }
     if (ours) {
       try {
         if (!wc.isDestroyed() && wc.debugger.isAttached()) wc.debugger.detach()
       } catch { /* 视图已销毁 */ }
     }
   }
+}
+
+/* shotCapture 截图单次（首帧迟迟不合成时 sendCommand 可能无限挂——不设护栏会把整个
+   桥调用拖到 core 侧 30s 超时，报错还是一句不痛不痒的"操作超时"）。 */
+function shotCapture(cdp, params) {
+  return Promise.race([
+    cdp('Page.captureScreenshot', params).then((r) => r.data),
+    delay(20000).then(() => { throw new Error('截图超时:页面长时间未合成首帧') }),
+  ])
+}
+
+/* scrollPos 当前滚动位置（拿不到就当在顶部）。 */
+async function scrollPos(cdp) {
+  try {
+    const r = await cdp('Runtime.evaluate', {
+      expression: '[Math.round(window.scrollX), Math.round(window.scrollY)]',
+      returnByValue: true,
+    })
+    if (r.result && Array.isArray(r.result.value)) {
+      return { x: r.result.value[0] || 0, y: r.result.value[1] || 0 }
+    }
+  } catch { /* 忽略 */ }
+  return { x: 0, y: 0 }
+}
+
+/* cdpViewportShot 视口截图：直接抓当前可见视口那一屏。不设 clip、不走扩展视口
+   ——视口截图本来就不需要"截到视口之外"，而那条路径会把没合成到的区域回成黑色。 */
+async function cdpViewportShot(wc) {
+  return withShotEnv(wc, async (cdp) => {
+    return { images: [await shotCapture(cdp, { format: 'png' })] }
+  })
+}
+
+/* cdpElementShot 截某个元素（矩形→页面坐标）：验证图表/组件这类局部时只截它。 */
+async function cdpElementShot(wc, selector) {
+  return withShotEnv(wc, async (cdp) => {
+    const r = await runDeep(wc, `
+      const el = __ezOne(${JSON.stringify(selector)})
+      if (!el) return null
+      el.scrollIntoView({ block: 'center', inline: 'center' })
+      const b = __ezAbsRect(el)
+      return { x: b.left + window.scrollX, y: b.top + window.scrollY, w: b.width, h: b.height }
+    `)
+    if (!r) throw new Error(`元素 ${selector} 未找到`)
+    const width = Math.max(1, Math.ceil(r.w))
+    const height = Math.max(1, Math.ceil(r.h))
+    const data = await shotCapture(cdp, {
+      format: 'png',
+      captureBeyondViewport: true,
+      clip: { x: Math.round(r.x), y: Math.round(r.y), width, height, scale: 1 },
+    })
+    return { images: [data], note: `元素 ${selector}，${width}×${height}` }
+  })
+}
+
+/* cdpShot 整页分段截图：逐段滚动到视口、抓真实画面，完了还原滚动位置。
+   不用扩展视口取"宽度拉满"——那条路径在 Electron 上会把没合成到的区域回成黑色。
+   代价：横向溢出到视口外的部分不在图里（附注提示用 scroll left/right 看）。 */
+async function cdpShot(wc) {
+  return withShotEnv(wc, async (cdp) => {
+    const m = await cdp('Page.getLayoutMetrics')
+    const cs = m.cssContentSize || m.contentSize || {}
+    const lv = m.cssLayoutViewport || m.layoutViewport || {}
+    const vw = Math.max(1, Math.ceil(lv.clientWidth || 0))
+    const segH = Math.max(200, Math.ceil(lv.clientHeight || 0) || 800)
+    const total = Math.ceil(cs.height || 0)
+    if (total <= 0) return { images: [await shotCapture(cdp, { format: 'png' })] } // 尺寸拿不到：退单张
+    const segs = Math.max(1, Math.ceil(total / segH))
+    const n = Math.min(segs, SHOT_TILES)
+    const pos = await scrollPos(cdp)
+    const images = []
+    try {
+      for (let i = 0; i < n; i++) {
+        await cdp('Runtime.evaluate', { expression: `window.scrollTo(${pos.x}, ${i * segH})` })
+        await delay(120) // 等这一屏落帧再抓
+        images.push(await shotCapture(cdp, { format: 'png' }))
+      }
+    } finally {
+      try {
+        await cdp('Runtime.evaluate', { expression: `window.scrollTo(${pos.x}, ${pos.y})` })
+      } catch { /* 页面可能已跳走 */ }
+    }
+    const notes = []
+    if (segs > n) notes.push(`页面共 ${segs} 段，已截前 ${n} 段；其余滚动后逐屏看或 viewport 截图`)
+    if (Math.ceil(cs.width || 0) > vw + 1) notes.push(`页面有横向溢出（宽 ${Math.ceil(cs.width || 0)}，视口 ${vw}），横向部分用 scroll left/right 看`)
+    return { images, note: notes.join('；') }
+  })
 }
 
 /* tabOf 取目标标签（tabId 必填）；取不到报错附当前标签清单（模型自愈）。 */
@@ -414,7 +561,30 @@ function tabOf(tabId) {
   return tab
 }
 
-/* executors 方法名 → {result, imageB64?}；抛错 = 工具失败。
+/* frameReport 列出子 frame。深查询穿不过**跨域** iframe，这里把帧清单报出来，让
+   模型知道可以改用 navigate 直达该 frame 的 URL。拿不到（未 attach）返回空串。 */
+async function frameReport(tab) {
+  const d = tab.dt
+  if (!d || !d.attached || !d.wc || d.wc.isDestroyed()) return ''
+  try {
+    const { frameTree } = await d.wc.debugger.sendCommand('Page.getFrameTree')
+    const frames = []
+    const walk = (n) => {
+      for (const c of n.childFrames || []) {
+        frames.push(c.frame)
+        walk(c)
+      }
+    }
+    walk(frameTree)
+    if (!frames.length) return ''
+    const lines = frames.map((f) => `  ${f.url || '(空)'}${f.name ? ` [name=${f.name}]` : ''}`)
+    return `（页面含 ${frames.length} 个子 frame；同源的已并入上面清单，跨域的读不到——可 browser_action navigate 直达其 URL 或改读主文档）\n` + lines.join('\n')
+  } catch {
+    return ''
+  }
+}
+
+/* executors 方法名 → {result, images?}；抛错 = 工具失败。
    result 统一为标签状态 JSON（read 的正文放 output，close 为 {id,closed}）。 */
 const executors = {
   async start({ name, desc, url, timeoutMs }) {
@@ -436,145 +606,130 @@ const executors = {
     return { result: JSON.stringify(state) }
   },
 
-  async click({ tabId, selector, x, y }) {
+  /* upload 给 <input type=file> 塞文件：只能走 CDP DOM.setFileInputFiles（页面 JS 改不了
+     files）。files 是本机绝对路径，逗号分隔；非 multiple 的 input 只设第一个。 */
+  async upload({ tabId, selector, files }) {
     const tab = tabOf(tabId)
+    if (!selector) throw new Error('upload 需要 selector')
+    const list = String(files || '').split(',').map((s) => s.trim()).filter(Boolean)
+    if (!list.length) throw new Error('upload 需要 files（本机绝对路径，逗号分隔）')
+    const d = devtools.ensureDevtools(tab)
+    if (!d.attached) throw new Error(`上传需要 CDP（${d.error || '未挂上'}）`)
     const wc = tab.view.webContents
-    const before = tabs.size
-    let note
-    if (selector) {
-      const ok = await domClick(wc, selector)
-      if (!ok) throw new Error(`元素 ${selector} 未找到`)
-    } else {
-      clickAt(wc, x || 0, y || 0)
-    }
-    await delay(300)
-    /* target=_blank 类点击会就地开新标签（原标签不跳转）——明示给模型，别误判"点击无效" */
-    if (tabs.size > before) {
-      const newIds = [...tabs.keys()].slice(-tabs.size + before)
-      note = `点击打开了新标签 ${newIds.join('、')}（原标签未跳转）`
-    }
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}), ...(note ? { note } : {}) }) }
-  },
-
-  async type({ tabId, selector, text, submit }) {
-    const tab = tabOf(tabId)
-    const wc = tab.view.webContents
-    if (selector) {
-      const point = await elementPoint(wc, selector)
-      if (!point) throw new Error(`输入框 ${selector} 未找到`)
-      clickAt(wc, point[0], point[1])
-      await delay(120)
-    }
-    wc.focus()
-    wc.insertText(text)
-    if (submit) {
-      await delay(120)
-      sendKey(wc, 'Enter', [])
-      await delay(500)
-    }
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-  },
-
-  async key({ tabId, combo }) {
-    const tab = tabOf(tabId)
-    const parts = String(combo || '').split('+').map((s) => s.trim()).filter(Boolean)
-    const key = parts[parts.length - 1]
-    const modifiers = parts.slice(0, -1).map((m) => {
-      const lower = m.toLowerCase()
-      if (lower === 'control' || lower === 'ctrl') return 'control'
-      if (lower === 'alt' || lower === 'option') return 'alt'
-      if (lower === 'shift') return 'shift'
-      if (lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === 'os') return 'meta'
-      throw new Error(`未知修饰键 ${m}`)
+    const info = await runDeep(wc, `
+      const el = __ezOne(${JSON.stringify(selector)})
+      return el ? { multiple: !!el.multiple } : null
+    `)
+    if (!info) throw new Error(`元素 ${selector} 未找到`)
+    /* 非 multiple 的 file input 只认第一个文件（浏览器会静默丢掉其余），
+       这里就只传第一个并把这件事说出来，别让模型以为全传上去了 */
+    const apply = info.multiple ? list : list.slice(0, 1)
+    const trimNote = !info.multiple && list.length > 1 ? `（该 input 非 multiple，只设置第一个，其余 ${list.length - 1} 个被忽略）` : ''
+    const obj = await d.wc.debugger.sendCommand('Runtime.evaluate', {
+      expression: `${DEEP_JS}\n__ezOne(${JSON.stringify(selector)})`,
+      includeCommandLineAPI: false,
     })
-    sendKey(tab.view.webContents, key, modifiers)
-    await delay(300)
-    const live = await pageState(tab.view.webContents)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
-  },
-
-  async scroll({ tabId, direction, amountPx }) {
-    const tab = tabOf(tabId)
-    const amount = amountPx > 0 ? amountPx : 600
-    const wc = tab.view.webContents
-    const bounds = tab.view.getBounds() // 视口尺寸是 WebContentsView 的 bounds（webContents 上没有 getBounds——曾因此报 "wc.getBounds is not a function"）
-    const w = bounds.width || 800 // 视图从未上屏时 0×0：兜底常量尺寸，滚轮落视口中部
-    const h = bounds.height || 600
-    /* deltaY 符号：负值向下滚（scrollY 增）、正值向上——与直觉相反，
-       实测 up 发负值反而向下滚 400、down 发正值在顶部无空间不动 */
-    wc.sendInputEvent({
-      type: 'mouseWheel',
-      x: w / 2, y: h / 2,
-      deltaY: direction === 'down' ? -amount : amount,
-    })
+    if (!obj.result || !obj.result.objectId) throw new Error(`定位 ${selector} 失败`)
+    await d.wc.debugger.sendCommand('DOM.setFileInputFiles', { files: apply, objectId: obj.result.objectId })
     await delay(200)
-    const live = await pageState(wc)
-    return { result: JSON.stringify({ ...tabState(tab.id), ...(live || {}) }) }
+    return { result: JSON.stringify({ ...tabState(tab.id), note: `已向 ${selector} 设置 ${apply.length} 个文件${trimNote}` }) }
   },
 
-  async read({ tabId, mode, chars, timeoutMs }) {
+  async read({ tabId, mode, selector, chars, timeoutMs }) {
     const tab = tabOf(tabId)
     const limit = chars > 0 ? chars : 4000
     const wc = tab.view.webContents
     await waitIdle(wc, timeoutMs || 8000)
     let body
     if (mode === 'elements') {
-      body = await wc.executeJavaScript(`
-        (() => {
-          const attr = (v) => String(v).replace(/"/g, '&quot;')
-          const cssId = (id) => '#' + (window.CSS && CSS.escape ? CSS.escape(id) : id)
-          const unique = (sel) => { try { return document.querySelectorAll(sel).length === 1 } catch { return false } }
-          /* selector 生成优先级:#id > [name] > [aria-label] > [placeholder] > nth-of-type 路径 */
-          const path = (el) => {
-            const tag = el.tagName.toLowerCase()
-            if (el.id && unique(cssId(el.id))) return cssId(el.id)
-            if (el.name && unique(tag + '[name="' + attr(el.name) + '"]')) return tag + '[name="' + attr(el.name) + '"]'
-            const aria = el.getAttribute && el.getAttribute('aria-label')
-            if (aria && unique(tag + '[aria-label="' + attr(aria) + '"]')) return tag + '[aria-label="' + attr(aria) + '"]'
-            const ph = el.getAttribute && el.getAttribute('placeholder')
-            if (ph && unique(tag + '[placeholder="' + attr(ph) + '"]')) return tag + '[placeholder="' + attr(ph) + '"]'
-            const parts = []
-            let n = el
-            for (let i = 0; i < 5 && n && n !== document.body; i++) {
-              const parent = n.parentElement
-              if (!parent) break
-              const same = Array.from(parent.children).filter((c) => c.tagName === n.tagName)
-              parts.unshift(same.length > 1 ? n.tagName.toLowerCase() + ':nth-of-type(' + (same.indexOf(n) + 1) + ')' : n.tagName.toLowerCase())
-              n = parent
-            }
-            return parts.join('>')
+      body = await runDeep(wc, `
+        const attr = (v) => String(v).replace(/"/g, '&quot;')
+        const cssId = (id) => '#' + (window.CSS && CSS.escape ? CSS.escape(id) : id)
+        const unique = (sel) => { try { return __ezAll(sel).length === 1 } catch { return false } }
+        /* selector 生成优先级:#id > [name] > [aria-label] > [placeholder] > nth-of-type 路径 */
+        const path = (el) => {
+          const tag = el.tagName.toLowerCase()
+          if (el.id && unique(cssId(el.id))) return cssId(el.id)
+          if (el.name && unique(tag + '[name="' + attr(el.name) + '"]')) return tag + '[name="' + attr(el.name) + '"]'
+          const aria = el.getAttribute && el.getAttribute('aria-label')
+          if (aria && unique(tag + '[aria-label="' + attr(aria) + '"]')) return tag + '[aria-label="' + attr(aria) + '"]'
+          const ph = el.getAttribute && el.getAttribute('placeholder')
+          if (ph && unique(tag + '[placeholder="' + attr(ph) + '"]')) return tag + '[placeholder="' + attr(ph) + '"]'
+          const parts = []
+          let n = el
+          for (let i = 0; i < 5 && n && n !== el.ownerDocument.body; i++) {
+            const parent = n.parentElement
+            if (!parent) break
+            const same = Array.from(parent.children).filter((c) => c.tagName === n.tagName)
+            parts.unshift(same.length > 1 ? n.tagName.toLowerCase() + ':nth-of-type(' + (same.indexOf(n) + 1) + ')' : n.tagName.toLowerCase())
+            n = parent
           }
-          const els = document.querySelectorAll('a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[contenteditable="true"]')
-          const out = []
-          for (const el of els) {
-            if (out.length >= 150) break
-            const r = el.getBoundingClientRect()
-            if (r.width < 2 || r.height < 2) continue
-            const st = getComputedStyle(el)
-            if (st.display === 'none' || st.visibility === 'hidden') continue
-            let sel
-            try { sel = path(el) } catch { continue }
-            if (!sel) continue
-            const text = (el.innerText || el.value || el.placeholder || (el.getAttribute && el.getAttribute('aria-label')) || '')
-              .trim().replace(/\\s+/g, ' ').slice(0, 60)
-            let line = el.tagName.toLowerCase() + ' [' + sel + ']'
-            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') line += ' type=' + (el.type || 'text')
-            if (text) line += ' "' + text + '"'
-            if (el.tagName === 'A' && el.href) line += ' -> ' + el.href.slice(0, 100)
-            out.push(line)
-          }
-          return out.join('\\n')
-        })()
-      `, true)
+          return parts.join('>')
+        }
+        const els = __ezAll('a,button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[contenteditable="true"]')
+        const out = []
+        for (const el of els) {
+          if (out.length >= 150) break
+          const r = el.getBoundingClientRect()
+          if (r.width < 2 || r.height < 2) continue
+          const st = getComputedStyle(el)
+          if (st.display === 'none' || st.visibility === 'hidden') continue
+          let sel
+          try { sel = path(el) } catch { continue }
+          if (!sel) continue
+          const inFrame = el.ownerDocument !== document
+          const text = (el.innerText || el.value || el.placeholder || (el.getAttribute && el.getAttribute('aria-label')) || '')
+            .trim().replace(/\\s+/g, ' ').slice(0, 60)
+          let line = (inFrame ? '[frame] ' : '') + el.tagName.toLowerCase() + ' [' + sel + ']'
+          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') line += ' type=' + (el.type || 'text')
+          if (text) line += ' "' + text + '"'
+          if (el.tagName === 'A' && el.href) line += ' -> ' + el.href.slice(0, 100)
+          out.push(line)
+        }
+        return out.join('\\n')
+      `)
+    } else if (mode === 'html') {
+      body = selector
+        ? await runDeep(wc, `
+            const el = __ezOne(${JSON.stringify(selector)})
+            return el ? el.outerHTML : '(未找到元素 ' + ${JSON.stringify(selector)} + ')'
+          `)
+        : await wc.executeJavaScript(`document.documentElement.outerHTML`, true)
+    } else if (mode === 'element') {
+      if (!selector) throw new Error('mode=element 需要 selector')
+      body = await runDeep(wc, `
+        const el = __ezOne(${JSON.stringify(selector)})
+        if (!el) return '(未找到元素 ' + ${JSON.stringify(selector)} + ')'
+        const st = getComputedStyle(el)
+        const r = __ezAbsRect(el)
+        const chain = []
+        for (let n = el; n && n.nodeType === 1 && chain.length < 6; n = n.parentElement) {
+          const cls = (typeof n.className === 'string' && n.className.trim()) ? '.' + n.className.trim().split(/\\s+/).slice(0, 2).join('.') : ''
+          chain.unshift(n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + cls)
+        }
+        const attrs = [...el.attributes].map((a) => a.name + '=' + JSON.stringify(a.value)).join(' ')
+        const props = ['display', 'position', 'width', 'height', 'color', 'background-color', 'font-size', 'font-weight', 'opacity', 'visibility', 'overflow', 'z-index', 'pointer-events']
+        const cs = props.map((p) => p + ':' + st.getPropertyValue(p)).join('; ')
+        const text = (el.innerText || el.value || '').trim().replace(/\\s+/g, ' ').slice(0, 200)
+        const frame = el.ownerDocument !== document ? '(位于 iframe 内) ' : ''
+        return '路径 ' + frame + chain.join(' > ') + '\\n' +
+          el.tagName.toLowerCase() + (attrs ? ' ' + attrs : '') + '\\n' +
+          '盒 ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' @' + Math.round(r.left) + ',' + Math.round(r.top) + '(顶层视口坐标)\\n' +
+          cs + (text ? '\\ntext "' + text + '"' : '')
+      `)
     } else if (mode === 'links') {
-      body = await wc.executeJavaScript(`
-        Array.from(document.querySelectorAll('a')).slice(0, 200)
+      body = await runDeep(wc, `
+        return __ezAll('a').slice(0, 200)
           .map(a => (a.innerText.trim().slice(0,60) || '(无文字)') + ' → ' + a.href).join('\\n')
-      `, true)
+      `)
+    } else if (mode === 'frames') {
+      body = (await frameReport(tab)) || '(无子 frame)'
     } else {
       body = await wc.executeJavaScript(`document.body ? document.body.innerText : '(空页面)'`, true)
+    }
+    if (mode === 'elements') {
+      const extra = await frameReport(tab)
+      if (extra) body = String(body || '(无可交互元素)') + '\n' + extra
     }
     const text = String(body ?? '')
     const truncated = text.length > limit
@@ -589,12 +744,76 @@ const executors = {
     }
   },
 
-  async screenshot({ tabId, fullPage, timeoutMs }) {
+  async eval({ tabId, js }) {
+    const tab = tabOf(tabId)
+    const wc = tab.view.webContents
+    await waitIdle(wc, 3000)
+    let val
+    try {
+      val = await wc.executeJavaScript(String(js ?? ''), true)
+    } catch (err) {
+      throw new Error(`eval 执行出错：${String(err?.message || err)}`)
+    }
+    let text
+    if (val === undefined) text = '(已执行，无返回值)'
+    else if (typeof val === 'string') text = val
+    else {
+      try { text = JSON.stringify(val) } catch { text = String(val) }
+    }
+    if (text && text.length > 8000) text = text.slice(0, 8000) + '\n…(过长已截断)'
+    /* 全局视觉变形会持续污染后续所有截图与坐标（曾有人用 zoom 缩页面把二维码挪进
+       视口，结果 selector 截图截到空白）——改了就当场提示，并给出复位入口。 */
+    const deformed = await runDeep(wc, `
+      const out = []
+      for (const pair of [['html', document.documentElement], ['body', document.body]]) {
+        const el = pair[1]
+        if (!el || !el.style) continue
+        for (const p of ['zoom', 'transform', 'filter']) {
+          const v = el.style.getPropertyValue(p)
+          if (v) out.push(pair[0] + '.' + p + '=' + v)
+        }
+      }
+      return out
+    `).catch(() => [])
+    if (deformed && deformed.length) {
+      text += `\n⚠ 你改动了页面全局视觉属性（${deformed.join('、')}）——这会持续偏移所有元素坐标、selector 截图会截到空白。还原用 action=reset`
+    }
+    return { result: JSON.stringify({ ...tabState(tab.id), output: text }) }
+  },
+
+  async console({ tabId, mode, errorsOnly }) {
+    const tab = tabOf(tabId)
+    const d = devtools.ensureDevtools(tab)
+    if (d.error) return { result: JSON.stringify({ ...tabState(tab.id), output: `(控制台采集不可用：${d.error})` }) }
+    if (mode === 'clear') {
+      devtools.clearDevtools(tab)
+      return { result: JSON.stringify({ ...tabState(tab.id), output: '(控制台已清空)' }) }
+    }
+    return { result: JSON.stringify({ ...tabState(tab.id), output: devtools.formatConsole(tab, !!errorsOnly) }) }
+  },
+
+  async network({ tabId, index, filter, errorsOnly }) {
+    const tab = tabOf(tabId)
+    const d = devtools.ensureDevtools(tab)
+    if (d.error) return { result: JSON.stringify({ ...tabState(tab.id), output: `(网络采集不可用：${d.error})` }) }
+    const out = index > 0
+      ? await devtools.formatNetworkDetail(tab, index)
+      : devtools.formatNetworkList(tab, { filter: filter || '', errorsOnly: !!errorsOnly })
+    return { result: JSON.stringify({ ...tabState(tab.id), output: out }) }
+  },
+
+  async screenshot({ tabId, fullPage, selector, timeoutMs }) {
     const tab = tabOf(tabId)
     const wc = tab.view.webContents
     await waitIdle(wc, timeoutMs || 10000)
-    const imageB64 = await withSurface(tab, () => screenshot(wc, !!fullPage))
-    return { result: JSON.stringify(tabState(tab.id)), imageB64 }
+    const shot = await withSurface(tab, () => screenshot(wc, !!fullPage, selector || ''))
+    return { result: JSON.stringify(tabState(tab.id)), images: shot.images, note: shot.note || '' }
+  },
+
+  async activate({ tabId }) {
+    const tab = tabOf(tabId)
+    selectTab(tab.id)
+    return { result: JSON.stringify({ ...tabState(tab.id), note: '已切到前台（用户也会看到这张标签）' }) }
   },
 
   async list() {
@@ -628,7 +847,7 @@ function connectBridge() {
     } else {
       try {
         const out = await exec(req.params || {})
-        reply = { id: req.id, ok: true, result: out.result, imageB64: out.imageB64 }
+        reply = { id: req.id, ok: true, result: out.result, images: out.images, note: out.note }
       } catch (err) {
         reply = { id: req.id, ok: false, error: String(err?.message || err) }
       }
@@ -696,6 +915,8 @@ function registerIpc() {
   })
   ipcMain.on('ez-browser:select', (_e, tabId) => selectTab(tabId))
   ipcMain.on('ez-browser:close', (_e, tabId) => closeTab(tabId))
+  /* Ctrl+滚轮：preload 在页面里捕获后转发（sender 就是该标签的 webContents） */
+  ipcMain.on('ez-browser:wheel-zoom', (e, dir) => zoomTab(e.sender, dir))
 
   /* browser:// chip 定位标签（前端同时展开抽屉页） */
   ipcMain.on('ez-browser:focus-tab', (_e, tabId) => {

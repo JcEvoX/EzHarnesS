@@ -21,7 +21,7 @@ flowchart TB
         S["service 用例层<br/>Chat/Session/Topic/Settings/Mcp/Apps/Terminal/Browser/Agent/App"]
         D["domain：Session 聚合 + Hub<br/>（零 HTTP 依赖）"]
         H["internal/hooks（宿主侧）<br/>remind · trim · sessionstore · reference_file · guard · trace · topics · memory"]
-        TL["internal/tools<br/>save_app · term_* · image_recognize"]
+        TL["internal/tools<br/>save_app · term_* · browser_*"]
         WP["internal/warp<br/>modeldump · visionguard · toolarg"]
         OSFS["osfs：无沙箱全权限 FS"]
     end
@@ -105,7 +105,7 @@ core 内部分层：**controller（表现）→ service（用例）→ domain（
 | `internal/service` | ChatService（发送/取消/决策/事件流消费）、SessionService（bootstrap/状态/历史/摘要）、TopicService（新建/fork/切换/归档换代）、SettingsService + MemoryService、McpService、AppsService、TerminalService（共享终端公共池：ConPTY，用户 WS 与 AI term_* 共写）、BrowserService（共享浏览器 core 侧：经 `/api/browser/bridge` 把 `browser_*` 转发给桌面壳执行）、AgentService（agent 装配中枢）、AppService（配置/迁移/换代/boot） |
 | `internal/domain` | Session（会话聚合并发状态机）+ Hub（全局容器）+ 事件帧，零 HTTP 依赖 |
 | `internal/hooks` | 宿主侧 hook：sessionstore（落盘）、sysprompt、trim（四节结构化 + progress.md）、remind+reschange（系统提醒）、reference_file（引用告知）、guard、trace、topics、memory、archive+distill（沉淀式归档）、summarize、recall（预留） |
-| `internal/tools` | 自有工具：save_app、term_*（共享终端）、image_recognize（识别槽） |
+| `internal/tools` | 自有工具：save_app、term_*（共享终端）、browser_*（共享浏览器） |
 | `internal/warp` | 装饰器：modeldump（调试打印）、visionguard（无视觉剥图）、toolarg（参数语法糖） |
 | `internal/osfs` | 无沙箱全权限文件系统（直连 os，不委托 fs.NewLocal——根挂载前缀检查会误杀） |
 | `internal/config` | ezharness.json（端口/监听/数据目录/窗口尺寸） |
@@ -134,7 +134,7 @@ core 进程内并发靠 goroutine：一轮 chat 一个运行 goroutine（引擎�
 |---|---|---|
 | `ezharness.json`（**在应用根**） | 端口/监听/数据目录/窗口尺寸 | config；AppService 换代时改写 |
 | `settings.json` | 运行配置（WorkDir/TrimPercent/MaxIterations/DisabledSkills…） | ensureSettings / SettingsService |
-| `models.json` | 模型四槽（main/vision…，端点凭证 + 用量累计） | Hub.RecordUsage 每轮落盘 |
+| `models.json` | 模型三槽（main/image/audio，端点凭证 + 用量累计） | Hub.RecordUsage 每轮落盘 |
 | `toolRules.json` | 工具审批策略 | SettingsService |
 | `topics.json` | 分支（线）索引 | hooks.Topics |
 | `stats.json` | 跨会话生命体征（累计 usage/轮数） | Stats |

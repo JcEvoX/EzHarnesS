@@ -20,7 +20,7 @@ func mcpCall(action, server, tool string) *types.ToolCall {
 // 发现类（mcp_list/tool_list）只读无副作用：四档下一律免审。
 func TestNeedsApproveMcpDiscovery(t *testing.T) {
 	for _, lv := range []domain.Level{domain.LevelAsk, domain.LevelWhite, domain.LevelBlack, domain.LevelAuto} {
-		s := newApproveService([]domain.ToolRule{{Tool: "mcp.*", Level: lv}})
+		s := newApproveService([]domain.ToolRule{{Key: "mcp.*", Level: lv}})
 		for _, action := range []string{"mcp_list", "tool_list"} {
 			if s.needsApprove(mcpCall(action, "", "")) {
 				t.Errorf("%s under level %v must not need approval", action, lv)
@@ -37,15 +37,15 @@ func TestNeedsApproveMcpToolCall(t *testing.T) {
 		call *types.ToolCall
 		want bool
 	}{
-		{"ask 恒审批", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelAsk}, mcpCall("tool_call", "time", "getCurrentTime"), true},
-		{"auto 恒免审", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelAuto}, mcpCall("tool_call", "time", "getCurrentTime"), false},
-		{"white 名单精确命中", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelWhite, List: []string{"time.getCurrentTime"}}, mcpCall("tool_call", "time", "getCurrentTime"), false},
-		{"white 名单未命中", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelWhite, List: []string{"time.getCurrentTime"}}, mcpCall("tool_call", "time", "convertTime"), true},
-		{"white 整站放行", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelWhite, List: []string{"time"}}, mcpCall("tool_call", "time", "convertTime"), false},
-		{"black 名单命中拦", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelBlack, List: []string{"time.convertTime"}}, mcpCall("tool_call", "time", "convertTime"), true},
-		{"black 名单外放行", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelBlack, List: []string{"time.convertTime"}}, mcpCall("tool_call", "time", "getCurrentTime"), false},
-		{"未知 action 按规则兜底", domain.ToolRule{Tool: "mcp.*", Level: domain.LevelAsk}, mcpCall("hack", "time", "x"), true},
-		{"无规则默认审批", domain.ToolRule{Tool: "read_file"}, mcpCall("tool_call", "time", "getCurrentTime"), true},
+		{"ask 恒审批", domain.ToolRule{Key: "mcp.*", Level: domain.LevelAsk}, mcpCall("tool_call", "time", "getCurrentTime"), true},
+		{"auto 恒免审", domain.ToolRule{Key: "mcp.*", Level: domain.LevelAuto}, mcpCall("tool_call", "time", "getCurrentTime"), false},
+		{"white 名单精确命中", domain.ToolRule{Key: "mcp.*", Level: domain.LevelWhite, List: []string{"time.getCurrentTime"}}, mcpCall("tool_call", "time", "getCurrentTime"), false},
+		{"white 名单未命中", domain.ToolRule{Key: "mcp.*", Level: domain.LevelWhite, List: []string{"time.getCurrentTime"}}, mcpCall("tool_call", "time", "convertTime"), true},
+		{"white 整站放行", domain.ToolRule{Key: "mcp.*", Level: domain.LevelWhite, List: []string{"time"}}, mcpCall("tool_call", "time", "convertTime"), false},
+		{"black 名单命中拦", domain.ToolRule{Key: "mcp.*", Level: domain.LevelBlack, List: []string{"time.convertTime"}}, mcpCall("tool_call", "time", "convertTime"), true},
+		{"black 名单外放行", domain.ToolRule{Key: "mcp.*", Level: domain.LevelBlack, List: []string{"time.convertTime"}}, mcpCall("tool_call", "time", "getCurrentTime"), false},
+		{"未知 action 按规则兜底", domain.ToolRule{Key: "mcp.*", Level: domain.LevelAsk}, mcpCall("hack", "time", "x"), true},
+		{"无规则默认审批", domain.ToolRule{Key: "read_file"}, mcpCall("tool_call", "time", "getCurrentTime"), true},
 	}
 	for _, c := range cases {
 		if got := newApproveService([]domain.ToolRule{c.rule}).needsApprove(c.call); got != c.want {
@@ -54,7 +54,7 @@ func TestNeedsApproveMcpToolCall(t *testing.T) {
 	}
 }
 
-// 点边界：server 前缀放行整站，部分前缀不误命中。
+// 白名单 mcp：精确 server.tool 或整站前缀（点边界），部分前缀不误命中。
 func TestMatchRuleListDotBoundary(t *testing.T) {
 	args := json.RawMessage(`{"action":"tool_call","server":"time","tool":"getCurrentTime"}`)
 	cases := []struct {
@@ -69,14 +69,62 @@ func TestMatchRuleListDotBoundary(t *testing.T) {
 		{[]string{"web-search"}, false, "其他 server 不命中"},
 	}
 	for _, c := range cases {
-		if got := matchRuleList(c.list, "mcp.*", args); got != c.want {
+		if got := matchRuleList(c.list, domain.LevelWhite, "mcp.*", args); got != c.want {
 			t.Errorf("%s: got %v want %v", c.desc, got, c.want)
 		}
 	}
 }
 
-// 终端命令包含即命中（contain 语义：宁误拦不漏拦）。
-func TestMatchRuleListCommandContains(t *testing.T) {
+// 黑名单 mcp：包含即命中（宁误拦不漏拦）。
+func TestMatchRuleListMcpBlackContains(t *testing.T) {
+	args := json.RawMessage(`{"action":"tool_call","server":"time","tool":"getCurrentTime"}`)
+	cases := []struct {
+		list []string
+		want bool
+		desc string
+	}{
+		{[]string{"time.getCurrentTime"}, true, "精确包含命中"},
+		{[]string{"getCurrentTime"}, true, "工具名子串命中"},
+		{[]string{"web-search"}, false, "无关词不命中"},
+	}
+	for _, c := range cases {
+		if got := matchRuleList(c.list, domain.LevelBlack, "mcp.*", args); got != c.want {
+			t.Errorf("%s: got %v want %v", c.desc, got, c.want)
+		}
+	}
+}
+
+// 白名单终端命令：前缀匹配（词边界=结尾或空白，拼接/中段出现放不过）。
+func TestMatchRuleListCommandWhitePrefix(t *testing.T) {
+	mk := func(cmd string) json.RawMessage {
+		b, _ := json.Marshal(map[string]string{"command": cmd})
+		return b
+	}
+	cases := []struct {
+		list []string
+		cmd  string
+		want bool
+		desc string
+	}{
+		{[]string{"rm"}, "rm -rf /", true, "命令以名单词开头命中"},
+		{[]string{"rm"}, "rm", true, "整词等于名单词命中"},
+		{[]string{"git status"}, "git status --short", true, "多词名单前缀命中"},
+		{[]string{"rm"}, "rm;curl x", false, "分号拼接不越界"},
+		{[]string{"rm"}, "echo rm", false, "命令中段出现不命中"},
+		{[]string{"rm"}, `del "rm"`, false, "引号包裹不命中"},
+		{[]string{"rm"}, "rmdir x", false, "词干延长不命中"},
+		{[]string{"format"}, "format.com", false, "拼接后缀不命中"},
+		{[]string{"git status"}, "cd /d && git status", false, "组合命令后段不命中"},
+	}
+	for _, c := range cases {
+		if got := matchRuleList(c.list, domain.LevelWhite, "term_action:send", mk(c.cmd)); got != c.want {
+			t.Errorf("%s: got %v want %v", c.desc, got, c.want)
+		}
+	}
+}
+
+// 黑名单终端命令：包含即命中（宁误拦不漏拦）。
+func TestMatchRuleListCommandBlackContains(t *testing.T) {
 	mk := func(cmd string) json.RawMessage {
 		b, _ := json.Marshal(map[string]string{"command": cmd})
 		return b
@@ -96,7 +144,7 @@ func TestMatchRuleListCommandContains(t *testing.T) {
 		{[]string{"git status"}, "git log", false, "无名单词不命中"},
 	}
 	for _, c := range cases {
-		if got := matchRuleList(c.list, "term_send", mk(c.cmd)); got != c.want {
+		if got := matchRuleList(c.list, domain.LevelBlack, "term_action:send", mk(c.cmd)); got != c.want {
 			t.Errorf("%s: got %v want %v", c.desc, got, c.want)
 		}
 	}

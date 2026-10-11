@@ -2,7 +2,6 @@ module ezharness/core
 
 go 1.25.5
 
-
 require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/websocket v1.8.14

@@ -203,14 +203,37 @@ func (c *ChatController) Notifications(g *gin.Context) {
 	}
 	out := []noticeGroup{}
 	for _, s := range c.Svc.Hub.Sessions() {
-		if items := s.PendingNotices(); len(items) > 0 {
-			out = append(out, noticeGroup{RootID: s.Root(), Items: items})
+		items := s.PendingNotices()
+		// 会话最近一轮的完成通知（kind=info）与未决请求同列，按时间排序
+		if done := s.CompletedNotice(); done != nil {
+			items = append(items, *done)
 		}
+		if len(items) == 0 {
+			continue
+		}
+		sort.Slice(items, func(i, j int) bool { return items[i].Ts > items[j].Ts })
+		out = append(out, noticeGroup{RootID: s.Root(), Items: items})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Items[0].Ts > out[j].Items[0].Ts
 	})
 	g.JSON(http.StatusOK, out)
+}
+
+/* DismissNotification POST /api/sessions/:id/notifications/dismiss：关闭该
+会话的完成通知（:id=分支根 ID；仅完成通知可关，未决请求走决策端点）。 */
+func (c *ChatController) DismissNotification(g *gin.Context) {
+	var body struct {
+		CallID string `json:"callId" binding:"required"`
+	}
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if s := c.Svc.Hub.SessionOf(g.Param("id")); s != nil {
+		s.DismissCompleted(body.CallID)
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 /* DecideAnswer POST /api/sessions/:id/decisions/answer（:id=分支根 ID）。 */

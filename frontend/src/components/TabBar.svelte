@@ -30,12 +30,17 @@
   function onGlobalDown(e: PointerEvent) {
     if (menu && !(e.target as HTMLElement).closest('.tabmenu')) menu = null
   }
-</script>
+
+  /* 高度上报：折行后 tabbar 变高，对话页两侧悬浮列的 top 跟随避让 */
+  let barH = $state(0)
+  $effect(() => {
+    store.tabbarH = barH
+  })</script>
 
 <svelte:window onpointerdown={onGlobalDown} onkeydown={(e) => e.key === 'Escape' && (menu = null)} />
 
-{#if store.tabs.length}
-  <div class="tabbar">
+<div class="tabbar" class:empty={!store.tabs.length} bind:clientHeight={barH}>
+  {#if store.tabs.length}
     <div class="strip">
       {#each store.tabs as t (t.rootId)}
         {@const info = store.branches.find((b) => b.id === t.rootId)}
@@ -45,10 +50,10 @@
           onclick={() => store.openTab(t.rootId)}
           onauxclick={(e) => e.button === 1 && store.closeTab(t.rootId)}
           oncontextmenu={(e) => openMenu(e, t.rootId)}
-          title={(info?.title || '未命名会话') + (t.rootId === store.activeId ? '（当前会话）' : '')}
+          title={(info?.title || '新对话') + (t.rootId === store.activeId ? '（当前会话）' : '')}
         >
           <span class="dot" class:run={info?.running}></span>
-          <span class="name">{info?.title || '未命名会话'}</span>
+          <span class="name">{info?.title || '新对话'}</span>
           {#if info?.waiting}<span class="wait" title="等待审批">⚠</span>{/if}
           <span
             class="x"
@@ -68,8 +73,8 @@
       {/each}
       <button class="new" onclick={() => store.newChatTab()} title="新建会话标签">+</button>
     </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 {#if menu}
   <div class="tabmenu" style="left:{menu.x}px; top:{menu.y}px" role="menu">
@@ -86,21 +91,23 @@
     background: var(--bg);
     padding: 5px 10px;
   }
+  /* 无标签不渲染（也不显示底线），但根元素常在以回报高度 0 */
+  .tabbar.empty {
+    display: none;
+  }
   .strip {
     display: flex;
     align-items: center;
     gap: 6px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .strip::-webkit-scrollbar {
-    display: none;
+    min-width: 0;
+    flex-wrap: wrap; /* 放不下的 tab 折行：不裁不滚，全部可点 */
   }
   .tab {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 72px; /* 名字至少留约 3 字，收不到只剩点+叉的残骸 */
     border: 1px solid var(--line);
     background: var(--bg);
     border-radius: 8px;
@@ -123,7 +130,7 @@
     font-weight: 600;
   }
   .name {
-    max-width: 130px;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

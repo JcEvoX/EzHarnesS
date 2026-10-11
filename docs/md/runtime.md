@@ -109,11 +109,10 @@ warp 实例 per-Run 独立（fork 复刻 warp 链，分身输入同样可见）�
 |---|---|
 | `read_file` / `write_file` / `edit_file` / `terminal` | filetools（read_file 图片走标记→OnLoop 图片消息） |
 | `save_app` | ezharness tools（快应用生成） |
-| `term_start` / `term_send` / `term_read` / `term_list` / `term_close` | ezharness tools（共享终端，全局资源） |
+| `term_tab` / `term_action` | ezharness tools（共享终端标签/动作，全局资源） |
 | `ask_user` / `task` / `mcp_router` | 对应 hook |
 | `trim_context` | trim hook |
 | `load_skill` | skilltool |
-| `image_recognize` | ezharness tools（仅识别槽启用时装配） |
 
 工具注册先 SetWarp 后 Register（两者都被包装；hook OnStart 里同名注册 = 覆盖）。
 

@@ -139,7 +139,7 @@
   })
 </script>
 
-<div class="chat" class:dragging>
+<div class="chat" class:dragging style="--tabbar-h:{store.tabbarH}px">
   <FindBar />
   <aside class="side-left">
     <BranchPanel />
@@ -244,7 +244,7 @@
   主列不动），收起只剩折叠小方块。容器点击穿透，卡片自身可交互 */
   .side-left {
     position: absolute;
-    top: 16px;
+    top: calc(var(--tabbar-h, 36px) + 12px); /* 避开 tab 条（折行后变高，高度实时上报） */
     left: 16px;
     bottom: 30px;
     width: 240px;
@@ -267,7 +267,7 @@
   卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */
   .side {
     position: absolute;
-    top: 16px;
+    top: calc(var(--tabbar-h, 36px) + 12px); /* 同 side-left */
     right: 16px;
     bottom: 30px;
     width: 260px;

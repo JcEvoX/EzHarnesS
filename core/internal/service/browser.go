@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,11 +39,12 @@ type bridgeRequest struct {
 
 /* bridgeReply 是 desktop → core 的回执帧。 */
 type bridgeReply struct {
-	ID       int64  `json:"id"`
-	OK       bool   `json:"ok"`
-	Result   string `json:"result"` // 工具返回文本(含头行)
-	Error    string `json:"error"`
-	ImageB64 string `json:"imageB64,omitempty"` // screenshot 的 PNG base64
+	ID     int64    `json:"id"`
+	OK     bool     `json:"ok"`
+	Result string   `json:"result"` // 工具返回文本(含头行)
+	Error  string   `json:"error"`
+	Images []string `json:"images,omitempty"` // screenshot 的分屏 PNG base64(整页分段)
+	Note   string   `json:"note,omitempty"`   // 附加说明(如整页超出屏数上限)
 }
 
 /* BrowserService 是浏览器桥(单连接:新 desktop 连接顶替旧连接)。 */
@@ -215,45 +217,18 @@ func (s *BrowserService) NavigateBrowser(ctx context.Context, tabID, rawURL stri
 	return reply.Result, nil
 }
 
-/* ClickBrowser 点击:selector 优先,否则按视口坐标(desktop 换算注入)。 */
-func (s *BrowserService) ClickBrowser(ctx context.Context, tabID, selector string, x, y int) (string, error) {
-	reply, err := s.call(ctx, "click", map[string]any{
-		"tabId": tabID, "selector": selector, "x": x, "y": y,
-	}, bridgeOpTimeout)
+/* UploadBrowser 给 <input type=file> 设置文件（files 为本机绝对路径,逗号分隔）。 */
+func (s *BrowserService) UploadBrowser(ctx context.Context, tabID, selector, files string) (string, error) {
+	reply, err := s.call(ctx, "upload", map[string]any{"tabId": tabID, "selector": selector, "files": files}, bridgeOpTimeout)
 	if err != nil {
 		return "", err
 	}
 	return reply.Result, nil
 }
 
-/* TypeBrowser 输入文本:selector 定位输入框(省略=当前焦点处),submit 回车提交。 */
-func (s *BrowserService) TypeBrowser(ctx context.Context, tabID, selector, text string, submit bool) (string, error) {
-	reply, err := s.call(ctx, "type", map[string]any{
-		"tabId": tabID, "selector": selector, "text": text, "submit": submit,
-	}, bridgeOpTimeout)
-	if err != nil {
-		return "", err
-	}
-	return reply.Result, nil
-}
-
-/* PressBrowserKey 按键/组合键("Enter"、"Control+A")。 */
-func (s *BrowserService) PressBrowserKey(ctx context.Context, tabID, combo string) (string, error) {
-	reply, err := s.call(ctx, "key", map[string]any{"tabId": tabID, "combo": combo}, 30*time.Second)
-	if err != nil {
-		return "", err
-	}
-	return reply.Result, nil
-}
-
-/* ScrollBrowser 页面滚动(direction=up|down,amountPx 默认 600)。 */
-func (s *BrowserService) ScrollBrowser(ctx context.Context, tabID, direction string, amountPx int) (string, error) {
-	if amountPx <= 0 {
-		amountPx = 600
-	}
-	reply, err := s.call(ctx, "scroll", map[string]any{
-		"tabId": tabID, "direction": direction, "amountPx": amountPx,
-	}, bridgeOpTimeout)
+/* SelectTab 把某个标签切到前台（用户也会看到它）。 */
+func (s *BrowserService) SelectTab(ctx context.Context, tabID string) (string, error) {
+	reply, err := s.call(ctx, "activate", map[string]any{"tabId": tabID}, bridgeQuickTimeout)
 	if err != nil {
 		return "", err
 	}
@@ -261,12 +236,13 @@ func (s *BrowserService) ScrollBrowser(ctx context.Context, tabID, direction str
 }
 
 /*
-	ReadBrowser 读页面内容:mode=text 返回正文,mode=links 返回链接清单。
+	ReadBrowser 读页面内容:mode=text 正文、html DOM、elements 可交互元素、
+	links 链接、element 单元素(selector 定位)、frames 子帧清单(跨域帧够不着)。
 
 timeoutMs 透传 desktop——页面仍在加载时先等收尾(默认 8000ms)再读,
 免读到半页;桥等待上限随之放宽(超时+10s 余量给正文提取)。
 */
-func (s *BrowserService) ReadBrowser(ctx context.Context, tabID, mode string, chars, timeoutMs int) (string, error) {
+func (s *BrowserService) ReadBrowser(ctx context.Context, tabID, mode, selector string, chars, timeoutMs int) (string, error) {
 	if chars <= 0 {
 		chars = 4000
 	}
@@ -278,7 +254,7 @@ func (s *BrowserService) ReadBrowser(ctx context.Context, tabID, mode string, ch
 		timeout = time.Duration(timeoutMs+10000) * time.Millisecond
 	}
 	reply, err := s.call(ctx, "read", map[string]any{
-		"tabId": tabID, "mode": mode, "chars": chars, "timeoutMs": timeoutMs,
+		"tabId": tabID, "mode": mode, "selector": selector, "chars": chars, "timeoutMs": timeoutMs,
 	}, timeout)
 	if err != nil {
 		return "", err
@@ -286,13 +262,44 @@ func (s *BrowserService) ReadBrowser(ctx context.Context, tabID, mode string, ch
 	return reply.Result, nil
 }
 
+/* EvalBrowser 在页面内执行 JS,返回求值结果(可改 DOM、读状态)。 */
+func (s *BrowserService) EvalBrowser(ctx context.Context, tabID, js string) (string, error) {
+	reply, err := s.call(ctx, "eval", map[string]any{"tabId": tabID, "js": js}, bridgeOpTimeout)
+	if err != nil {
+		return "", err
+	}
+	return reply.Result, nil
+}
+
+/* ConsoleBrowser 读/清控制台(errorsOnly 只留 error;mode=read|clear)。 */
+func (s *BrowserService) ConsoleBrowser(ctx context.Context, tabID, mode string, errorsOnly bool) (string, error) {
+	reply, err := s.call(ctx, "console", map[string]any{
+		"tabId": tabID, "mode": mode, "errorsOnly": errorsOnly,
+	}, bridgeOpTimeout)
+	if err != nil {
+		return "", err
+	}
+	return reply.Result, nil
+}
+
+/* NetworkBrowser 读网络请求:index=0 清单,>0 该序号详情。 */
+func (s *BrowserService) NetworkBrowser(ctx context.Context, tabID string, index int, filter string, errorsOnly bool) (string, error) {
+	reply, err := s.call(ctx, "network", map[string]any{"tabId": tabID, "index": index, "filter": filter, "errorsOnly": errorsOnly}, bridgeOpTimeout)
+	if err != nil {
+		return "", err
+	}
+	return reply.Result, nil
+}
+
 /*
-ScreenshotBrowser 截图:desktop 回 PNG base64,core 落盘 workspace/
-browser/<tabID>-<时间戳>.png(每张一个新文件——图片按路径进上下文与
-时间线,同名覆写会让历史截图全被最后一张顶掉)。主模型有视觉时返回
-image_loaded 标记(由 filetools 转持久化图片消息),无视觉返回路径文字引导。
+ScreenshotBrowser 截图:desktop 回分屏 PNG base64(整页按视口高切片,每片
+原生分辨率——一张大图会被视觉模型压缩到看不清),core 逐张落盘 workspace/
+browser/<tabID>-<时间戳>-<序号>.png(每张一个新文件——图片按路径进上下文与
+时间线,同名覆写会让历史截图全被最后一张顶掉)。主模型有视觉时每张给一个
+image_loaded 标记(filetools 的 OnLoop 会把批内全部标记合并成一条多图 user
+消息),无视觉返回路径文字引导。
 */
-func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, timeoutMs int) (string, error) {
+func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector string, timeoutMs int) (string, error) {
 	/* timeoutMs 透传:desktop 先等加载收尾(默认 10000ms)再截,消除
 	"返回即截图"撞首帧未合成的竞态;桥上限 = 等待 + 截图余量 */
 	timeout := bridgeOpTimeout
@@ -300,30 +307,45 @@ func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fu
 		timeout = time.Duration(timeoutMs+20000) * time.Millisecond
 	}
 	reply, err := s.call(ctx, "screenshot", map[string]any{
-		"tabId": tabID, "fullPage": fullPage, "timeoutMs": timeoutMs,
+		"tabId": tabID, "fullPage": fullPage, "selector": selector, "timeoutMs": timeoutMs,
 	}, timeout)
 	if err != nil {
 		return "", err
 	}
-	if reply.ImageB64 == "" {
+	if len(reply.Images) == 0 {
 		return "", fmt.Errorf("截图失败:desktop 未回传图像数据")
-	}
-	png, err := base64.StdEncoding.DecodeString(reply.ImageB64)
-	if err != nil || len(png) == 0 {
-		return "", fmt.Errorf("截图数据解码失败")
 	}
 	if err := os.MkdirAll(s.shotDir, 0o755); err != nil {
 		return "", fmt.Errorf("创建截图目录失败: %w", err)
 	}
-	path := filepath.Join(s.shotDir, fmt.Sprintf("%s-%d.png", tabID, time.Now().UnixMilli()))
-	if err := os.WriteFile(path, png, 0o644); err != nil {
-		return "", fmt.Errorf("写截图失败: %w", err)
+	base := time.Now().UnixMilli()
+	var paths []string
+	for i, b64 := range reply.Images {
+		png, derr := base64.StdEncoding.DecodeString(b64)
+		if derr != nil || len(png) == 0 {
+			continue
+		}
+		path := filepath.Join(s.shotDir, fmt.Sprintf("%s-%d-%d.png", tabID, base, i+1))
+		if werr := os.WriteFile(path, png, 0o644); werr != nil {
+			continue
+		}
+		paths = append(paths, path)
 	}
-	head := fmt.Sprintf("[浏览器标签 %s 截图已生成]", tabID)
+	if len(paths) == 0 {
+		return "", fmt.Errorf("截图数据解码失败")
+	}
+	head := fmt.Sprintf("[浏览器标签 %s 截图已生成(%d 张)]", tabID, len(paths))
+	if reply.Note != "" {
+		head += "\n" + reply.Note
+	}
 	if !s.ModelSeesImages() {
-		return head + "\n已保存至 " + path + ";当前模型无多模态能力,如需识别请在设置·模型启用视觉或图片识别槽", nil
+		return head + "\n已保存至 " + strings.Join(paths, "、") + ";当前模型无多模态能力,如需识别请在设置·模型为主模型勾选\"支持视觉\"", nil
 	}
-	return head + "\n" + `<image_loaded path="` + path + `"/>`, nil
+	markers := make([]string, 0, len(paths))
+	for _, p := range paths {
+		markers = append(markers, `<image_loaded path="`+p+`"/>`)
+	}
+	return head + "\n" + strings.Join(markers, "\n"), nil
 }
 
 /* CloseBrowserTab 关闭标签;幂等,返回 desktop 回执的 closed JSON。 */

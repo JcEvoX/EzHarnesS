@@ -94,7 +94,7 @@ func (s *SettingsService) Update(ctx context.Context, v SettingsView) error {
 	return s.Agents.Reassemble(st)
 }
 
-/* GetModels 返回模型四槽（空槽归一为 [] 而非 null）。 */
+/* GetModels 返回模型三槽（空槽归一为 [] 而非 null）。 */
 func (s *SettingsService) GetModels() domain.ModelsConfig {
 	return normalizeModels(s.Hub.ModelsSnapshot())
 }
@@ -103,9 +103,6 @@ func (s *SettingsService) GetModels() domain.ModelsConfig {
 func normalizeModels(m domain.ModelsConfig) domain.ModelsConfig {
 	if m.Main == nil {
 		m.Main = []domain.ModelEntry{}
-	}
-	if m.Vision == nil {
-		m.Vision = []domain.ModelEntry{}
 	}
 	if m.Image == nil {
 		m.Image = []domain.ModelEntry{}
@@ -117,7 +114,7 @@ func normalizeModels(m domain.ModelsConfig) domain.ModelsConfig {
 }
 
 /*
-	UpdateModels 保存模型四槽（每槽至多一条启用，main 槽不可为空且必须
+	UpdateModels 保存模型三槽（每槽至多一条启用，main 槽不可为空且必须
 
 有启用条目——能力槽允许全部停用）并重建 agent（busy 时拒绝）。
 */
@@ -136,7 +133,7 @@ func (s *SettingsService) UpdateModels(ctx context.Context, m domain.ModelsConfi
 		m.Main[0].Enabled = true // 兜底：对话必须由主模型驱动，与 ActiveMain 取首条语义对齐
 	}
 	for slot, entries := range map[string][]domain.ModelEntry{
-		"main": m.Main, "vision": m.Vision, "image": m.Image, "audio": m.Audio,
+		"main": m.Main, "image": m.Image, "audio": m.Audio,
 	} {
 		enabled := 0
 		for _, e := range entries {
@@ -156,20 +153,29 @@ func (s *SettingsService) UpdateModels(ctx context.Context, m domain.ModelsConfi
 }
 
 /*
-	SecurityRules 返回当前审批策略：用户档为准，DefaultToolRules 补缺
+	SecurityRules 返回当前审批策略：用户档为准，DefaultToolRules 补缺。
 
-（精简档没覆盖的新工具按内置默认档出现，安全页可配全部工具）。
+DefaultToolRules 同时是「合法键全集」——落盘档里的键对不上它的，一律不展示：
+工具/动作已经删了，它的策略也就没有了（安全页只呈现真实存在的工具面）。
+旧键留在文件里不碍事，用户下次保存时自然写掉。
 */
 func (s *SettingsService) SecurityRules() []domain.ToolRule {
-	rules := s.Hub.ToolRulesSnapshot()
-	seen := map[string]bool{}
-	out := make([]domain.ToolRule, 0, len(rules)+4)
-	for _, r := range rules {
-		out = append(out, r)
-		seen[r.Tool] = true
+	defaults := domain.DefaultToolRules()
+	known := make(map[string]bool, len(defaults))
+	for _, r := range defaults {
+		known[r.Key] = true
 	}
-	for _, r := range domain.DefaultToolRules() {
-		if !seen[r.Tool] {
+	seen := map[string]bool{}
+	out := make([]domain.ToolRule, 0, len(defaults))
+	for _, r := range s.Hub.ToolRulesSnapshot() {
+		if r.Key == "" || !known[r.Key] {
+			continue // 无 key 的旧格式残档 / 已删掉的工具与动作，都由内置默认补位
+		}
+		out = append(out, r)
+		seen[r.Key] = true
+	}
+	for _, r := range defaults {
+		if !seen[r.Key] {
 			out = append(out, r)
 		}
 	}
@@ -178,16 +184,12 @@ func (s *SettingsService) SecurityRules() []domain.ToolRule {
 
 /* UpdateSecurity 保存审批策略。needsApprove 运行时读设置快照，即时生效。 */
 func (s *SettingsService) UpdateSecurity(ctx context.Context, rules []domain.ToolRule) error {
-	valid := map[domain.Level]bool{
-		domain.LevelAsk: true, domain.LevelBlack: true,
-		domain.LevelWhite: true, domain.LevelAuto: true,
-	}
 	for _, r := range rules {
-		if !valid[r.Level] {
-			return fmt.Errorf("非法档位 %q（tool %s）", r.Level, r.Tool)
+		if r.Key == "" {
+			return errors.New("工具策略缺少 key")
 		}
-		if r.Tool == "task" && (r.Level == domain.LevelBlack || r.Level == domain.LevelWhite) {
-			return errors.New("task 只支持 审批/免审（分身继承主 agent 策略）")
+		if !domain.ValidLevel(r.Key, r.Level) {
+			return fmt.Errorf("非法档位 %q（%s）", r.Level, r.Key)
 		}
 	}
 	if err := SaveToolRules(ctx, s.Hub.Fsys, rules); err != nil {

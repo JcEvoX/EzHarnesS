@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('ez', {
     closeCanceled: () => ipcRenderer.send('ez:close-cancel'),
     openUrl: (url) => ipcRenderer.send('ez:open-url', url),
     openApp: (url, title) => ipcRenderer.send('ez:open-app', url, title),
+    /* 在系统文件管理器中定位本机文件（资源查看器的当前 tab） */
+    reveal: (p) => ipcRenderer.send('ez:reveal', p),
     /* 系统级关闭（Alt+F4/任务栏）由主进程转到前端弹框 */
     onClosePrompt: (cb) => ipcRenderer.on('ez:close-prompt', () => cb()),
   },
@@ -36,6 +38,20 @@ contextBridge.exposeInMainWorld('ez', {
     /* 关窗回流（主窗口收）：view + 最新状态快照 */
     onClosed: (cb) => ipcRenderer.on('ez:popout-closed', (_e, view, state) => cb(view, state)),
     onSignal: (cb) => ipcRenderer.on('ez:popout-signal', (_e, name, value) => cb(name, value)),
+  },
+  /* 桌面宠物：打开主窗口；主进程 60ms 推光标窗口内坐标（穿透时渲染层
+     收不到 DOM 鼠标事件），渲染层据此判定悬浮并回推是否穿透 */
+  pet: {
+    openMain: () => ipcRenderer.send('ez:pet-open-main'),
+    onMove: (cb) => ipcRenderer.on('ez:pet-move', (_e, x, y) => cb(x, y)),
+    passthrough: (on) => ipcRenderer.send('ez:pet-passthrough', !!on),
+  },
+  /* 通知：铃铛球开独立通知窗（open）；通知窗点条目 → 主进程亮主窗并把
+     跳转载荷（{rootId,forkId,id,target}）转给主窗渲染层（jump / onJump） */
+  notice: {
+    open: () => ipcRenderer.send('ez:notice-open'),
+    jump: (payload) => ipcRenderer.send('ez:notice-jump', payload),
+    onJump: (cb) => ipcRenderer.on('ez:notice-jump', (_e, payload) => cb(payload)),
   },
   browser: {
     /* 标签清单（JSON 字符串）订阅与拉取 */

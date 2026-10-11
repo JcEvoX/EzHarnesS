@@ -97,7 +97,7 @@ export type Block = { uid: number } & (
   | { kind: 'status'; text: string; data: StatusPayload | null }
   | { kind: 'resourcechange'; items: string[] }
   | { kind: 'endtick'; icon: string; title: string }
-  | { kind: 'imgload'; paths: string[] }
+  | { kind: 'imgload'; paths: string[]; images?: ImagePayload[] }
 )
 
 export interface TotalUsage {
@@ -249,10 +249,10 @@ class AppStore {
   approve.request 到达,1s 内无审批请求即视为免审直接执行);进入审批
   则等用户批准(decision.resolved=已批准)才打开——未批准时命令不会
   运行,提前弹出只是打扰。只保留"创建类"操作(新终端/新浏览器标签):
-  term_send 等复用已有资源的操作不拉——用户收起抽屉后不该被普通
+  term_action send 等复用已有资源的操作不拉——用户收起抽屉后不该被普通
   消息触发的工具又弹开。 */
   private autoOpenDrawers = new Map<string, DrawerTool>([
-    ['term_start', 'term'],
+    ['term_tab:new', 'term'],
     ['browser_tab:open', 'browser'],
   ])
   private toolOpenTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -262,6 +262,13 @@ class AppStore {
   截断本地本轮块，让整轮回放帧干净重建（防 user/回复块重复） */
   private pendingUserUid = 0
   private pendingUserText = ''
+  /* 上一轮通知轮询是否有未决项（待审批角标联动分支拉取的收尾依据） */
+  private noticesHadPending = false
+
+  /* tab 条实际高度（折行后变高）：对话页两侧悬浮列 top 跟随它避让 */
+  tabbarH = $state(0)
+  /* 抽屉展开时主列用户拖拽宽（px；0 = 默认公式 42vw 保底 480），抽屉吃剩余全部 */
+  chatWidth = $state(0)
 
   private nuid(): number {
     return ++this.uidSeq
@@ -271,7 +278,7 @@ class AppStore {
 
   async bootstrap() {
     const b = await api.bootstrap()
-    this.activeId = b.sessionId
+    this.activate(b.sessionId)
     this.branches = b.branches ?? []
     this.settings = b.settings
     this.status = b.status
@@ -281,9 +288,13 @@ class AppStore {
     this.unsub = subscribe(this.activeId, (ev) => this.apply(ev))
     this.refreshNotices()
     setInterval(() => {
-      this.refreshNotices()
-      // 后台标签活跃时才拉分支列表（标签转点/待审批角标的数据源）
-      if (this.bgTabsBusy()) void this.refreshBranches()
+      // 未决通知出没联动分支拉取（待审批角标数据源）：出现期间持续拉、
+      // 消失后补拉一轮收尾；后台标签活跃照旧拉
+      void this.refreshNotices().then(() => {
+        const pending = this.notices.some((n) => n.status === 'pending')
+        if (this.bgTabsBusy() || pending || this.noticesHadPending) void this.refreshBranches()
+        this.noticesHadPending = pending
+      })
     }, 3000)
   }
 
@@ -461,13 +472,15 @@ class AppStore {
             /* 损坏记录不渲染 */
           }
         } else if (m.content.includes('<image_loaded>')) {
-          // read_file 图片已进上下文：渲染为缩略图小行（paths 在标签体内，每行一个）
+          // read_file/截图 图片已进上下文：渲染为缩略图小行（paths 在标签体内，
+          // 每行一个；m.images 是当时进上下文的 base64 快照——磁盘文件后续
+          // 改/删不影响展示，点击开快照画板草稿）
           const inner = m.content.replace(/^[\s\S]*?<image_loaded>|<\/image_loaded>[\s\S]*$/g, '')
           const paths = inner
             .split('\n')
             .map((l) => l.trim())
             .filter(Boolean)
-          out.push({ kind: 'imgload', uid: this.nuid(), paths })
+          out.push({ kind: 'imgload', uid: this.nuid(), paths, images: m.images })
         } else if (m.content.includes('<end_reason>')) {
           const detail = endReasonText(m.content)
           if (detail) out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })
@@ -534,6 +547,34 @@ class AppStore {
       }
     }
     return out
+  }
+
+  /* backfillForkAnchors 用历史重建的尾段回填本地块的分叉锚点（owner/msgIdx）：
+  实时轮的块是本地 push 的，没有锚点（分叉按钮不显，切页重建才出现）。
+  turn_end 时历史已落盘（后端 FinishRun 先于帧发布），从尾部往前按
+  user/assistant 序对位回填；遇已带锚点的块即停（更早的都齐），kind 或
+  文本对不上保守停止——只是按钮暂缺，切页重建自愈 */
+  private async backfillForkAnchors(sessionId: string) {
+    try {
+      const s = await api.getHistory(sessionId)
+      if (sessionId !== this.activeId) return // 等待期间已切分支：别写错时间线
+      const rebuilt = this.buildBlocks(s.messages, undefined, undefined, s.id)
+      let j = rebuilt.length - 1
+      for (let i = this.blocks.length - 1; i >= 0 && j >= 0; i--) {
+        const b = this.blocks[i]
+        if (b.kind !== 'user' && b.kind !== 'assistant') continue
+        if (b.msgIdx !== undefined) break
+        while (j >= 0 && rebuilt[j].kind !== 'user' && rebuilt[j].kind !== 'assistant') j--
+        if (j < 0) break
+        const rb = rebuilt[j] as Extract<Block, { kind: 'user' | 'assistant' }>
+        if (rb.kind !== b.kind || rb.text !== b.text) break
+        b.owner = rb.owner
+        b.msgIdx = rb.msgIdx
+        j--
+      }
+    } catch {
+      /* 拉取失败静默 */
+    }
   }
 
   /* ── 分身抽屉 ── */
@@ -827,7 +868,7 @@ class AppStore {
     if (rootId === this.activeId) return
     try {
       const r = await api.activateBranch(rootId)
-      this.activeId = r.id
+      this.activate(r.id)
       await this.loadHistory()
       this.resubscribe()
       await this.refreshStatus()
@@ -841,7 +882,7 @@ class AppStore {
   async newBranch() {
     try {
       const r = await api.newBranch()
-      this.activeId = r.id
+      this.activate(r.id)
       await this.loadHistory()
       this.resubscribe()
       await this.refreshStatus()
@@ -876,7 +917,7 @@ class AppStore {
     }
     this.unsub?.()
     this.unsub = null
-    this.activeId = ''
+    this.activate('')
     this.leafId = ''
     this.resetView()
   }
@@ -940,7 +981,7 @@ class AppStore {
   async forkFrom(owner: string, msgIdx: number) {
     try {
       const r = await api.forkSession(owner, msgIdx + 1)
-      this.activeId = r.id
+      this.activate(r.id)
       await this.loadHistory()
       this.resubscribe()
       await this.refreshStatus()
@@ -1008,12 +1049,15 @@ class AppStore {
         const name = this.branches.find((b) => b.id === g.rootId)?.title || ''
         for (const it of g.items) {
           let question = ''
+          let info = ''
           try {
             const a = it.args ? JSON.parse(it.args) : {}
             question = a.question || ''
+            info = a.detail || ''
           } catch {
             /* 非法 JSON 忽略 */
           }
+          const done = it.kind === 'info' // 完成通知（非待处理）
           out.push({
             id: it.callId,
             rootId: g.rootId,
@@ -1021,11 +1065,11 @@ class AppStore {
             source: it.forkId ? '分身' : name || 'agent',
             forkId: it.forkId || '',
             title: it.tool,
-            detail: question,
+            detail: done ? info : question,
             time: new Date(it.ts || Date.now()).toTimeString().slice(0, 5),
-            status: 'pending',
-            resolution: '',
-            target: `decision-${it.callId}`,
+            status: done ? 'done' : 'pending',
+            resolution: done ? '已完成' : '',
+            target: done ? '' : `decision-${it.callId}`,
           })
         }
       }
@@ -1036,6 +1080,8 @@ class AppStore {
           return c.id === n.id && c.rootId === n.rootId && c.detail === n.detail && c.time === n.time
         })
       if (!same) this.notices = out
+      // 当前会话的完成通知即刻已读（正在看它，不必刷红点）
+      this.readCompletions(this.activeId)
     } catch {
       /* 后端不可达静默（下一轮重试） */
     }
@@ -1053,20 +1099,44 @@ class AppStore {
     }
   }
 
-  /* jumpToNotice 跳转到通知来源：跨分支先切换（等待历史加载），分身请求
-  打开抽屉定位，主时间线经 jumpMain 锚点由 ChatView 滚动。 */
-  async jumpToNotice(n: NoticeData) {
-    if (!n.target) return
-    if (n.rootId && n.rootId !== this.activeId) await this.openTab(n.rootId)
-    if (n.forkId) {
-      this.openFork(n.forkId, n.id)
+  /* jumpToNoticeRef 跳转到通知来源（外部窗口传入的裸标识）：跨分支先
+  切换（等待历史加载），分身请求打开抽屉定位，主时间线经 jumpMain 锚点
+  由 ChatView 滚动。 */
+  async jumpToNoticeRef(ref: Pick<NoticeData, 'rootId' | 'forkId' | 'id' | 'target'>) {
+    if (ref.rootId && ref.rootId !== this.activeId) await this.openTab(ref.rootId)
+    if (!ref.target) return // 完成通知：切到该会话即可，无时间线锚点
+    if (ref.forkId) {
+      this.openFork(ref.forkId, ref.id)
       return
     }
-    this.jumpMain = n.target
+    this.jumpMain = ref.target
+  }
+
+  /* jumpToNotice 通知栏内跳转：委托裸标识版本。 */
+  async jumpToNotice(n: NoticeData) {
+    await this.jumpToNoticeRef(n)
   }
 
   dismissNotice(id: string) {
+    const n = this.notices.find((x) => x.id === id)
     this.notices = this.notices.filter((x) => x.id !== id)
+    // 完成通知（info）在服务端置空——否则下一轮轮询又拉回来
+    if (n?.kind === 'info') void api.dismissNotification(n.rootId, n.id).catch(() => this.refreshNotices())
+  }
+
+  /* activate 切换活动会话（分支三操作/分叉/新建/引导都走它）：该会话的完成
+     通知随之视为已读——"打开对话=已读"，与入口无关 */
+  private activate(rootId: string) {
+    this.activeId = rootId
+    this.readCompletions(rootId)
+  }
+
+  /* readCompletions 把某会话的完成通知标记已读（本地移除 + 服务端置空） */
+  private readCompletions(rootId: string) {
+    if (!rootId) return
+    for (const n of [...this.notices]) {
+      if (n.kind === 'info' && n.rootId === rootId) this.dismissNotice(n.id)
+    }
   }
 
   /* ── 事件归约 ── */
@@ -1153,6 +1223,8 @@ class AppStore {
         if (d.id) {
           this.markToolDecision(d.id, d.resolution || '')
           this.removeResolvedDecisions(d.id)
+          // 分支 waiting 标记即刻收敛（tab 待审批角标不残留到轮末）
+          void this.refreshBranches()
         }
         // term_*/browser_* 审批通过 → 现在才拉开对应抽屉页（拒绝则什么都不做）
         if (d.id && this.toolApprovals.has(d.id)) {
@@ -1558,6 +1630,8 @@ class AppStore {
             title,
           })
         }
+        // 本轮已落盘：回填分叉锚点（实时轮的消息即刻可分叉，不必切页重建）
+        if (!ev.forkId && this.activeId) void this.backfillForkAnchors(this.activeId)
         void this.refreshStatus()
         break
       }

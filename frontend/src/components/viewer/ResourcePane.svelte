@@ -203,6 +203,12 @@
     removeTab(key)
   }
 
+  /* 在系统文件管理器中定位当前资源（draft 也有 tmp 真身路径；web 端无壳按钮不显 */
+  function revealInExplorer() {
+    const p = tab?.path
+    if (p) (window as any).ez?.window?.reveal?.(p)
+  }
+
   /* 添加到对话（文本系）：纯文件引用 chip 塞进输入框（发送时经
   <reference_file> 告知模型，AI read_file 真身）；dirty 先自动保存 */
   async function addToChat() {
@@ -235,6 +241,13 @@
         </span>
       </button>
     {/each}
+    {#if tab?.path}
+      <button class="reveal" onclick={revealInExplorer} title="在资源管理器中打开">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg>
+      </button>
+    {/if}
   </div>
 
   {#if pendingClose}
@@ -399,6 +412,31 @@
   .x svg {
     width: 9px;
     height: 9px;
+  }
+  /* 在资源管理器中打开：tab 条右端常驻，当前 tab 有真身路径才显 */
+  .reveal {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin-left: auto;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--faint);
+    cursor: pointer;
+    transition:
+      color var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
+  }
+  .reveal svg {
+    width: 13px;
+    height: 13px;
+  }
+  .reveal:hover {
+    color: var(--fg);
+    background: var(--bg-soft);
   }
   /* dirty 关闭二次确认条 */
   .confirm {

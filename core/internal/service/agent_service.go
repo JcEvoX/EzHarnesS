@@ -12,13 +12,11 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -206,34 +204,25 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		s.Fsys, func() string { return s.ID }, // 进度档案 progress.md 落盘
 	)
 
-	// 能力槽启用态：图片识别槽启用 → agent 获得图片识别工具
-	visionOn := visionModel(a.Hub) != nil
-
 	// 主模型视觉能力实时判断（换模型 Reassemble 后随设置即时生效）
 	mainVision := func() bool {
 		m := a.Hub.ModelsSnapshot().ActiveMain()
 		return m != nil && m.Vision
 	}
 	// read_file 图片分支裁决：开视觉 → 走标记→OnLoop 转图片消息（持久化）；
-	// 未开 → 引导 image_recognize（识别槽也未开则引导设置）
+	// 未开 → 模型无法处理图片
 	readImage := func(path, _ string) (string, bool) {
 		if mainVision() {
 			return "", true
 		}
-		if visionOn {
-			return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；可调用 image_recognize 工具识别]", path), false
-		}
-		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型启用图片识别槽]", path), false
+		return fmt.Sprintf("[当前模型无多模态能力，无法读取图片 %s；如需识别图片请在设置·模型为主模型勾选\"支持视觉\"]", path), false
 	}
 
 	// visionguard 最内层（紧贴 provider）：无视觉模型每次实际请求（含 retry）
 	// 剥历史图片消息（请求视图，落盘不动，换回多模态自动恢复）
 	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), noempty.Warp(), visionguard.Warp(mainVision)}
-	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
+	agentTools := append(append(tools.SaveApp(s.Fsys), tools.Sleep()), tools.SharedTerm(a.Term)...)
 	agentTools = append(agentTools, tools.SharedBrowser(a.Browser)...)
-	if visionOn {
-		agentTools = append(agentTools, tools.ImageRecognize(a)...)
-	}
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
 	}
@@ -241,11 +230,8 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
-		"term_start", "term_send", "term_read", "term_list", "term_close",
-		"browser_tab", "browser_action", "browser_read",
-	}
-	if visionOn {
-		toolNames = append(toolNames, tools.ImageRecognizeTool)
+		"term_tab", "term_action",
+		"browser_tab", "browser_action",
 	}
 	agent := core.NewAgent(provider,
 		core.WithModelWarp(modelWarps...),
@@ -290,67 +276,6 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	})
 }
 
-/* visionModel 返回图片识别槽的启用条目（无则 nil）。 */
-func visionModel(h *domain.Hub) *domain.ModelEntry {
-	for i := range h.ModelsSnapshot().Vision {
-		if h.ModelsSnapshot().Vision[i].Enabled {
-			return &h.ModelsSnapshot().Vision[i]
-		}
-	}
-	return nil
-}
-
-/*
-RecognizeImage 用图片识别槽模型识别一张图片（image_recognize 工具的
-后端）。question 为识别侧重点（空 = 通用描述），由调用方按任务语境给定。
-槽模型与启用态每次实时读取——设置变更即生效，无需重建 agent。
-*/
-func (a *AgentService) RecognizeImage(ctx context.Context, path, question string) (string, error) {
-	m := visionModel(a.Hub)
-	if m == nil || m.APIKey == "" {
-		return "", errors.New("图片识别模型未启用（设置·模型·图片识别）")
-	}
-	data, err := a.Hub.Fsys.Read(ctx, path)
-	if err != nil {
-		return "", fmt.Errorf("读取图片失败: %w", err)
-	}
-	prompt := question
-	if prompt == "" {
-		prompt = "识别这张图片的内容：先概述是什么，再按需提取其中的文字、数据、代码或关键细节。"
-	}
-	prompt += "\n输出将直接交给另一个 agent 使用，请客观、结构化，不要寒暄。"
-	// 按扩展名推图片 MIME（识别模型通用要求 image/*）
-	mime := "image/jpeg"
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".png":
-		mime = "image/png"
-	case ".webp":
-		mime = "image/webp"
-	case ".gif":
-		mime = "image/gif"
-	}
-	prov := buildProvider(m)
-	resp, err := prov.Invoke(ctx, &types.ModelRequest{Messages: []types.Message{{
-		Role:    types.RoleUser,
-		Content: prompt,
-		Images: []types.ImagePart{{
-			MimeType: mime,
-			Data:     base64.StdEncoding.EncodeToString(data),
-		}},
-	}}})
-	if err != nil {
-		return "", err
-	}
-	{
-		if a.Hub.ApplyVisionUsage(&resp.Usage) {
-			if err := SaveModelsConfig(context.Background(), a.Hub.Fsys, a.Hub.ModelsSnapshot()); err != nil {
-				log.Printf("视觉用量落盘失败: %v", err)
-			}
-		}
-	}
-	return resp.Content, nil
-}
-
 /*
 	Reassemble 重建全部存活分支的 agent（配置变更后；运行中的分支
 
@@ -371,42 +296,23 @@ func (a *AgentService) Reassemble(st domain.Settings) error {
 }
 
 /*
-	needsApprove 按审批策略判定（安全页四档）。
+	needsApprove 按审批策略判定。
 
-人机交互与内部工具恒免审；未知工具默认审批。运行时读设置快照，
-改策略即时生效（无需重建 agent）。
+查表键是工具名；合并式工具（term_action / browser_action）先试
+"工具名:action"。只读清单类动作恒免审；未知工具默认审批。运行时读设置
+快照（缺项回落内置默认），改策略即时生效（无需重建 agent）。
 */
 func (a *AgentService) needsApprove(c *types.ToolCall) bool {
-	name := c.Name
-	if name == "mcp_router" {
-		// ezloop mcp 是单一 router 工具，二段式（action/server/tool 在 args）。
-		// 发现类（mcp_list/tool_list）只读无副作用，四档下一律免审。
-		var a struct {
-			Action string `json:"action"`
-		}
-		_ = json.Unmarshal(c.Args, &a)
-		if a.Action == "mcp_list" || a.Action == "tool_list" {
-			return false
-		}
-		name = "mcp.*" // tool_call 按 server.tool 名单走四档
+	name, action := ruleKeyOf(c)
+	if c.Name == "mcp_router" && (action == "mcp_list" || action == "tool_list") {
+		return false // 发现类只读无副作用，恒免审
 	}
-	if name == "browser_tab" {
-		// 标签清单只读无副作用，四档下一律免审（open/close 才是管控面）
-		var a struct {
-			Action string `json:"action"`
-		}
-		_ = json.Unmarshal(c.Args, &a)
-		if a.Action == "list" {
-			return false
-		}
+	if (name == "browser_tab" || name == "term_tab") && action == "list" {
+		return false // 标签清单只读无副作用，恒免审（new/open/close 才是管控面）
 	}
-	rules := a.Hub.ToolRulesSnapshot()
-	var rule *domain.ToolRule
-	for i := range rules {
-		if rules[i].Tool == name {
-			rule = &rules[i]
-			break
-		}
+	rule := findRule(a.Hub.ToolRulesSnapshot(), name, action)
+	if rule == nil {
+		rule = findRule(domain.DefaultToolRules(), name, action) // 存量档缺项回落默认
 	}
 	if rule == nil {
 		return true
@@ -417,11 +323,11 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 	case domain.LevelAsk:
 		return true
 	case domain.LevelWhite, domain.LevelBlack:
-		// 名单档仅终端（命令）与 mcp（server.tool）有能力；其余工具视为需审批
-		if !listCapable(name) {
+		// 名单档仅有名单能力的 key 支持（命令 / 路径 / mcp）；其余按需审批兜底
+		if domain.ListKindOf(rule.Key) == "" {
 			return true
 		}
-		hit := matchRuleList(rule.List, name, c.Args)
+		hit := matchRuleList(rule.List, rule.Level, rule.Key, c.Args)
 		if rule.Level == domain.LevelWhite {
 			return !hit
 		}
@@ -430,58 +336,136 @@ func (a *AgentService) needsApprove(c *types.ToolCall) bool {
 	return true
 }
 
-/* listCapable 名单匹配能力面：终端系匹配命令、mcp 匹配 server.tool，其余工具无名单概念。 */
-func listCapable(tool string) bool {
-	switch tool {
-	case "terminal", "term_start", "term_send", "mcp.*":
-		return true
+/*
+ruleKeyOf 归一调用的查表基准：mcp_router 二段式映射为 mcp.* 伪工具；
+其余返回 (工具名, action)（无 action 字段的工具 action 为空）。
+*/
+func ruleKeyOf(c *types.ToolCall) (string, string) {
+	action := callAction(c.Args)
+	if c.Name == "mcp_router" {
+		return "mcp.*", action
 	}
-	return false
+	return c.Name, action
+}
+
+/* callAction 从参数取 action（无该字段的工具返回空串）。 */
+func callAction(args json.RawMessage) string {
+	var a struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(args, &a)
+	return a.Action
+}
+
+/* findRule 先按 "工具名:action" 精确查，再按工具名查。 */
+func findRule(rules []domain.ToolRule, name, action string) *domain.ToolRule {
+	if action != "" {
+		key := name + ":" + action
+		for i := range rules {
+			if rules[i].Key == key {
+				return &rules[i]
+			}
+		}
+	}
+	for i := range rules {
+		if rules[i].Key == name {
+			return &rules[i]
+		}
+	}
+	return nil
 }
 
 /*
-	matchRuleList 判定工具调用是否命中名单：终端系匹配命令（包含即命中
-
-——命令文本任意位置出现名单词都算，拼接/转义绕不过）、mcp 匹配
-server 或 server.tool（点边界）。
+matchRuleList 判定调用是否命中名单，语义随名单类型与档位：
+command 白名单=前缀（命令以名单词开头，词边界=结尾或空白）、黑名单=包含；
+path 白名单=路径前缀（分隔符归一，Windows 忽略大小写）；无黑名单；
+mcp 白名单=server 或 server.tool 精确/整站点边界、黑名单=子串包含。
 */
-func matchRuleList(list []string, ruleTool string, args json.RawMessage) bool {
-	key := ""
-	term := ruleTool == "terminal" || ruleTool == "term_start" || ruleTool == "term_send"
-	switch {
-	case term: // 共享终端执行与独立进程命令共用命令词匹配
+func matchRuleList(list []string, level domain.Level, ruleKey string, args json.RawMessage) bool {
+	white := level == domain.LevelWhite
+	switch domain.ListKindOf(ruleKey) {
+	case "command":
 		var a struct {
 			Command string `json:"command"`
 		}
 		_ = json.Unmarshal(args, &a)
-		key = a.Command
-	case ruleTool == "mcp.*":
+		return matchCommand(list, white, strings.TrimSpace(a.Command))
+	case "path":
+		var a struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal(args, &a)
+		return matchPathPrefix(list, a.Path)
+	case "mcpTool":
 		var a struct {
 			Server string `json:"server"`
 			Tool   string `json:"tool"`
 		}
 		_ = json.Unmarshal(args, &a)
-		key = a.Server
+		key := a.Server
 		if a.Tool != "" {
 			key = a.Server + "." + a.Tool
 		}
+		return matchMcp(list, white, key)
 	}
-	if key == "" {
+	return false
+}
+
+/* matchCommand 终端命令词：白名单前缀命中（词边界），黑名单包含命中。 */
+func matchCommand(list []string, white bool, cmd string) bool {
+	if cmd == "" {
 		return false
 	}
 	for _, e := range list {
-		if term && strings.Contains(key, e) {
-			return true // 命令文本包含即命中
-		}
-		if key == e {
+		if white {
+			if cmd == e || (strings.HasPrefix(cmd, e) && isSpaceByte(cmd[len(e)])) {
+				return true
+			}
+		} else if strings.Contains(cmd, e) {
 			return true
-		}
-		if ruleTool == "mcp.*" && strings.HasPrefix(key, e+".") {
-			return true // server 前缀放行整站（点边界：time 不误命中 timeX）
 		}
 	}
 	return false
 }
+
+/* matchPathPrefix 路径白名单：前缀命中即免审（分隔符归一，Windows 忽略大小写）。 */
+func matchPathPrefix(list []string, path string) bool {
+	if path == "" {
+		return false
+	}
+	p := filepath.ToSlash(filepath.Clean(path))
+	for _, e := range list {
+		pre := filepath.ToSlash(filepath.Clean(e))
+		if runtime.GOOS == "windows" {
+			if strings.HasPrefix(strings.ToLower(p), strings.ToLower(pre)) {
+				return true
+			}
+		} else if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+/* matchMcp server.tool：白名单精确/整站点前缀（点边界），黑名单子串包含。 */
+func matchMcp(list []string, white bool, key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, e := range list {
+		if white {
+			if key == e || strings.HasPrefix(key, e+".") {
+				return true
+			}
+		} else if strings.Contains(key, e) {
+			return true
+		}
+	}
+	return false
+}
+
+/* isSpaceByte 命令词边界字符（空白）。 */
+func isSpaceByte(b byte) bool { return b == ' ' || b == '\t' }
 
 /*
 ResolveWorkDir 把工作目录配置解析为绝对路径：空 = 数据目录下 workspace/
@@ -546,6 +530,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"禁止对 C:/ 根、用户主目录、桌面等宽泛位置做递归搜索或遍历（find/grep 全盘极易超时卡死且对结论无贡献）；" +
 		"缺少路径信息先问用户，不要自行上溯目录猜路径；\n" +
 		"# - terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，临时文件不要丢在工作目录外。\n" +
+		"# - 定时等待用 sleep 工具（真阻塞，用户停止即中断）；terminal/term_action send 里跑 timeout 之类的睡眠命令在 Windows 下立即退出，等不住。\n" +
 		"</workspace>")
 	ltRoot := memRoot + "/longterm"
 	b.WriteString("\n\n<memory>\n" +
@@ -610,9 +595,9 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"1. 接任务先匹配技能：对照 <skills> 清单，命中就 load_skill 加载后按其指引执行，不要绕过现成技能自己造流程；没命中再自行设计。\n" +
 		"2. 动手前想清楚：多步骤或有风险的任务，先用 ask_user 提交计划（options 给候选，如 [\"执行\",\"否决\",\"修改\"]）请用户处置，获批后再执行；一步能完成的小事直接做。\n" +
 		"3. 执行工具的选择：\n" +
-		"- 本机一次性命令（构建、查询、跑脚本）用 terminal；\n" +
-		"- 需要交互式应答、长驻程序、或希望用户实时看到过程时，用 term_* 共享终端（term_start 新建可带名称与首条命令，term_send 发命令并等输出静默返回（也用于应答交互或发中断信号），term_read 游标式续读，term_list 查全部含用户手开的；长驻程序运行中或任务收尾时把终端入口交付给用户）；\n" +
-		"- 检索网页、查资料、操作网页用 browser_* 共享浏览器（真实 Chromium，用户实时共见可直接接管；browser_tab 开标签自动展开浏览器页，首次使用会自动下载 Chromium 需等待；browser_action 操作页面——优先 CSS 选择器，定位不了先截图按视口坐标；browser_read 读正文/链接/截图）；与 terminal（本机命令）互补。\n" +
+		"- 本机一次性命令（构建、查询、跑脚本）用 terminal——它会阻塞到命令结束（或超时）；长任务（下载、构建、要 sleep 的活）就用它同步跑完。\n" +
+		"- 需要交互式应答、长驻程序、或希望用户实时看到过程时，用共享终端：term_tab 管标签（new 新建 / list 查全部含用户手开的 / close 关闭），term_action action=send 发命令（也用于应答交互或发中断信号 \\u0003）——它等输出静默后直接把这次命令的输出返回，短命令一条调用就拿到结果，长驻命令到点先返回、后续用 action=read 读末尾 N 行（默认 100，读多少次都是同一份）；长驻程序运行中或任务收尾时把终端入口交付给用户；\n" +
+		"- 检索网页、查资料、操作网页用共享浏览器（真实 Chromium，用户实时共见可直接接管；browser_tab 管标签，open 自动展开浏览器页、首次使用会自动下载 Chromium 需等待；browser_action 只有七个动作——navigate 打开网址、read 读正文/DOM/可交互元素/链接/子帧、screenshot 截图（默认视口，可整页或只截某元素）、eval 页面内执行 JS（**页面里的点击/填值/滚动/断言都走它**：__ezOne(选择器) 深查询穿透 shadow DOM 与同源 iframe，没有 click/type 这类单独动作，自己写 JS 做，别靠截图估坐标）、console 读控制台、network 读网络请求、upload 传文件；读不到内容时先 eval 里 await 一下或轮询，再 read。原生 alert/confirm 一律自动取消并记进控制台；与 terminal（本机命令）互补。\n" +
 		"4. MCP：内置工具够用就不绕道；用 MCP 时先 mcp_list / tool_list 发现能力再 tool_call，不凭记忆猜工具名和参数。\n" +
 		"5. 可并行、相互独立、或会产生大量中间输出的子任务，交 task 分身执行（工具集相同、过程互不干扰，结果直接回传），主对话只接结论；任务描述必须自包含（分身看不到本轮对话之外的语境）：写清目标、输入、涉及的文件绝对路径与期望的返回格式；无依赖的子任务一次并行发多个。\n" +
 		"6. 交付与连续性：任务收尾把成果入口用 <$supper_url> 交付（格式见 <output>），产物文件放工作目录；" +
@@ -626,7 +611,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"规则：整段闭合包裹、标签紧贴地址、地址内不能有空格/换行/文字；说明文字写在标签外面。\n" +
 		"正确示例：\n" +
 		"<$supper_url>https://example.com/report</$supper_url>\n" +
-		"<$supper_url>term://终端id</$supper_url>（id 来自 term_start/term_list）\n" +
+		"<$supper_url>term://终端id</$supper_url>（id 来自 term_tab）\n" +
 		"<$supper_url>browser://标签id</$supper_url>（id 来自 browser_tab）\n" +
 		"<$supper_url>app://快应用名</$supper_url>\n" +
 		"<$supper_url>file://C:/完整/绝对/路径.md</$supper_url>\n" +

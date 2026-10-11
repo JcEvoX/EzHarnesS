@@ -49,3 +49,17 @@ func (c *AppsController) Open(g *gin.Context) {
 	}
 	g.JSON(http.StatusOK, out)
 }
+
+/* Pin POST /api/apps/:name/pin：钉到桌面小助手/取消（toggle），返回新状态。 */
+func (c *AppsController) Pin(g *gin.Context) {
+	pinned, err := c.Svc.TogglePin(g.Request.Context(), g.Param("name"))
+	if errors.Is(err, service.ErrAppNotFound) {
+		g.JSON(http.StatusNotFound, gin.H{"error": "app not found"})
+		return
+	}
+	if err != nil {
+		g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "pinned": pinned})
+}

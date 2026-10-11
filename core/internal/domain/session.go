@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -72,6 +73,7 @@ type Session struct {
 	cur         *runState
 	subs        map[chan []byte]struct{}
 	pending     map[string]Event
+	completed   *PendingNotice // 最近一轮完成的 info 通知（新一轮覆盖旧值）
 	ctxTokens   int
 	wired       *Wiring
 	snap        *hooks.SessionSnap         // bootstrap 恢复的快照（Assemble 读取；nil = 新建）
@@ -591,10 +593,44 @@ type StreamSnapshot struct {
 type PendingNotice struct {
 	CallID string `json:"callId"`
 	ForkID string `json:"forkId,omitempty"`
-	Kind   string `json:"kind"` // approve | ask
+	Kind   string `json:"kind"` // approve | ask | info
 	Tool   string `json:"tool"`
 	Args   string `json:"args,omitempty"`
 	Ts     int64  `json:"ts"`
+}
+
+/*
+MarkCompleted 记录本会话最近一轮的完成通知（info 条，与会话一一对应——
+新一轮覆盖旧值，关闭后置空）。detail 是人读文案（结束原因 · 轮次 · 耗时）。
+*/
+func (s *Session) MarkCompleted(detail string) {
+	now := time.Now().UnixMilli()
+	args, _ := json.Marshal(map[string]string{"detail": detail})
+	s.mu.Lock()
+	s.completed = &PendingNotice{
+		CallID: fmt.Sprintf("done-%d", now),
+		Kind:   "info",
+		Tool:   "执行完成",
+		Args:   string(args),
+		Ts:     now,
+	}
+	s.mu.Unlock()
+}
+
+/* CompletedNotice 返回最近一轮完成通知（无则 nil）。 */
+func (s *Session) CompletedNotice() *PendingNotice {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.completed
+}
+
+/* DismissCompleted 关闭完成通知（仅 callID 匹配才清，避免误清新一轮）。 */
+func (s *Session) DismissCompleted(callID string) {
+	s.mu.Lock()
+	if s.completed != nil && s.completed.CallID == callID {
+		s.completed = nil
+	}
+	s.mu.Unlock()
 }
 
 /*
@@ -845,22 +881,6 @@ func (h *Hub) ApplyUsage(u *types.Usage) bool {
 	if e := h.Models.ActiveMain(); e != nil {
 		accumulateUsage(e, u)
 		return true
-	}
-	return false
-}
-
-/* ApplyVisionUsage 累计图片识别用量到识别槽启用条目，返回是否有变更。 */
-func (h *Hub) ApplyVisionUsage(u *types.Usage) bool {
-	if u == nil {
-		return false
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for i := range h.Models.Vision {
-		if h.Models.Vision[i].Enabled {
-			accumulateUsage(&h.Models.Vision[i], u)
-			return true
-		}
 	}
 	return false
 }

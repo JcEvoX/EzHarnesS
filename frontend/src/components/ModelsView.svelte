@@ -3,17 +3,15 @@
   import { api, type ModelEntry, type ModelsConfig } from '../lib/api'
 
   /*
-  「主模型 + 能力槽」四类：main（驱动 agent 循环的唯一对话模型，支持
-  视觉则图片直接进上下文，否则图片落盘并引导工具识别）/ vision
-  （图片识别：启用后 agent 获得 image_recognize 工具）/ image（图片
-  生成）/ audio（声音生成）——能力槽配置并启用后向 agent 暴露对应
+  「主模型 + 能力槽」三类：main（驱动 agent 循环的唯一对话模型，支持
+  视觉则图片直接进上下文，否则不能读图）/ image（图片生成）/
+  audio（声音生成）——能力槽配置并启用后向 agent 暴露对应
   工具（image/audio 的工具后续版本提供）。数据 GET/PUT /api/models，
   每槽至多启用一个，保存后重建 agent。
   */
   type SlotKey = keyof ModelsConfig
   const kinds: { key: SlotKey; title: string; hint: string }[] = [
-    { key: 'main', title: '主模型', hint: '驱动对话与工具循环；勾选"支持视觉"则图片直接进上下文，否则图片存文件并引导用工具识别' },
-    { key: 'vision', title: '图片识别', hint: '启用后 agent 获得图片识别工具（image_recognize），可识别任意图片文件' },
+    { key: 'main', title: '主模型', hint: '驱动对话与工具循环；勾选"支持视觉"则图片直接进上下文，未勾选则模型无法处理图片' },
     { key: 'image', title: '图片生成', hint: '启用后向 agent 暴露文生图工具（工具后续版本提供）' },
     { key: 'audio', title: '声音生成', hint: '启用后向 agent 暴露语音合成工具（工具后续版本提供）' },
   ]

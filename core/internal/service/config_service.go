@@ -55,7 +55,7 @@ func LoadModelsConfig(ctx context.Context, fsys osfs.OS) domain.ModelsConfig {
 		return domain.DefaultModelsConfig()
 	}
 	var mc domain.ModelsConfig
-	if json.Unmarshal(data, &mc) == nil && (len(mc.Main)+len(mc.Vision)+len(mc.Image)+len(mc.Audio)) > 0 {
+	if json.Unmarshal(data, &mc) == nil && (len(mc.Main)+len(mc.Image)+len(mc.Audio)) > 0 {
 		return mc
 	}
 	return domain.DefaultModelsConfig()

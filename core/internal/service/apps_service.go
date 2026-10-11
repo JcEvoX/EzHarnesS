@@ -12,15 +12,20 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"ezharness/core/internal/domain"
 	"ezharness/core/internal/osfs"
 	"ezharness/core/internal/quickapp"
 )
 
 /* AppsDir 是快应用目录（工作目录相对）。 */
 const AppsDir = "apps"
+
+/* PinMax 是桌面小助手钉选上限（钉满后再钉顶掉最早）。 */
+const PinMax = 3
 
 /* 应用形态：static 纯前端只开窗，service 声明了 backend 要起后端。 */
 const (
@@ -33,10 +38,12 @@ var ErrAppNotFound = errors.New("app not found")
 
 /* AppEntry 是快应用卡片数据。 */
 type AppEntry struct {
-	Name  string `json:"name"` // 应用目录名（应用的稳定身份）
-	Title string `json:"title"`
-	Kind  string `json:"kind"`
-	Mtime string `json:"mtime"`
+	Name   string `json:"name"`            // 应用目录名（应用的稳定身份）
+	Title  string `json:"title"`
+	Kind   string `json:"kind"`
+	Mtime  string `json:"mtime"`
+	Icon   string `json:"icon,omitempty"`  // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
+	Pinned bool   `json:"pinned"`          // 已钉到桌面小助手
 }
 
 /* AppView 是一次启动的结果：前端入口路径 + 后端终端（无后端时为空）。 */
@@ -60,6 +67,7 @@ type appTerm interface {
 type AppsService struct {
 	Fsys osfs.OS
 	Term appTerm
+	Hub  *domain.Hub // 钉选列表存全局设置（nil=测试装配，pin 恒 false）
 }
 
 /* appInfo 是一次声明的解析结果：应用名 + 协议声明 + 已校验的入口。 */
@@ -87,13 +95,56 @@ func (s *AppsService) List(ctx context.Context) []AppEntry {
 			continue
 		}
 		out = append(out, AppEntry{
-			Name:  a.Name,
-			Title: s.title(ctx, a),
-			Kind:  kindOf(a.Spec),
-			Mtime: appMtime(a.Name + "/" + quickapp.FileName),
+			Name:   a.Name,
+			Title:  s.title(ctx, a),
+			Kind:   kindOf(a.Spec),
+			Mtime:  appMtime(a.Name + "/" + quickapp.FileName),
+			Icon:   iconURL(a.Name, a.Spec.Icon),
+			Pinned: s.Hub != nil && slices.Contains(s.Hub.SettingsSnapshot().PinnedApps, a.Name),
 		})
 	}
 	return out
+}
+
+/*
+TogglePin 把快应用钉到桌面小助手（再点一次取消）：翻转全局设置里的
+pinnedApps 并落盘。钉满 PinMax 后再钉新的会把最早钉的顶掉（小助手
+只展示 3 个钉选）。不重建 agent（钉选不影响任何 agent 行为）。
+不存在的应用报 ErrAppNotFound。
+*/
+func (s *AppsService) TogglePin(ctx context.Context, name string) (bool, error) {
+	if _, err := s.load(ctx, name); err != nil {
+		return false, err
+	}
+	if s.Hub == nil {
+		return false, errors.New("settings unavailable")
+	}
+	st := s.Hub.SettingsSnapshot()
+	if i := slices.Index(st.PinnedApps, name); i >= 0 {
+		st.PinnedApps = slices.Delete(st.PinnedApps, i, i+1)
+	} else {
+		st.PinnedApps = append(st.PinnedApps, name)
+		for len(st.PinnedApps) > PinMax {
+			st.PinnedApps = st.PinnedApps[1:]
+		}
+	}
+	if err := SaveSettings(ctx, s.Hub.Fsys, st); err != nil {
+		return false, err
+	}
+	s.Hub.ApplySettings(st)
+	return slices.Contains(st.PinnedApps, name), nil
+}
+
+/* iconURL 校验声明的 icon（同 entry 的相对路径约束）并拼成同源 URL；空/越界返回空串。 */
+func iconURL(name, icon string) string {
+	if strings.TrimSpace(icon) == "" {
+		return ""
+	}
+	p, err := quickapp.SafeEntry(icon)
+	if err != nil {
+		return ""
+	}
+	return "/apps/" + name + "/" + p
 }
 
 /*

@@ -40,7 +40,6 @@ type wsTermSessionOut struct {
 	Desc     string `json:"desc,omitempty"`
 	Origin   string `json:"origin"`
 	Exited   bool   `json:"exited"`
-	LastCmd  string `json:"lastCmd"`
 	Snapshot string `json:"snapshot"` // b64 输出快照(hello 恢复用)
 }
 
@@ -97,7 +96,7 @@ func (c *TerminalController) Ws(g *gin.Context) {
 					out := wsTermOut{Type: "terminals"}
 					for _, t := range f.Sessions {
 						out.Sessions = append(out.Sessions, wsTermSessionOut{
-							ID: t.ID, Name: t.Name, Desc: t.Desc, Origin: t.Origin, Exited: t.Exited, LastCmd: t.LastCmd,
+							ID: t.ID, Name: t.Name, Desc: t.Desc, Origin: t.Origin, Exited: t.Exited,
 						})
 					}
 					b, _ = json.Marshal(out)
@@ -145,7 +144,7 @@ func (c *TerminalController) writeHello(ctx context.Context, conn *websocket.Con
 	out := wsTermOut{Type: "hello"}
 	for _, t := range c.Svc.List() {
 		out.Sessions = append(out.Sessions, wsTermSessionOut{
-			ID: t.ID, Name: t.Name, Desc: t.Desc, Origin: t.Origin, Exited: t.Exited, LastCmd: t.LastCmd,
+			ID: t.ID, Name: t.Name, Desc: t.Desc, Origin: t.Origin, Exited: t.Exited,
 			Snapshot: base64.StdEncoding.EncodeToString(c.Svc.Snapshot(t.ID)),
 		})
 	}
