@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('ez', {
     closeCanceled: () => ipcRenderer.send('ez:close-cancel'),
     openUrl: (url) => ipcRenderer.send('ez:open-url', url),
     openApp: (url, title) => ipcRenderer.send('ez:open-app', url, title),
+    /* 在系统文件管理器中定位本机文件（资源查看器的当前 tab） */
+    reveal: (p) => ipcRenderer.send('ez:reveal', p),
     /* 系统级关闭（Alt+F4/任务栏）由主进程转到前端弹框 */
     onClosePrompt: (cb) => ipcRenderer.on('ez:close-prompt', () => cb()),
   },

@@ -569,6 +569,10 @@
 
   function onKey(e: KeyboardEvent) {
     if (!active) return
+    /* 焦点在任何输入框（聊天输入框/文本编辑）时不抢键：active 只知道
+       抽屉开着，不知道焦点在哪——否则空格/退格会被画板吞掉 */
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
     if (e.code === 'Space' && !textEdit) {
       e.preventDefault()
       spaceHeld = true

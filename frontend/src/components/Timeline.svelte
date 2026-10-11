@@ -344,11 +344,12 @@
             </div>
           {:else if seg.b.kind === 'imgload'}
             <div class="imgload" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
-              {#each seg.b.paths as p (p)}
-                <img src={`/api/workspace/file?path=${encodeURIComponent(p)}`} alt={p} loading="lazy"
+              {#each seg.b.paths as p, i (p)}
+                {@const snap = seg.b.images?.[i]}
+                <img src={snap ? `data:${snap.mimeType};base64,${snap.data}` : `/api/workspace/file?path=${encodeURIComponent(p)}`} alt={p} loading="lazy"
                   onclick={() => store.openFileAt(p)}
                   onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                  title="点击打开文件（可编辑保存写回）" />
+                  title={`${p}（点击打开文件，可编辑保存写回；缩略图为当时进上下文的快照）`} />
               {/each}
               <span class="label">已加载上下文</span>
             </div>

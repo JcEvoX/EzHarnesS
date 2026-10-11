@@ -97,7 +97,7 @@ export type Block = { uid: number } & (
   | { kind: 'status'; text: string; data: StatusPayload | null }
   | { kind: 'resourcechange'; items: string[] }
   | { kind: 'endtick'; icon: string; title: string }
-  | { kind: 'imgload'; paths: string[] }
+  | { kind: 'imgload'; paths: string[]; images?: ImagePayload[] }
 )
 
 export interface TotalUsage {
@@ -472,13 +472,15 @@ class AppStore {
             /* 损坏记录不渲染 */
           }
         } else if (m.content.includes('<image_loaded>')) {
-          // read_file 图片已进上下文：渲染为缩略图小行（paths 在标签体内，每行一个）
+          // read_file/截图 图片已进上下文：渲染为缩略图小行（paths 在标签体内，
+          // 每行一个；m.images 是当时进上下文的 base64 快照——磁盘文件后续
+          // 改/删不影响展示，点击开快照画板草稿）
           const inner = m.content.replace(/^[\s\S]*?<image_loaded>|<\/image_loaded>[\s\S]*$/g, '')
           const paths = inner
             .split('\n')
             .map((l) => l.trim())
             .filter(Boolean)
-          out.push({ kind: 'imgload', uid: this.nuid(), paths })
+          out.push({ kind: 'imgload', uid: this.nuid(), paths, images: m.images })
         } else if (m.content.includes('<end_reason>')) {
           const detail = endReasonText(m.content)
           if (detail) out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })

@@ -311,6 +311,10 @@ function registerIpc() {
   ipcMain.on('ez:open-url', (_e, url) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url)
   })
+  /* 在系统文件管理器中定位本机文件（资源查看器的当前 tab） */
+  ipcMain.on('ez:reveal', (_e, p) => {
+    if (typeof p === 'string' && p) shell.showItemInFolder(p)
+  })
   /* 快应用子窗口：加载 core 同源页面，独立标题；右键可检查元素 */
   ipcMain.on('ez:open-app', (_e, url, title) => {
     if (typeof url !== 'string' || !url.startsWith('/')) return
