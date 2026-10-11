@@ -39,7 +39,8 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/internal/service/session_service.go` | 历史读取、bootstrap、status/水位 |
 | `core/internal/service/topic_service.go` | 分支线（topics.json）、归档换代、分叉 |
 | `core/internal/service/settings_service.go` | 设置/模型/安全规则/记忆/skill 读写 |
-| `core/internal/service/terminal.go` | 共享终端（PTY 会话池 + WS 多路复用 + readMark 游标）。`Create` 在服务 workDir 起 shell；私有 `create(dir,…)` 加目录参数，`Launch` 借它在指定目录写命令**不等输出**（快应用后端起法，`StartTerm` 会等静默不能挂请求路径） |
+| `core/internal/service/terminal.go` | 共享终端（PTY 会话池 + WS 多路复用）。同一串字节两个去向：原始字节进 ring（WS hello 回放）+ 重放进 `termScreen`。AI 侧没有持久游标——`SendTerm` 写入后等输出静默（800ms 静默 / 10s 上限，`lastOut`+`condCh` 由读泵驱动），取"可视屏前后 diff 的改动行"，未见提示符会在 note 里说明命令可能仍在跑；`ReadTerm` 取屏幕末尾 N 行（默认 100），幂等不消费。`Create` 在服务 workDir 起 shell；`Launch` 借 `create(dir,…)` 在指定目录写命令**不等输出**（快应用后端起法） |
+| `core/internal/service/termscreen.go` | **终端屏幕模型**：ConPTY 发的是屏幕 diff（新提示符靠 CUP 摆位、进度条靠 `\r` 覆写、擦行靠 `\x1b[K`），直接剥转义序列会把提示符粘在输出尾巴上（路径/指令/结果糊成一行，实测过）。这里按终端语义重放字节流：H 行可视屏 + 回滚缓冲 + 常用 CSI，渲染成一行一行。半个 rune / 半条序列跨分片到达会暂存到下次 |
 | `core/internal/service/browser.go` | 共享浏览器 core 侧：经 `/api/browser/bridge` 把 `browser_*` 转发给 desktop |
 | `core/internal/service/mcp.go` `stash.go` `apps_service.go` `app_service.go` | MCP 客户端与热重载 / 附件暂存 / 快应用扫描与启动（`Term` 是 `appTerm` 最小接口，单测注入假实现）/ 换代重启 |
 | `core/internal/quickapp/protocol.go` | **快应用协议**：`apps/<名>/app.quick` 声明（title/entry/backend/icon，未识别字段忽略＝向前兼容）、`SafeEntry` 入口越界校验；save_app（写）与 apps_service（读）共用 |

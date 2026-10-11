@@ -13,7 +13,6 @@ export type TermInfo = {
   desc?: string
   origin: string
   exited: boolean
-  lastCmd: string
 }
 
 type HelloSession = TermInfo & { snapshot: string }

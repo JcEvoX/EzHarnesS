@@ -1,23 +1,24 @@
 /*
 魔法看板·共享终端:多终端全局公共池(跨会话共享,个人助手语义:任何
 会话都能操作全部终端)。每个终端是一个 ConPTY + shell 进程,用户
-(WS 输入)与 AI(term_* 工具)共写同一终端。输出进环形缓冲(WS 重连
-hello 恢复),AI 读走游标式增量(term_action send/read 共用读位点,读即
-消费)。终端清单供 agent_status 基线对比(每会话的 ResSnapshot 独立
-——A 会话首轮见到 B 会话开的终端同样报"新增",模型各自知悉全局
-终端水位)。
+(WS 输入)与 AI(term_* 工具)共写同一终端。同一串字节有两个去向:原始字节
+进环形缓冲(WS 重连 hello 回放,前端 xterm.js 自己渲染),同时重放进
+termScreen(见 termscreen.go——ConPTY 发的是屏幕 diff,不按终端语义重放
+就会把提示符、命令、输出糊成一行)。AI 侧两条读法都不靠持久游标:send 等
+输出静默后把这次命令改动的那几行带回;read 取屏幕末尾 N 行,读多少次都是
+同一份、天然幂等。终端清单供 agent_status 基线对比(每会话的 ResSnapshot
+独立——A 会话首轮见到 B 会话开的终端同样报"新增",模型各自知悉全局终端
+水位)。
 */
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,24 +30,21 @@ import (
 
 /* TermInfo 是终端清单条目(WS/REST/AI 清单共用)。 */
 type TermInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Desc    string `json:"desc,omitempty"` // 用途描述(创建时给出,看板提示展示)
-	Origin  string `json:"origin"`         // 创建来源:"用户" / "AI·<会话名>"
-	Exited  bool   `json:"exited"`         // shell 已退出(连接保留可看残留输出)
-	LastCmd string `json:"lastCmd"`        // 最近一次写入的命令(AI 或用户)
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Desc   string `json:"desc,omitempty"` // 用途描述(创建时给出,看板提示展示)
+	Origin string `json:"origin"`         // 创建来源:"AI" / "用户" / "快应用·<应用名>"
+	Exited bool   `json:"exited"`         // shell 已退出(连接保留可看残留输出)
 }
 
-/* termResult 是 term_* 工具的操作返回(与 TermInfo 同构 + 输出/状态注记)。 */
+/* termResult 是 term_* 工具的操作返回:身份/状态 + 输出 + 注记。 */
 type termResult struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Desc    string `json:"desc,omitempty"`
-	Origin  string `json:"origin,omitempty"`
-	Exited  bool   `json:"exited"`
-	LastCmd string `json:"lastCmd,omitempty"`
-	Output  string `json:"output,omitempty"`
-	Note    string `json:"note,omitempty"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Desc   string `json:"desc,omitempty"`
+	Exited bool   `json:"exited"`
+	Output string `json:"output,omitempty"`
+	Note   string `json:"note,omitempty"`
 }
 
 /* TermFrame 是 service → WS 订阅者的广播帧(controller 负责编码)。 */
@@ -60,7 +58,12 @@ type TermFrame struct {
 const (
 	termRingSize = 256 * 1024 // 每终端输出环形缓冲
 	termReadBuf  = 4096
-	termSubsBuf  = 64 // 每订阅者帧队列,满丢帧(重连 hello 兜底)
+	termSubsBuf  = 64  // 每订阅者帧队列,满丢帧(重连 hello 兜底)
+	termReadLine = 100 // read 默认返回的末尾行数
+
+	termSendQuiet = 800 * time.Millisecond // send 的静默判定窗:这么久没新输出就算命令做完了
+	termSendWait  = 10 * time.Second       // send 单次等待上限(长驻命令到点先返回,后续靠 read)
+	termPollStep  = 50 * time.Millisecond  // 等待轮询间隔
 )
 
 /* ── 环形缓冲 ── */
@@ -69,7 +72,7 @@ type ringBuffer struct {
 	buf     []byte
 	head    int // 起始下标
 	size    int
-	written int64 // 累计写入(代标记用)
+	written int64 // 累计写入(取"从某点起的新增"用)
 }
 
 func newRing(n int) *ringBuffer { return &ringBuffer{buf: make([]byte, n)} }
@@ -90,33 +93,6 @@ func (r *ringBuffer) append(p []byte) {
 	}
 }
 
-/* mark 返回当前写入位置(配合 since 取增量)。 */
-func (r *ringBuffer) mark() int64 { return r.written }
-
-/* since 返回自 mark 之后新增的数据(被覆盖则返回整个缓冲)。 */
-func (r *ringBuffer) since(mark int64) []byte {
-	n := r.written - mark
-	if n <= 0 {
-		return nil
-	}
-	if n > int64(r.size) {
-		n = int64(r.size)
-	}
-	out := make([]byte, 0, n)
-	start := (r.head + r.size - int(n)) % len(r.buf)
-	for n > 0 {
-		tail := (start + int(n)) % len(r.buf)
-		end := tail
-		if end <= start {
-			end = len(r.buf)
-		}
-		out = append(out, r.buf[start:end]...)
-		n -= int64(end - start)
-		start = 0
-	}
-	return out
-}
-
 /* snapshot 有序全量副本。 */
 func (r *ringBuffer) snapshot() []byte {
 	out := make([]byte, 0, r.size)
@@ -133,18 +109,19 @@ func (r *ringBuffer) snapshot() []byte {
 /* ── 终端会话 ── */
 
 type TermSession struct {
-	ID      string
-	Name    string
-	Desc    string
-	Origin  string
-	LastCmd string
+	ID     string
+	Name   string
+	Desc   string
+	Origin string
 
-	mu       sync.Mutex
-	pty      pty.Pty
-	cmd      *pty.Cmd
-	ring     *ringBuffer
-	exited   bool
-	readMark int64 // agent 读位点(term_action send/read 共用,读即消费)
+	mu      sync.Mutex
+	pty     pty.Pty
+	cmd     *pty.Cmd
+	ring    *ringBuffer   // 原始字节(WS 重连 hello 回放用)
+	screen  *termScreen   // 按终端语义重放的屏幕(AI 的 send/read 用)
+	lastOut time.Time     // 最近一次输出的时刻(send 的静默判定)
+	condCh  chan struct{} // 有输出即 close 广播(读泵唤醒等待者)
+	exited  bool
 }
 
 /* ── 服务 ── */
@@ -155,7 +132,6 @@ type TerminalService struct {
 	seq      int
 	sessions map[string]*TermSession
 	subs     map[chan TermFrame]struct{}
-	lastAi   string // AI 最近使用/创建的终端 id(无 id 参数时兜底)
 	workDir  string
 }
 
@@ -212,7 +188,8 @@ func (s *TerminalService) create(dir, name, desc, origin string) (*TermInfo, err
 	}
 	sess := &TermSession{
 		ID: id, Name: name, Desc: desc, Origin: origin,
-		pty: p, cmd: cmd, ring: newRing(termRingSize),
+		pty: p, cmd: cmd, ring: newRing(termRingSize), screen: newTermScreen(120, 30),
+		lastOut: time.Now(), condCh: make(chan struct{}),
 	}
 	s.sessions[id] = sess
 	s.mu.Unlock()
@@ -233,10 +210,14 @@ func (s *TerminalService) create(dir, name, desc, origin string) (*TermInfo, err
 
 func (sess *TermSession) info() *TermInfo {
 	return &TermInfo{ID: sess.ID, Name: sess.Name, Desc: sess.Desc, Origin: sess.Origin,
-		Exited: sess.exited, LastCmd: sess.LastCmd}
+		Exited: sess.exited}
 }
 
-/* readPump 持续读 PTY 输出:入 ring 并广播给 WS 订阅者。 */
+/*
+readPump 持续读 PTY 输出:入 ring(WS 回放)+ 重放进屏幕(AI 读写)、刷新静默
+
+	时钟、广播给 WS 订阅者。
+*/
 func (sess *TermSession) readPump(s *TerminalService) {
 	buf := make([]byte, termReadBuf)
 	for {
@@ -245,6 +226,10 @@ func (sess *TermSession) readPump(s *TerminalService) {
 			data := append([]byte(nil), buf[:n]...)
 			sess.mu.Lock()
 			sess.ring.append(data)
+			sess.screen.write(data)
+			sess.lastOut = time.Now()
+			close(sess.condCh) // 唤醒 send 的静默等待
+			sess.condCh = make(chan struct{})
 			sess.mu.Unlock()
 			s.broadcast(TermFrame{Type: "data", ID: sess.ID, Data: data})
 		}
@@ -270,12 +255,17 @@ func (s *TerminalService) get(id string) (*TermSession, bool) {
 	return sess, ok
 }
 
-/* Get 返回终端;id 为空时取 AI 最近使用的终端(全局兜底)。 */
+/*
+Get 按 id 返回终端,id 必填。
+
+**没有"最近使用"兜底**:隐式状态只会让模型读错终端(新建之后省略 id 会打到
+上一个用过的终端),要哪个终端就写哪个,`term_tab action=list` 查得到。
+*/
 func (s *TerminalService) Get(id string) (*TermSession, error) {
-	s.mu.Lock()
 	if id == "" {
-		id = s.lastAi
+		return nil, fmt.Errorf("需要指定终端 id(term_tab action=list 可查)")
 	}
+	s.mu.Lock()
 	sess, ok := s.sessions[id]
 	s.mu.Unlock()
 	if !ok {
@@ -316,29 +306,21 @@ func (s *TerminalService) ListTermsJSON() string {
 /*
 	NewTerm 新建终端(name 简短标识,desc 用途描述)并立即返回终端状态。
 
-读位点取创建时刻的当前位置(欢迎横幅不计入 agent 可读增量)。返回
-termResult JSON。
+返回 termResult JSON。
 */
 func (s *TerminalService) NewTerm(name, desc string) (string, error) {
 	info, err := s.Create(name, desc, "AI")
 	if err != nil {
 		return "", err
 	}
-	sess, ok := s.get(info.ID)
-	if !ok {
-		return "", fmt.Errorf("终端 %q 创建后即失效", info.ID)
-	}
-	sess.mu.Lock()
-	sess.readMark = sess.ring.mark()
-	sess.mu.Unlock()
-	return termResultJSON(*info, nil, "已创建(用户可在看板查看接管),后续用 term_action action=send 发送命令"), nil
+	return termResultJSON(*info, "", "已创建(用户可在看板查看接管),后续用 term_action action=send 发送命令"), nil
 }
 
 /*
 Launch 在 dir 目录新建终端并写入 command，不等输出返回——给"起了就一直
 跑"的服务进程用（快应用后端）。起的动作只负责写进去，日志留在终端里供
-用户与模型按需读；读位点取注入前的当前位置，与 StartTerm 一致（欢迎横幅
-不计入 agent 可读增量）。
+用户与模型按需读（read 取末尾 N 行，启动日志会被后来的输出挤出窗口，
+要看就趁早）。
 */
 func (s *TerminalService) Launch(dir, name, desc, origin, command string) (*TermInfo, error) {
 	info, err := s.create(dir, name, desc, origin)
@@ -349,10 +331,7 @@ func (s *TerminalService) Launch(dir, name, desc, origin, command string) (*Term
 	if !ok {
 		return nil, fmt.Errorf("终端 %q 创建后即失效", info.ID)
 	}
-	sess.mu.Lock()
-	sess.readMark = sess.ring.mark()
-	sess.mu.Unlock()
-	s.writeAI(sess, command, termPayload(command))
+	s.writeAI(sess, termPayload(command))
 	return info, nil
 }
 
@@ -418,55 +397,107 @@ func isRawControl(cmd string) bool {
 /*
 writeAI 是 AI 侧写入（锁外写 PTY，避免与 readPump 互等）。
 */
-func (s *TerminalService) writeAI(sess *TermSession, lastCmd string, b []byte) {
-	s.mu.Lock()
-	s.lastAi = sess.ID
-	s.mu.Unlock()
-	sess.mu.Lock()
-	if lastCmd != "" {
-		sess.LastCmd = lastCmd
-	}
-	sess.mu.Unlock()
+func (s *TerminalService) writeAI(sess *TermSession, b []byte) {
 	sess.pty.Write(b) //nolint:errcheck
 }
 
 /*
-	SendTerm 在终端写入命令并**立即返回**,不等输出。
+SendTerm 写入命令,**等输出静默后把这次命令改动的那几行返回**。
 
-返回仅含终端身份/状态与提示(要拿结果稍后用 ReadTerm)。读位点不动:
-未读增量留给 read 一并交付,不因 send 丢弃。
+静默判定从写入时刻起算(命令还没开始输出时不会被误判成"已结束"),静默
+termSendQuiet 或 shell 退出即返回;长驻命令最多等 termSendWait,到点先返回
+已产出的部分,其余留给 ReadTerm。取哪几行:写入前后比对可视屏,从第一处
+不同的行截到屏底——输出是追加、进度条是原地改写,两种都能落进这一段。
 */
-func (s *TerminalService) SendTerm(_ context.Context, id, cmd string) (string, error) {
+func (s *TerminalService) SendTerm(ctx context.Context, id, cmd string) (string, error) {
 	sess, err := s.Get(id)
 	if err != nil {
 		return "", err
 	}
-	s.writeAI(sess, cmd, termPayload(cmd))
 	sess.mu.Lock()
+	sess.lastOut = time.Now() // 静默计时从写入起算
+	before := sess.screen.visible()
+	sess.mu.Unlock()
+
+	s.writeAI(sess, termPayload(cmd))
+	exited, timedOut := waitQuiet(ctx, sess, termSendQuiet, termSendWait)
+
+	sess.mu.Lock()
+	text := changedSince(before, sess.screen.visible())
+	idle := sess.screen.looksIdle()
 	info := *sess.info()
 	sess.mu.Unlock()
-	return termResultJSON(info, nil, "已发送,未等待输出;稍后用 term_action action=read 读取结果;需要等待请用 terminal 同步执行"), nil
+	return termResultJSON(info, text, sendNote(exited, timedOut, idle)), nil
+}
+
+/* changedSince 取"从第一处不同到屏底"的那几行(首尾空白行去掉)。 */
+func changedSince(before, after []string) string {
+	k := 0
+	for k < len(before) && k < len(after) && before[k] == after[k] {
+		k++
+	}
+	lines := append([]string(nil), after[k:]...)
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
+}
+
+/* waitQuiet 等输出静默 / shell 退出 / 到上限。 */
+func waitQuiet(ctx context.Context, sess *TermSession, quiet, wait time.Duration) (exited, timedOut bool) {
+	deadline := time.Now().Add(wait)
+	for {
+		sess.mu.Lock()
+		ch := sess.condCh
+		quieted := time.Since(sess.lastOut) >= quiet
+		exited = sess.exited
+		sess.mu.Unlock()
+		if exited || quieted {
+			return exited, false
+		}
+		if time.Now().After(deadline) {
+			return exited, true
+		}
+		select {
+		case <-ctx.Done():
+			return exited, false
+		case <-ch:
+		case <-time.After(termPollStep):
+		}
+	}
+}
+
+/* sendNote 拼 send 的等待结果注记:正常收尾(静默且回到提示符)不啰嗦,其余提示。 */
+func sendNote(exited, timedOut, idle bool) string {
+	var parts []string
+	if timedOut {
+		parts = append(parts, "等待超时(命令可能仍在运行);后续输出用 action=read 取")
+	} else if !idle {
+		parts = append(parts, "输出已静默但没见到提示符,命令可能仍在运行;后续输出用 action=read 取")
+	}
+	if exited {
+		parts = append(parts, "shell 已退出(连接保留可看残留输出)")
+	}
+	return strings.Join(parts, "; ")
 }
 
 /*
-termResultJSON 组装 term_* 操作返回:终端身份/状态 + 净化输出(截尾
-8000 rune,空输出给括号语言说明) + 状态注记,单 JSON 对象(list 与操作
-同构)。
+termResultJSON 组装 term_* 操作返回。text 已是屏幕还原好的多行文本,这里只做
+长度兜底(超 8000 字符留末尾并标注)与空输出说明。
 */
-func termResultJSON(info TermInfo, out []byte, note string) string {
-	text := string(bytes.ToValidUTF8(out, nil))
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = stripAnsi(text)
+func termResultJSON(info TermInfo, text, note string) string {
+	text = strings.TrimRight(text, "\n")
 	if r := []rune(text); len(r) > 8000 {
 		text = "…(输出过长,已截断)\n" + string(r[len(r)-8000:])
 	}
-	if body := strings.TrimSpace(text); body != "" {
-		text = body
-	} else {
+	if strings.TrimSpace(text) == "" {
 		text = "(无输出)"
 	}
-	res := termResult{ID: info.ID, Name: info.Name, Desc: info.Desc, Origin: info.Origin,
-		Exited: info.Exited, LastCmd: info.LastCmd, Output: text, Note: note}
+	res := termResult{ID: info.ID, Name: info.Name, Desc: info.Desc,
+		Exited: info.Exited, Output: text, Note: note}
 	b, err := json.Marshal(res)
 	if err != nil {
 		return "{}"
@@ -474,45 +505,24 @@ func termResultJSON(info TermInfo, out []byte, note string) string {
 	return string(b)
 }
 
-/* ReadTerm 游标式读取终端新输出(读即消费,下次只返回新增)。 */
-func (s *TerminalService) ReadTerm(id string, chars int) (string, error) {
+/*
+ReadTerm 读终端**末尾 N 行**(默认 100)——命令回显与输出都在里面,就是
+肉眼看终端看到的那一块。没有增量游标:读多少次都是同一份快照,不消费、
+不会读空,所以 send 与 read 并发或谁先谁后都不影响结果。
+*/
+func (s *TerminalService) ReadTerm(id string, lines int) (string, error) {
 	sess, err := s.Get(id)
 	if err != nil {
 		return "", err
 	}
-	if chars <= 0 {
-		chars = 4000
-	}
-	if chars > 20000 {
-		chars = 20000
+	if lines <= 0 {
+		lines = termReadLine
 	}
 	sess.mu.Lock()
-	out := sess.ring.since(sess.readMark)
-	sess.readMark = sess.ring.mark()
+	text := sess.screen.text(lines)
 	info := *sess.info()
 	sess.mu.Unlock()
-
-	text := string(bytes.ToValidUTF8(out, nil))
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	body := strings.TrimSpace(tailRunes(stripAnsi(text), chars))
-	if body == "" {
-		body = "(无新输出)"
-	}
-	res := termResult{ID: info.ID, Name: info.Name, Desc: info.Desc, Origin: info.Origin,
-		Exited: info.Exited, LastCmd: info.LastCmd, Output: body}
-	b, err := json.Marshal(res)
-	if err != nil {
-		return "{}", nil
-	}
-	return string(b), nil
-}
-
-func tailRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[len(r)-n:])
+	return termResultJSON(info, text, ""), nil
 }
 
 /* CloseTerm 关闭终端(杀进程树防子进程残留);幂等,返回 closed JSON。 */
@@ -532,14 +542,11 @@ func (s *TerminalService) CloseTerm(id string) (string, error) {
 	return string(b), nil
 }
 
-/* remove 杀进程树并摘除会话,清理 lastAi 引用,广播清单。 */
+/* remove 杀进程树并摘除会话,广播清单。 */
 func (s *TerminalService) remove(sess *TermSession) {
 	killTree(sess.cmd)
 	s.mu.Lock()
 	delete(s.sessions, sess.ID)
-	if s.lastAi == sess.ID {
-		s.lastAi = ""
-	}
 	s.mu.Unlock()
 	s.broadcast(TermFrame{Type: "terminals", Sessions: s.List()})
 }
@@ -564,6 +571,9 @@ func (s *TerminalService) Resize(id string, cols, rows int) error {
 		return nil
 	}
 	sess.pty.Resize(cols, rows) //nolint:errcheck
+	sess.mu.Lock()
+	sess.screen.resize(cols, rows) // 屏模型跟着改尺寸,否则 CUP 行号对不上
+	sess.mu.Unlock()
 	return nil
 }
 
@@ -634,25 +644,4 @@ func (s *TerminalService) Shutdown(_ time.Duration) {
 	for _, sess := range sessions {
 		killTree(sess.cmd)
 	}
-}
-
-/* ── ANSI 剥离(term_action send/read 输出净化) ── */
-
-var (
-	csiRe  = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)       // CSI 序列
-	oscRe  = regexp.MustCompile(`\x1b\][^\x07\x1b]*(\x07|\x1b\\)`) // OSC 序列
-	escRe  = regexp.MustCompile(`\x1b[@-Z\\-_]`)                   // 单字符转义
-	ctrlRe = regexp.MustCompile(`[\x00-\x08\x0b-\x1f\x7f]`)        // 其余 C0(保留 \n\t)
-)
-
-/* stripAnsi 剥终端转义序列与控制字符(保留 \n \t),压缩连续空行。 */
-func stripAnsi(s string) string {
-	s = oscRe.ReplaceAllString(s, "")
-	s = csiRe.ReplaceAllString(s, "")
-	s = escRe.ReplaceAllString(s, "")
-	s = ctrlRe.ReplaceAllString(s, "")
-	for strings.Contains(s, "\n\n\n") {
-		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
-	}
-	return strings.TrimSpace(s)
 }

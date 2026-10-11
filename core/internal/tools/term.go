@@ -2,10 +2,11 @@
 共享终端工具组(term_tab / term_action):AI 与用户共写魔法看板里的同一批
 终端,全局共享——任何会话都能操作全部终端(个人助手语义)。
 
-与 terminal(filetools 的独立进程一次性命令)的分工:terminal 是**唯一
-阻塞**的执行工具(等到命令结束/超时);本组是持久、可见、可交互的共享
-终端,term_action send **立即返回不等输出**。需要等待(下载/长任务)用
-terminal 同步跑,不要往共享终端发 sleep 去"等"。
+与 terminal(filetools 的独立进程一次性命令)的分工:terminal 会**阻塞到
+命令结束**(或超时),适合一次性的构建/下载;本组是持久、可见、可交互的
+共享终端,term_action send 写完**等输出静默(最多 10 秒)就把这次命令的
+输出带回**,长驻命令到点先返回、续读用 read。真要等一个长任务跑完,用
+terminal,别往共享终端发 sleep 去"等"。
 
 依赖倒置:tools 只依赖 TermIO 接口,由 service.TerminalService 实现
 (service 已 import tools,反向引用会循环)。
@@ -22,18 +23,18 @@ import (
 /*
 	TermIO 是共享终端服务的能力面(service.TerminalService 实现)。
 
-ctx 透传本轮上下文。返回统一为 termResult JSON:id/name/desc/origin/exited/lastCmd/output/note。
+ctx 透传本轮上下文。返回统一为 termResult JSON:id/name/desc/exited/output/note(清单另见 ListTermsJSON)。
 */
 type TermIO interface {
 	/* NewTerm 新建终端(name 简短标识,desc 用途描述),返回终端状态 JSON */
 	NewTerm(name, desc string) (string, error)
-	/* SendTerm 发送命令/原始键入并立即返回(id 省略=最近使用的终端),不等输出 */
+	/* SendTerm 发送命令/原始键入(id 必填),等输出静默后把这次命令的输出一并返回 */
 	SendTerm(ctx context.Context, id, command string) (string, error)
-	/* ReadTerm 游标式读取新输出(读即消费) */
-	ReadTerm(id string, chars int) (string, error)
+	/* ReadTerm 读终端末尾 lines 行(默认 100;命令回显与输出都在里面,非增量) */
+	ReadTerm(id string, lines int) (string, error)
 	/* CloseTerm 关闭终端,返回 {"id":..,"closed":true} */
 	CloseTerm(id string) (string, error)
-	/* ListTermsJSON 终端清单(JSON 数组,条目含 id/name/desc/origin/exited/lastCmd) */
+	/* ListTermsJSON 终端清单(JSON 数组,条目含 id/name/desc/origin/exited) */
 	ListTermsJSON() string
 }
 
@@ -45,10 +46,10 @@ type tabArgs struct {
 }
 
 type actionArgs struct {
-	Action  string `json:"action" desc:"send=向终端发送命令/控制键(立即返回,不等输出);read=游标式读取新输出"`
-	TabID   string `json:"tabId,omitempty" desc:"目标终端 id(term_tab 的 list 可查);省略=最近使用的终端"`
+	Action  string `json:"action" desc:"send=发送命令/控制键并等输出静默返回结果;read=读取终端末尾 n 行"`
+	TabID   string `json:"tabId" desc:"目标终端 id(term_tab 的 list 可查;必须显式指定,没有最近使用兜底)"`
 	Command string `json:"command,omitempty" desc:"send:要发送的命令或原始键入(\\u0003=Ctrl+C 中断当前命令;纯控制输入不会自动补回车)"`
-	Chars   int    `json:"chars,omitempty" desc:"read:返回字符数上限,默认 4000,上限 20000"`
+	Lines   int    `json:"lines,omitempty" desc:"read:返回末尾多少行,默认 100"`
 }
 
 /* SharedTerm 构造 term_tab / term_action(t 为 nil 返回 nil,测试装配可不注入)。 */
@@ -61,7 +62,7 @@ func SharedTerm(t TermIO) []types.Tool {
 			"共享终端的标签管理(全局共享:任何会话都能操作全部终端,用户可在魔法看板实时看到并接管)。"+
 				"action=new 新建终端(name 简短名称、desc 用途描述)并返回 id;action=list 列出全部终端"+
 				"(用户手开的与 AI 新建的都在内,所有会话共享);action=close 关闭终端(tabId,结束 shell 进程树)。"+
-				"返回 JSON:{id,name,desc,origin,exited,lastCmd}(close 为 {id,closed})。",
+				"返回 JSON:{id,name,desc,origin,exited}(list 为数组;close 为 {id,closed})。",
 			func(_ context.Context, in *tabArgs) (string, error) {
 				switch in.Action {
 				case "new":
@@ -74,18 +75,18 @@ func SharedTerm(t TermIO) []types.Tool {
 				return "", fmt.Errorf("未知 action %q(new/list/close)", in.Action)
 			}),
 		types.NewTool("term_action",
-			"对已存在的共享终端发命令或读输出。与用户看板是同一会话:输出对用户实时可见,cd/环境变量跨命令有效。"+
-				"action=send 发送命令或原始键入(tabId 省略=最近使用的终端;\\u0003=Ctrl+C 中断当前命令,此时不自动补回车)"+
-				"——**立即返回、不等待输出**;要拿结果稍后用 action=read 续读。需要等待的命令(下载/长任务)请改用 terminal 同步执行,"+
-				"不要发 sleep 去等(send 不等,等于没等)。"+
-				"action=read 游标式读取上次读取之后的新输出(读即消费,不重复)。"+
-				"返回 JSON:{id,name,desc,origin,exited,lastCmd,output}(read 无新输出时 output=(无新输出))。",
+			"对已存在的共享终端发命令或读输出(tabId 必填,term_tab 的 list 可查)。与用户看板是同一会话:输出对用户实时可见,cd/环境变量跨命令有效。"+
+				"action=send 发送命令(或原始键入:\\u0003=Ctrl+C 中断,此时不自动补回车)——**等输出静默后把这次命令的输出一并返回**(最多等 10 秒),"+
+				"所以短命令一条调用就能拿到结果;命令还在跑(超时)会带说明,后续输出用 action=read 取。要等命令**跑完**的长任务(下载/构建)直接用 terminal。"+
+				"action=read 读终端末尾 n 行(lines 默认 100)——命令回显和输出都在里面,就是肉眼看终端看到的那一块,适合看大段输出;"+
+				"**不是增量**:重复读拿到的是同一份内容,读多少次都一样。"+
+				"返回 JSON:{id,name,desc,exited,output,note}。output 是**终端屏幕还原后的多行文本**——命令回显、输出各占一行,提示符单独一行,跟人肉眼看终端一样。",
 			func(ctx context.Context, in *actionArgs) (string, error) {
 				switch in.Action {
 				case "send":
 					return t.SendTerm(ctx, in.TabID, in.Command)
 				case "read":
-					return t.ReadTerm(in.TabID, in.Chars)
+					return t.ReadTerm(in.TabID, in.Lines)
 				}
 				return "", fmt.Errorf("未知 action %q(send/read)", in.Action)
 			}),
