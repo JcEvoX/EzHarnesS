@@ -19,10 +19,10 @@ let tray = null
 let coreProc = null
 let quitting = false
 let corePort = 5260
-/* 桌面宠物：一块透明的置顶小窗，只有一个头像，双击打开主窗口。位置固定
-   在屏幕右下（拖动/多档面板/鼠标穿透等先全去掉，待重写）。 */
+/* 桌面宠物：透明置顶小窗，头像 + 底部钉选快应用 dock（渲染层 AssistantPet）。 */
 let petWindow = null
-const PET_SIZE = 96
+const PET_W = 96
+const PET_H = 128
 /* API 令牌：每次启动随机生成，env 注入 core、URL query 带入页面。 */
 const coreToken = crypto.randomBytes(18).toString('hex')
 let findBrowserPopout = () => null // registerIpc 注入：当前浏览器页的独立窗口（无则 null）
@@ -211,10 +211,10 @@ async function saveCloseToTray(value) {
 function createPetWindow() {
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
   const win = new BrowserWindow({
-    width: PET_SIZE,
-    height: PET_SIZE,
-    x: area.x + area.width - PET_SIZE - 24,
-    y: area.y + area.height - PET_SIZE - 24,
+    width: PET_W,
+    height: PET_H,
+    x: area.x + area.width - PET_W - 24,
+    y: area.y + area.height - PET_H - 24,
     frame: false,
     transparent: true,
     resizable: false,

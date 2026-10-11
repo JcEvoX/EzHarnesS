@@ -31,6 +31,16 @@
       store.lastStatus = `启动快应用失败：${(err as Error).message}`
     }
   }
+
+  /* 钉到桌面小助手/取消（图标常驻宠物窗，点击即启动） */
+  async function togglePin(a: AppEntry) {
+    try {
+      const r = await api.pinApp(a.name)
+      a.pinned = r.pinned
+    } catch (err) {
+      store.lastStatus = `操作失败：${(err as Error).message}`
+    }
+  }
 </script>
 
 <div class="page">
@@ -50,25 +60,39 @@
       {#each apps as a (a.name)}
         <div class="card" role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && launch(a)}>
           <div class="top">
-            <div class="glyph live">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 6L3 12l5 6" />
-                <path d="M16 6l5 6-5 6" />
-              </svg>
-            </div>
+            {#if a.icon}
+              <img class="glyph avatar" src={a.icon} alt="" loading="lazy"
+                onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+            {:else}
+              <div class="glyph live">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 6L3 12l5 6" />
+                  <path d="M16 6l5 6-5 6" />
+                </svg>
+              </div>
+            {/if}
             <span class="kind">{a.kind}</span>
           </div>
           <h2>{a.title}</h2>
           <p class="desc">{a.name}</p>
           <div class="foot">
             <span class="time">{a.mtime}</span>
-            <button class="run" onclick={() => launch(a)}>
-              启动
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M7 17L17 7" />
-                <path d="M8 7h9v9" />
-              </svg>
-            </button>
+            <span class="footbtns">
+              <button class="pin" class:on={a.pinned} onclick={() => void togglePin(a)}
+                title={a.pinned ? '已钉到桌面小助手，点击取消' : '添加到桌面小助手（图标常驻，点击即启动）'}>
+                <svg viewBox="0 0 24 24" fill={a.pinned ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 17v5" />
+                  <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" />
+                </svg>
+              </button>
+              <button class="run" onclick={() => launch(a)}>
+                启动
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M7 17L17 7" />
+                  <path d="M8 7h9v9" />
+                </svg>
+              </button>
+            </span>
           </div>
         </div>
       {/each}
@@ -167,6 +191,13 @@
     width: 16px;
     height: 16px;
   }
+  /* 声明了 icon 的应用：卡片头像直接用图 */
+  .glyph.avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    object-fit: cover;
+  }
   .kind {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -203,6 +234,36 @@
     font-family: var(--font-mono);
     font-size: 10.5px;
     color: var(--faint);
+  }
+  .footbtns {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* 图钉：钉住后实心并点亮 */
+  .pin {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--faint);
+    cursor: pointer;
+  }
+  .pin:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .pin.on {
+    color: #f0883e;
+    border-color: color-mix(in srgb, #f0883e 40%, var(--line));
+  }
+  .pin svg {
+    width: 13px;
+    height: 13px;
   }
   .run {
     display: inline-flex;

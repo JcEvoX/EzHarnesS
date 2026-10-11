@@ -91,7 +91,8 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/mcp/call", c.Mcp.Call)
 
 		api.GET("/apps", c.Apps.List)
-		api.POST("/apps/open", c.Apps.Open) // 名单校验+返回路径标题；开窗由 desktop 壳/web 端执行
+		api.POST("/apps/open", c.Apps.Open)     // 名单校验+返回路径标题；开窗由 desktop 壳/web 端执行
+		api.POST("/apps/:name/pin", c.Apps.Pin) // 钉到桌面小助手/取消
 
 		api.GET("/workspace/file", c.Workspace.File)         // 工作目录文件预览（附件 chips 源）
 		api.HEAD("/workspace/file", c.Workspace.File)        // 同上（文件页轮询 Last-Modified 用；gin 不自动映射 HEAD→GET）

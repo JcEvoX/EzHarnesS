@@ -77,6 +77,8 @@ export interface AppEntry {
   title: string
   kind: string
   mtime: string
+  icon?: string // 卡片头像（同源 URL，未声明/越界时缺省）
+  pinned?: boolean // 已钉到桌面小助手
 }
 
 export interface McpServerView {
@@ -385,6 +387,10 @@ export const api = {
      开窗由调用方执行：desktop 壳 IPC 子窗口 / web 新标签页 */
   openApp: (name: string) =>
     post<{ ok: boolean; path: string; title: string; termId?: string }>('/api/apps/open', { name }),
+
+  /* 钉到桌面小助手/取消（toggle），返回新状态 */
+  pinApp: (name: string) =>
+    post<{ ok: boolean; pinned: boolean }>(`/api/apps/${encodeURIComponent(name)}/pin`, {}),
 
   /* 文本文件保存（file:// 编辑器）；按绝对路径写，与 /api/workspace/file 同源 */
   saveFile: (path: string, content: string) =>

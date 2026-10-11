@@ -61,6 +61,7 @@ func DefaultToolRules() []ToolRule {
 		/* 系统自带：两档，默认免审 */
 		{Key: "task", Level: LevelAuto},
 		{Key: "save_app", Level: LevelAuto},
+		{Key: "sleep", Level: LevelAuto},
 		{Key: "ask_user", Level: LevelAuto},
 		{Key: "trim_context", Level: LevelAuto},
 		{Key: "load_skill", Level: LevelAuto},

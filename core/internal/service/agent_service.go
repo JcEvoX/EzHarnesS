@@ -221,7 +221,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	// visionguard 最内层（紧贴 provider）：无视觉模型每次实际请求（含 retry）
 	// 剥历史图片消息（请求视图，落盘不动，换回多模态自动恢复）
 	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), noempty.Warp(), visionguard.Warp(mainVision)}
-	agentTools := append(tools.SaveApp(s.Fsys), tools.SharedTerm(a.Term)...)
+	agentTools := append(append(tools.SaveApp(s.Fsys), tools.Sleep()), tools.SharedTerm(a.Term)...)
 	agentTools = append(agentTools, tools.SharedBrowser(a.Browser)...)
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
@@ -530,6 +530,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"禁止对 C:/ 根、用户主目录、桌面等宽泛位置做递归搜索或遍历（find/grep 全盘极易超时卡死且对结论无贡献）；" +
 		"缺少路径信息先问用户，不要自行上溯目录猜路径；\n" +
 		"# - terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，临时文件不要丢在工作目录外。\n" +
+		"# - 定时等待用 sleep 工具（真阻塞，用户停止即中断）；terminal/term_action send 里跑 timeout 之类的睡眠命令在 Windows 下立即退出，等不住。\n" +
 		"</workspace>")
 	ltRoot := memRoot + "/longterm"
 	b.WriteString("\n\n<memory>\n" +

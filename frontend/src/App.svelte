@@ -24,7 +24,8 @@
   /* 弹出窗口（ez:popout 创建）：只渲染单个工具 pane 的轻布局，无会话/
      SSE（三个 pane 均不依赖 bootstrap），系统标题栏负责宽高/全屏 */
   const popoutView = new URLSearchParams(location.search).get('popout')
-  /* 桌面宠物（ez:pet 创建）：只有一个头像 + 双击开主窗，不接 core */
+  /* 桌面宠物（ez:pet 创建）：只有头像 + 状态角标（AssistantPet 内自轮询
+  notifications/topics，不走 bootstrap/SSE/store） */
   const petView = new URLSearchParams(location.search).get('pet') === '1'
   const ez = (window as any).ez
 
@@ -36,7 +37,7 @@
   }
 
   onMount(() => {
-    /* 桌面宠物：纯头像，不接 core（无 bootstrap / SSE / 轮询） */
+    /* 桌面宠物：无 bootstrap / SSE / store（状态感知在 AssistantPet 内轮询） */
     if (petView) return
     if (popoutView) {
       /* 弹出窗口：装载初始状态 + 接收主窗口转发的外部定位请求 */

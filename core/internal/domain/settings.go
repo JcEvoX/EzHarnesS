@@ -69,6 +69,7 @@ type Settings struct {
 	DisabledSkills []string `json:"disabledSkills"` // 已禁用 skill 的目录名（load_skill/状态面板实时读取，system 清单下个 session 生效）
 	MaxIterations  int      `json:"maxIterations"`  // 单轮对话的最大模型迭代次数（0 = 默认 64，上限 128；随 Reassemble 生效）
 	DebugMode      bool     `json:"debugMode"`      // 调试模式：把每次模型请求的全量输入写进日志（modeldump 实时读取，即改即生效）
+	PinnedApps     []string `json:"pinnedApps,omitempty"` // 钉到桌面小助手的快应用名（快应用页/宠物窗轮询读取，即改即生效）
 }
 
 /*
