@@ -90,6 +90,13 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/mcp/disconnect", c.Mcp.Disconnect)
 		api.POST("/mcp/call", c.Mcp.Call)
 
+		/* MCP OAuth 认证：前端取授权 URL 用系统浏览器打开，轮询状态 */
+		api.POST("/mcp/oauth/start", c.Mcp.OAuthStart)
+		api.POST("/mcp/oauth/probe", c.Mcp.OAuthProbe)
+		api.GET("/mcp/oauth/status", c.Mcp.OAuthStatus)
+		api.POST("/mcp/oauth/cancel", c.Mcp.OAuthCancel)
+		api.POST("/mcp/oauth/logout", c.Mcp.OAuthLogout)
+
 		api.GET("/apps", c.Apps.List)
 		api.POST("/apps/open", c.Apps.Open)     // 名单校验+返回路径标题；开窗由 desktop 壳/web 端执行
 		api.POST("/apps/:name/pin", c.Apps.Pin) // 钉到桌面小助手/取消
@@ -111,6 +118,7 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 
 		api.POST("/sessions/:id/decisions/approve", c.Chat.DecideApprove)
 		api.POST("/sessions/:id/decisions/answer", c.Chat.DecideAnswer)
+		api.POST("/sessions/:id/decisions/mcp-auth", c.Chat.DecideMcpAuth)
 	}
 
 	if dist != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/xuanlv2002/ezloop/event"
 	"github.com/xuanlv2002/ezloop/ext/hook/approve"
 	"github.com/xuanlv2002/ezloop/ext/hook/askuser"
+	"github.com/xuanlv2002/ezloop/ext/hook/mcp"
 	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/core/internal/domain"
@@ -143,6 +144,23 @@ func (c *ChatService) DecideAnswer(rootID, callID, input string) {
 	}
 	c.recordDecision(s, "ask", callID, input)
 	s.DecideAnswer(askuser.Answer{CallID: callID, Input: input})
+}
+
+/* DecideMcpAuth 回传 MCP 授权决策（授权完成后解除工具调用的阻塞并重试）。 */
+func (c *ChatService) DecideMcpAuth(rootID, callID string, ok bool, reason string) {
+	s := c.resolve(rootID)
+	if s == nil {
+		return
+	}
+	res := "已授权"
+	if !ok {
+		res = "已取消"
+		if reason != "" {
+			res = "已取消：" + reason
+		}
+	}
+	c.recordDecision(s, "mcp_auth", callID, res)
+	s.DecideMcpAuth(mcp.AuthDecision{CallID: callID, OK: ok, Err: reason})
 }
 
 /*

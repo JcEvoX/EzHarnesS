@@ -16,6 +16,7 @@ import {
   type StatusPayload,
 } from './api'
 import { filePane } from './filePaneState'
+import { openExternal } from './desktop'
 
 /* 输入框附件（一切皆资源）：path = 真身路径（引用，发送不复制）；
    空 = 拖入暂存中占位 */
@@ -51,7 +52,7 @@ export interface ForkState {
 
 export interface DecisionData {
   id: string
-  dtype: 'approve' | 'ask'
+  dtype: 'approve' | 'ask' | 'mcp-auth'
   name: string
   args: string
   question: string
@@ -59,12 +60,14 @@ export interface DecisionData {
   forkId: string
   resolved: boolean
   resolution: string
+  busy?: boolean // mcp-auth：授权进行中（去授权已点，等待浏览器完成）
+  err?: string // mcp-auth：最近一次授权错误（展示用，留在卡上供重试）
 }
 
 export interface NoticeData {
   id: string // 决策回传键（工具调用 ID）
   rootId: string // 所属分支根（跳转与决策端点路由键）
-  kind: 'approve' | 'ask' | 'info'
+  kind: 'approve' | 'ask' | 'info' | 'mcp_auth'
   source: string // 'agent'、分支名或 fork 标识
   forkId: string // 非空＝分身请求：跳转打开分身抽屉而非主时间线
   title: string
@@ -1026,6 +1029,133 @@ class AppStore {
     await api.decideAnswer(this.activeId, block.id, input).catch(() => {})
   }
 
+  /* ── MCP OAuth 授权（会话内 = 时间线里的决策卡，同 approve/ask） ── */
+
+  private mcpAuthTimers: Record<string, ReturnType<typeof setInterval>> = {}
+  private mcpAuthRejects: Record<string, (e: Error) => void> = {}
+  private mcpAuthMeta: Record<string, string> = {} // callID → RFC9728 资源元数据地址（发现授权服务器用）
+
+  /*
+  decideMcpAuth 决策卡上的动作：授权 = 取授权 URL 用系统浏览器打开、轮询至完成
+  后结算为「已授权」（工具卡随即重试出结果）；取消/失败 = 结算为失败（工具卡显示
+  错误结果）。结算即移除决策卡（与 approve 一致：结果落在工具卡上）。
+  */
+  async decideMcpAuth(block: DecisionData, authorize: boolean, reason: string) {
+    if (!this.activeId) return
+    if (!authorize) {
+      this.stopMcpAuthPoll(block.id)
+      await api.oauthCancel(block.name).catch(() => {})
+      this.finishMcpAuth(block, false, reason || '已取消', '') // 徽标显示"已取消"；线上理由留空（后端给规范措辞）
+      return
+    }
+    if (block.busy) return // 去授权进行中，忽略重复点击
+    block.busy = true
+    block.err = ''
+    try {
+      const { url } = await api.oauthStart(block.name, this.mcpAuthMeta[block.id] || '')
+      if (!url) throw new Error('未获得授权地址（无法发现授权服务器）')
+      openExternal(url)
+      await this.pollMcpAuthorized(block.id, block.name)
+      this.finishMcpAuth(block, true, '已授权')
+    } catch (e) {
+      block.busy = false
+      this.finishMcpAuth(block, false, (e as Error).message || '授权失败')
+    }
+  }
+
+  /* finishMcpAuth 结算一张授权卡：打工具卡徽标、移除决策卡、回传决策解除阻塞。
+     resolution 是徽标文案；reason 是回传后端的理由（默认同徽标，取消时留空）。
+     幂等：取消路径与轮询回调可能各触发一次。 */
+  private finishMcpAuth(block: DecisionData, ok: boolean, resolution: string, reason = resolution) {
+    if (block.resolved) return
+    this.stopMcpAuthPoll(block.id)
+    delete this.mcpAuthMeta[block.id]
+    block.resolved = true
+    block.resolution = resolution
+    this.markToolDecision(block.id, resolution)
+    this.removeResolvedDecisions(block.id)
+    void api.decideMcpAuth(this.activeId, block.id, ok, ok ? '' : reason).catch(() => {})
+    void this.refreshNotices()
+  }
+
+  /* pollMcpAuthorized 轮询授权状态直至完成（5 分钟超时）；按 callID 记时器与
+     reject 句柄，取消时能立刻结束等待。 */
+  private pollMcpAuthorized(id: string, server: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const started = Date.now()
+      this.mcpAuthRejects[id] = reject
+      this.mcpAuthTimers[id] = setInterval(async () => {
+        if (Date.now() - started > 5 * 60_000) {
+          this.clearMcpAuthPoll(id)
+          reject(new Error('授权超时'))
+          return
+        }
+        try {
+          const { authorized } = await api.oauthStatus(server)
+          if (authorized) {
+            this.clearMcpAuthPoll(id)
+            resolve()
+          }
+        } catch {
+          /* 后端不可达：下一轮重试 */
+        }
+      }, 1500)
+    })
+  }
+
+  /* clearMcpAuthPoll 内部终态：清时器但不动 Promise（由调用方 resolve/reject）。 */
+  private clearMcpAuthPoll(id: string) {
+    const t = this.mcpAuthTimers[id]
+    if (t) {
+      clearInterval(t)
+      delete this.mcpAuthTimers[id]
+    }
+    delete this.mcpAuthRejects[id]
+  }
+
+  /* stopMcpAuthPoll 外部取消：清时器并让等待中的 Promise 立刻以失败结束。 */
+  private stopMcpAuthPoll(id: string) {
+    const t = this.mcpAuthTimers[id]
+    if (t) {
+      clearInterval(t)
+      delete this.mcpAuthTimers[id]
+    }
+    const reject = this.mcpAuthRejects[id]
+    if (reject) {
+      delete this.mcpAuthRejects[id]
+      reject(new Error('已取消'))
+    }
+  }
+
+  /* stopMcpAuthPolls 清空全部授权轮询（轮结束/切会话时）。 */
+  private stopMcpAuthPolls() {
+    for (const k of Object.keys(this.mcpAuthTimers)) this.stopMcpAuthPoll(k)
+  }
+
+  /* resolveNoticeMcpAuth 通知栏处理授权：直接跑流程并回传决策（不依赖时间线卡）。 */
+  private async resolveNoticeMcpAuth(n: NoticeData, authorize: boolean) {
+    const meta = this.mcpAuthMeta[n.id] || ''
+    delete this.mcpAuthMeta[n.id]
+    if (!authorize) {
+      this.stopMcpAuthPoll(n.id)
+      await api.oauthCancel(n.title).catch(() => {})
+      await api.decideMcpAuth(n.rootId, n.id, false, '').catch(() => {})
+      void this.refreshNotices()
+      return
+    }
+    try {
+      const { url } = await api.oauthStart(n.title, meta)
+      if (!url) throw new Error('未获得授权地址（无法发现授权服务器）')
+      openExternal(url)
+      await this.pollMcpAuthorized(n.id, n.title)
+      await api.decideMcpAuth(n.rootId, n.id, true, '').catch(() => {})
+    } catch (e) {
+      await api.oauthCancel(n.title).catch(() => {})
+      await api.decideMcpAuth(n.rootId, n.id, false, (e as Error).message || '授权失败').catch(() => {})
+    }
+    void this.refreshNotices()
+  }
+
   /* removeResolvedDecisions 已决决策卡整体移除：审批结果以工具卡徽标呈现，
      询问的回答即工具卡结果，时间线不留独立的决策卡副本。 */
   private removeResolvedDecisions(id: string) {
@@ -1090,6 +1220,11 @@ class AppStore {
   /* resolveNoticeGlobal 通知栏内联决策：按通知携带的分支直接回传（不依赖
   当前分支的时间线）。乐观移除在前（点击即消失），失败则刷新恢复真实状态。 */
   async resolveNoticeGlobal(n: NoticeData, action: string, input?: string) {
+    // MCP 授权：通知栏直接跑流程并回传决策（多为后台分支，无时间线卡）
+    if (n.kind === 'mcp_auth') {
+      void this.resolveNoticeMcpAuth(n, action === 'authorize')
+      return
+    }
     this.notices = this.notices.filter((x) => !(x.id === n.id && x.rootId === n.rootId))
     try {
       if (n.kind === 'approve') await api.decideApprove(n.rootId, n.id, action === 'approve', '')
@@ -1420,6 +1555,37 @@ class AppStore {
         }
         break
       }
+      case 'mcp.auth.request': {
+        const d = ev.data || {}
+        const id = d.id || ''
+        const server = d.server || ''
+        if (!id || !server) break
+        this.mcpAuthMeta[id] = d.metadata_url || ''
+        // 与 approve.request 同构：工具卡补插 + 决策卡紧随其后，成时间线里一条记录
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        if (bs.some((b) => b.kind === 'decision' && b.id === id)) break // 重连重放去重
+        if (!bs.some((b) => b.kind === 'tool' && b.id === id)) {
+          bs.push({ kind: 'tool', uid: this.nuid(), id, name: 'mcp_router', args: '', result: '', err: '', state: 'running' })
+        }
+        const card: Block = {
+          kind: 'decision',
+          uid: this.nuid(),
+          id,
+          dtype: 'mcp-auth',
+          name: server,
+          args: '',
+          question: '',
+          options: [],
+          forkId: ev.forkId || '',
+          resolved: false,
+          resolution: '',
+        }
+        const ti = bs.findIndex((b) => b.kind === 'tool' && b.id === id)
+        if (ti >= 0) bs.splice(ti + 1, 0, card)
+        else bs.push(card)
+        void this.refreshNotices()
+        break
+      }
       case 'approve.request':
       case 'askuser.request': {
         const d = ev.data || {}
@@ -1559,6 +1725,8 @@ class AppStore {
         this.lastTool = ''
         this.pendingUserUid = 0
         this.pendingUserText = ''
+        // 轮结束：残留的授权轮询随之停止（决策卡由取消/超时/完成结算移除）
+        this.stopMcpAuthPolls()
         // 兜底收尾：取消路径引擎不发 model_end，流式块的打字光标须在此收掉；
         // 残留 building 工具块（模型输出了调用但引擎未执行）同样标记完成；
         // running 工具块的 tool_end 若在慢消费丢帧窗口丢掉，这里补终态

@@ -271,6 +271,10 @@ func (m *MemoryService) Config(ctx context.Context) MemoryConfigView {
 	if entries, err := skill.LoadDir(ctx, m.Hub.Fsys, hooks.SkillsDir); err == nil {
 		for _, s := range entries {
 			id := hooks.SkillDirOf(s.Path)
+			// 与内建技能同名的用户技能让位（内建优先）：id 是前端 keyed each 的 key，撞名崩整页
+			if slices.ContainsFunc(v.Skills.Items, func(it SkillEntryView) bool { return it.ID == id }) {
+				continue
+			}
 			v.Skills.Items = append(v.Skills.Items, SkillEntryView{
 				ID:      id,
 				Name:    s.Name,

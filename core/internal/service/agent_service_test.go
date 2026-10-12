@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -159,7 +160,7 @@ func TestBuildServersEnabledFilter(t *testing.T) {
 		{Name: "web-search", Type: "http", URL: "https://y", Enabled: &off},
 		{Name: "default-on", Type: "http", URL: "https://z"}, // Enabled 缺省视为启用
 	}}
-	got := buildServers(f)
+	got := buildServers(context.Background(), f, nil)
 	if len(got) != 2 || got[0].Name != "time" || got[1].Name != "default-on" {
 		t.Fatalf("disabled server must be excluded, got %v", got)
 	}

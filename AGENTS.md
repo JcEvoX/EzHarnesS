@@ -42,7 +42,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/internal/service/terminal.go` | 共享终端（PTY 会话池 + WS 多路复用）。同一串字节两个去向：原始字节进 ring（WS hello 回放）+ 重放进 `termScreen`。AI 侧没有持久游标——`SendTerm` 写入后等输出静默（800ms 静默 / 10s 上限，`lastOut`+`condCh` 由读泵驱动），取"可视屏前后 diff 的改动行"，未见提示符会在 note 里说明命令可能仍在跑；`ReadTerm` 取屏幕末尾 N 行（默认 100），幂等不消费。`Create` 在服务 workDir 起 shell；`Launch` 借 `create(dir,…)` 在指定目录写命令**不等输出**（快应用后端起法） |
 | `core/internal/service/termscreen.go` | **终端屏幕模型**：ConPTY 发的是屏幕 diff（新提示符靠 CUP 摆位、进度条靠 `\r` 覆写、擦行靠 `\x1b[K`），直接剥转义序列会把提示符粘在输出尾巴上（路径/指令/结果糊成一行，实测过）。这里按终端语义重放字节流：H 行可视屏 + 回滚缓冲 + 常用 CSI，渲染成一行一行。半个 rune / 半条序列跨分片到达会暂存到下次 |
 | `core/internal/service/browser.go` | 共享浏览器 core 侧：经 `/api/browser/bridge` 把 `browser_*` 转发给 desktop |
-| `core/internal/service/mcp.go` `stash.go` `apps_service.go` `app_service.go` | MCP 客户端与热重载 / 附件暂存 / 快应用扫描与启动（`Term` 是 `appTerm` 最小接口，单测注入假实现）/ 换代重启 |
+| `core/internal/service/mcp.go` `mcp_auth.go` `stash.go` `apps_service.go` `app_service.go` | MCP 客户端与热重载 / **MCP OAuth 认证**（令牌落盘、loopback 回调、DCR、授权流程，见 §2.5）/ 附件暂存 / 快应用扫描与启动（`Term` 是 `appTerm` 最小接口，单测注入假实现）/ 换代重启 |
 | `core/internal/quickapp/protocol.go` | **快应用协议**：`apps/<名>/app.quick` 声明（title/entry/backend/icon，未识别字段忽略＝向前兼容）、`SafeEntry` 入口越界校验；save_app（写）与 apps_service（读）共用 |
 | `core/internal/domain/session.go` | `Hub`（全局根：会话表、Topics、Fsys、设置快照）+ `Session` 聚合（history、`StartRun`/`FinishRun`/`Cancel`、`Publish`、`replayable` 名单、`stream.snapshot` 流式快照回放） |
 | `core/internal/domain/event.go` | SSE 事件类型与 `MapEvent` |
@@ -124,7 +124,7 @@ hook 是 ezloop 引擎的横向扩展点（接口见 ezloop `hook/hook.go`：`On
 | `summarize.go`（函数） | — | trim 与 archive 共用的总结器 |
 | `topics.go` `Topics` | — | `topics.json` 分支线索引管理（非 hook） |
 
-同时接入的 ezloop hook：`approve`（人审）、`askuser`（`ask_user` 工具）、`contextfix`（修补孤立 tool 消息对）、`filetools`（read_file/write_file/edit_file/terminal——**terminal 有总超时**：默认 10 分钟、`timeout_s` 可调上限 1 小时，超时杀树、已产出输出+`[超时…后终止]`标记按正常结果回传，模型据此换 term_* 或加时重跑）、`skilltool`（`load_skill`）、`task`（分身）、`offload`（大结果卸载，`WithSkip(ask_user, task, load_skill)` + `WithReplayTool("read_file")`）、`mcp`（`service/mcp.go` 的 `NewMcpHook` 注入系统级 router——全局单例连接池，全部 session 与页面/API/快应用 `POST /api/mcp/call` 冷启动直调共用；hook OnEnd 不关连接，生命周期归 `app.mcpRouter`）。
+同时接入的 ezloop hook：`approve`（人审）、`askuser`（`ask_user` 工具）、`contextfix`（修补孤立 tool 消息对）、`filetools`（read_file/write_file/edit_file/terminal——**terminal 有总超时**：默认 10 分钟、`timeout_s` 可调上限 1 小时，超时杀树、已产出输出+`[超时…后终止]`标记按正常结果回传，模型据此换 term_* 或加时重跑）、`skilltool`（`load_skill`）、`task`（分身）、`offload`（大结果卸载，`WithSkip(ask_user, task, load_skill)` + `WithReplayTool("read_file")`）、`mcp`（`service/mcp.go` 的 `NewMcpHook` 注入系统级 router——全局单例连接池，全部 session 与页面/API/快应用 `POST /api/mcp/call` 冷启动直调共用；hook OnEnd 不关连接，生命周期归 `app.mcpRouter`；`OnToolStart` 还拦截需 OAuth 的 `mcp_router` 调用并阻塞等授权，见 §2.5）。
 
 禁用名单等实时配置以**闭包**注入（`disabledSkills`、`mainVision` 等），因为 `hooks` 被 `domain`/`service` 依赖，不能反向 import。
 
@@ -160,6 +160,19 @@ hook 是 ezloop 引擎的横向扩展点（接口见 ezloop `hook/hook.go`：`On
 - **改提醒（`<agent_status>` / `<resource_change>` / `<end_reason>`）文案** → `hooks/remind.go` + `hooks/reschange.go`；同时检查前端解析：`store.svelte.ts` 的 `buildBlocks` 按关键词判定（如 `整理上下文`；变更条目按 `- ` 行前缀、available 清单按 `available_` 前缀区分），`StatusTagCard.svelte` 按文案解析，改文案必须同步，否则记录被吞或全量铺开
 - **改 trim / 归档语义** → `hooks/trim.go`（同 session 折叠，四节结构化 + progress.md）与 `hooks/archive.go`（换代）+ `hooks/distill.go`（沉淀步：user/soul 覆盖写 + 项目记忆工作流），共用 `hooks/summarize.go`（`normalizeStructuredSummary` 兜底格式）；折叠边界由 `hooks.ViewStart` / `MergeFull` 定义
 - **加一个新标记标签** → 生成处 + 落盘（决定前端刷新后能否重建）+ `buildBlocks` 分支 + 消费组件，四处配套
+
+### 2.5 MCP OAuth 认证
+
+**背景**：OAuth **自动检测、无需用户配置**，两级信号：①http/sse 的 server 某次请求拿到「401 + RFC9728 资源元数据」（`WWW-Authenticate` 的 `resource_metadata`，直指 `/.well-known` 发现文档）即判定需 OAuth；②**裸 401**（无元数据）则由宿主兜底探测发现文档（`ServerConfig.DiscoverOAuth` → `McpAuthManager.DiscoverOAuth`：`/.well-known/oauth-protected-resource[/<path>]` 优先，其次 `oauth-authorization-server`/`openid-configuration`；并行探、5s 预算、结果缓存），命中同样判定。静态密钥错误的 401 两条都不命中，据此区分，不误判。`mcp.json` 的 `oauth` 块变成**可选覆盖**（`enabled` 强制 / `client_id` / `scopes` / `metadata_url`），只要服务支持 DCR 就完全不用填。判定结果由 `McpAuthManager.NeedsOAuth`（内存 + `mcp-auth/<server>.needs` 落盘）持有，工厂 `oauthOpts` 据此决定是否给传输装 OAuth handler（`Start` 时置位并 `Drop` 重连）。发现链的后续（PRM → `authorization_servers` → AS `.well-known` → 端点，失败回落 `{origin}/authorize|token|register`）由 mcp-go 的 `getServerMetadata` 承担；客户端注册默认走 DCR（`RegisterClient`），client id 落盘回灌（`mcp-go` 只存内存，必须自己持久化）。
+
+**三条路径**（授权端与请求端共享同一份令牌文件，见 §4.1 `mcp-auth/`）：
+- **MCP 设置页**：无独立认证按钮——「连接」遇需认证自动触发授权（`POST /api/mcp/oauth/start` 取 URL → 系统浏览器 → 轮询 `GET /api/mcp/oauth/status`）；http/sse 新建保存后自动 `POST /api/mcp/oauth/probe` 探测，命中即亮「未授权」徽标（已授权才有「注销」）。
+- **会话内（agent 调用）**：`ezloop` 的 mcp Hook 在 `OnToolStart` 拦截 `mcp_router` 的 `tool_list`/`tool_call`，底层报 `OAuthAuthorizationRequiredError` 时 `state.EmitEvent("mcp.auth.request")` 并 `await` 决策 channel（照 approve 范式）；前端在时间线渲染一张与 approve/ask 同构的**决策卡**（`DecisionCard` 的 dtype `mcp-auth`；`store.decideMcpAuth` 负责开浏览器、轮询、结算——结算即移除卡、结果落在工具卡上，后台分支走通知栏）→ 完成后 `POST /sessions/:id/decisions/mcp-auth` 回传决策 → 该次调用**重试一次**。`Wiring.McpAuthCh` 是决策 channel（`NewMcpHook` 返回）。
+- **快应用/HTTP 直调**：`POST /api/mcp/call` 遇未授权返回 **HTTP 401 + `{needs_auth,server,auth_url}`**（`McpController.authRequired`）；契约写进 `<mcp>` 段与 quick-app 技能。快应用**统一用同源单文件组件** `frontend/public/ez-mcp-auth.js`（随 dist 打成 `/ez-mcp-auth.js`）：`ezMcp.call(server,tool,args)` 需要授权时自动在页面最外层居中弹框（Shadow DOM 自带样式、`z-index` 拉满，不进页面布局）、开系统浏览器、轮询至授权后自动重试；`ezMcp.authorize(server)` 预授权。**别在快应用里手写这套**（弹框层级/样式/重试易错）。
+
+**回调**：`McpAuthManager` 起一条 127.0.0.1 loopback 监听作 RedirectURI（端口落盘复用），`/oauth/callback` 校验 state → `ProcessAuthorizationResponse` 换码 → 令牌写盘 → `router.Drop(server)` 强制下次调用拿到新令牌 + 已登记的 client id。
+
+**改这里要看**：`ezloop/ext/hook/mcp/{hook,router,sdk,oauth}.go`（拦截 + 检测 + 流程驱动）、`service/mcp_auth.go`（管理器）、`service/mcp.go`（`oauthOpts` 接工厂）、`domain/{session,event}.go`（决策 channel + `mcp.auth.request` 帧）、前端 `store.svelte.ts`（`decideMcpAuth` + 授权轮询）、`DecisionCard.svelte`（`mcp-auth` 决策卡）、`McpView.svelte`（页面侧认证）。**别**给 OAuth server 再写静态 `Authorization` 头。
 
 ---
 
@@ -225,6 +238,7 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 | `sessions/<id>/trace.jsonl` | 会话内容档案：消息行（`kind=message`，含图片 base64）与调用链 span 行同文件追加——回顾与上下文同源 |
 | `sessions/<id>/session.json` | 会话状态（systemPrompt/工具清单/compact 链引用/用量/归档位），每轮原子覆盖写 |
 | `.ezloop/offload/` | 大工具结果的卸载区（模型按需读回；提示给绝对路径——offload 的 `WithAbs` 按 cwd 渲染，相对路径会被模型按工作目录拼错） |
+| `mcp-auth/` | **MCP OAuth 认证数据**：各 server 的令牌（`<server>.json`）、动态注册登记的 client id（`<server>.client.json`）、loopback 回调端口（`port`，落盘复用保证 redirect_uri 稳定——它与 DCR 注册绑定，端口变了重新授权会被拒） |
 | `logs/core-YYYYMMDD.log` | 进程日志（log/gin/modeldump，按天滚动保留 7 天） |
 | `settings.json` `models.json` `mcp.json` `topics.json` `stats.json` `toolRules.json` | 应用配置与索引 |
 
@@ -334,3 +348,15 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 **eval 的全局视觉变形（踩过的坑）**：AI 曾用 `eval: documentElement.style.zoom='0.55'` 把二维码"缩进"视口——内联 zoom 会持续偏移所有元素坐标、`selector` 截图截到空白，而且没有任何"看起来就不对"的信号。防线：`eval` 返回前检测 html/body 上的 `zoom`/`transform`/`filter`，有就当场在结果里警告；修复也用它自己（eval 就是那个万能逃生口），或 `navigate` 同 URL 重载。（内容在视口外是页面自身布局问题，正确解法是页内滚动或让用户拉宽抽屉/弹出窗口，不是缩页面。）
 
 **缩放**：浏览器标签**不预设缩放**——按原比例渲染（`BROWSER_ZOOM=1` 只是 Ctrl+0 的复位目标，建标签时不 setZoomFactor）。用户可用 Ctrl+滚轮 / Ctrl+± / Ctrl+0 自己调（preload 捕获 wheel 转发主进程 + `before-input-event`）。改 zoom 会连布局视口一起变（页面重排，破坏"截图=真实渲染"），所以**只有用户手动调**，工具侧不碰。
+
+### 5.7 keyed each 重复键崩整页（2026-10-12 事故）
+
+**现象**：MCP/记忆页操作后页面内容整体消失（概率性复现），控制台 `each_key_duplicate`；一旦脏数据落盘，之后每次进页面都崩（"文件坏了"的假象即来源于此）。
+
+**根因**：Svelte 5 keyed each 的 key 重复会抛错炸掉整棵渲染树。入口没做唯一性校验：①MCP 新建允许与已有 server 重名，保存后 `mcp.json` 出现重名条目（`{#each servers as s (s.name)}` 崩）；②记忆页 skills 列表 = 内建 + 用户目录合并，用户技能与内建同名时 `{#each items as s (s.id)}` 崩。
+
+**防线（改动时别拆）**：
+- **凡 keyed each，其 key 的数据源必须有唯一性保证**：要么来自天然唯一源（目录名、生成 id），要么写入前校验。新增"名字型"实体（server/技能/快应用）时前后端都要挡重名：前端 `draftValid` 查重，后端 `Update` 校验回 400。
+- skills 合并（`settings_service.Config` 与 `agent_service.buildSystemBase`）同名用户技能让位于内建。
+- server 返回的工具清单展示前按名去重（McpView `connect`）——外部 MCP server 的工具名不受我们控制。
+- 崩过之后先查数据文件（mcp.json 等）有没有被写进重复条目：脏数据会让崩溃"永久化"，必须先清数据再谈代码修复。

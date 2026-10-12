@@ -58,6 +58,26 @@ description: 构建/更新快应用——判断纯前端还是需要后端，app
 - 后端在另一个端口 = **跨源**：页面直接 fetch 后端时，后端必须返回 CORS 头（`Access-Control-Allow-Origin: *`），否则浏览器拦掉。
 - **没有就绪握手**：点启动会立刻开窗，后端可能还没监听——页面首次请求自带重试（如 3 次 × 300ms），不要假设一开就有响应。
 
+## 调 MCP 遇到需要认证时（用统一组件，别自己写）
+
+快应用要调可能需 OAuth 的 MCP，**直接引组件**，不要自己写 fetch + 弹框 + 轮询：
+
+```html
+<script src="/ez-mcp-auth.js"></script>
+<script>
+  // 需要授权时组件会自动在页面最外层居中弹出授权框（自带样式、隔离在 Shadow DOM），
+  // 用户点「去授权」→ 系统浏览器打开 → 授权完成后自动重试并返回结果。
+  const data = await ezMcp.call('notion', 'search', { q: 'hello' })
+</script>
+```
+
+- `ezMcp.call(server, tool, args?)` → Promise，resolve 为工具结果（已层层 `JSON.parse` 解包）；失败/取消/超时以 `Error` reject（`message` 是原因）。
+- `ezMcp.authorize(server)` → Promise：只发起授权、不调用工具（做「先授权再用」的入口）。
+- 组件是**单文件零依赖、Shadow DOM 自带样式**，弹框 `position:fixed` 盖在最外层、不参与页面布局，页面的 CSS 不会污染它、它也不污染页面。
+- 同一个 server 的并发调用共用一次授权；用户在应用外（会话弹框 / MCP 设置页 / 通知栏）授权同样有效（令牌全局共享）。
+
+**底层契约（组件已封装，仅当你要自己实现时才需要知道）**：`POST /api/mcp/call` 遇未授权返回 **HTTP 401 + `{"needs_auth":true,"server":"…","auth_url":"…"}`**；`auth_url` 可能为空，则调 `POST /api/mcp/oauth/start {"name":"<server>"}` 现取；轮询 `GET /api/mcp/oauth/status?name=<server>` 返回 `{"authorized":bool,"pending":bool}`；取消用 `POST /api/mcp/oauth/cancel {"name":"<server>"}`。**授权必须由用户本人在浏览器完成，页面/后端都不要替用户跑授权流程。**
+
 ## 重启与边界
 
 - 同名应用的后端已在跑时，再点启动只开窗聚焦，不会重复起。要重启：先在终端里 Ctrl+C（或关掉那个终端），再点一次。

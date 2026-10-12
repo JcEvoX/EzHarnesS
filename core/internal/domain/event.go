@@ -120,6 +120,8 @@ func MapEvent(e event.Event) Event {
 		out.Data = raw(e.Data) // LoopGuardData 原样透传（前端时间线护栏小字条）
 	case "task.start", "task.end":
 		mapTaskEvent(&out, e)
+	case "mcp.auth.request":
+		out.Data = raw(e.Data) // AuthRequestData{id,server} 原样透传（前端弹框/通知栏）
 	default:
 		// approve.request / askuser.request：Data 恒 *types.ToolCall
 		if c, ok := e.Data.(*types.ToolCall); ok {

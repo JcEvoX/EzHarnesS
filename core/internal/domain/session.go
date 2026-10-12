@@ -18,6 +18,7 @@ import (
 	"github.com/xuanlv2002/ezloop/event"
 	"github.com/xuanlv2002/ezloop/ext/hook/approve"
 	"github.com/xuanlv2002/ezloop/ext/hook/askuser"
+	"github.com/xuanlv2002/ezloop/ext/hook/mcp"
 	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/core/internal/hooks"
@@ -45,6 +46,7 @@ type Wiring struct {
 	Provider  ModelProvider
 	ApproveCh chan<- approve.Decision
 	AnswerCh  chan<- askuser.Answer
+	McpAuthCh chan<- mcp.AuthDecision
 	ToolNames []string
 	Trace     *hooks.Trace // 调用链记录（Resume 切会话时同步切 trace）
 }
@@ -345,6 +347,15 @@ func (s *Session) DecideAnswer(a askuser.Answer) {
 	sendDecision(s, w.AnswerCh, a, a.CallID)
 }
 
+/* DecideMcpAuth 回传 MCP 授权决策（授权完成后解除工具调用的阻塞）。 */
+func (s *Session) DecideMcpAuth(d mcp.AuthDecision) {
+	w := s.Wired()
+	if w == nil {
+		return
+	}
+	sendDecision(s, w.McpAuthCh, d, d.CallID)
+}
+
 /* ── SSE 订阅（领域事件出口，HTTP 帧写出在 controller）── */
 
 /* Subscribe 注册一个订阅者，返回事件 channel 与注销函数。 */
@@ -397,7 +408,7 @@ func (s *Session) Publish(e Event) {
 		return
 	}
 	s.mu.Lock()
-	if e.Type == "approve.request" || e.Type == "askuser.request" {
+	if e.Type == "approve.request" || e.Type == "askuser.request" || e.Type == "mcp.auth.request" {
 		var d struct {
 			ID string `json:"id"`
 		}
@@ -415,7 +426,7 @@ func (s *Session) Publish(e Event) {
 		default:
 			// 慢消费者满缓冲：流式增量可丢（回放有快照帧兜底），人机请求
 			// 不可丢——挤掉最旧一帧腾位送达，否则审批卡等会让整轮挂死
-			if e.Type == "approve.request" || e.Type == "askuser.request" {
+			if e.Type == "approve.request" || e.Type == "askuser.request" || e.Type == "mcp.auth.request" {
 				select {
 				case <-ch:
 				default:
@@ -644,20 +655,27 @@ func (s *Session) PendingNotices() []PendingNotice {
 	defer s.mu.Unlock()
 	out := make([]PendingNotice, 0, len(s.pending))
 	for _, e := range s.pending {
-		kind := ""
 		switch e.Type {
-		case "approve.request":
-			kind = "approve"
-		case "askuser.request":
-			kind = "ask"
-		default:
-			continue
+		case "approve.request", "askuser.request":
+			kind := "approve"
+			if e.Type == "askuser.request" {
+				kind = "ask"
+			}
+			var d ToolStartData
+			if json.Unmarshal(e.Data, &d) != nil || d.ID == "" {
+				continue
+			}
+			out = append(out, PendingNotice{CallID: d.ID, ForkID: e.ForkID, Kind: kind, Tool: d.Name, Args: string(d.Args), Ts: e.Ts})
+		case "mcp.auth.request":
+			var d struct {
+				ID     string `json:"id"`
+				Server string `json:"server"`
+			}
+			if json.Unmarshal(e.Data, &d) != nil || d.ID == "" {
+				continue
+			}
+			out = append(out, PendingNotice{CallID: d.ID, ForkID: e.ForkID, Kind: "mcp_auth", Tool: d.Server, Ts: e.Ts})
 		}
-		var d ToolStartData
-		if json.Unmarshal(e.Data, &d) != nil || d.ID == "" {
-			continue
-		}
-		out = append(out, PendingNotice{CallID: d.ID, ForkID: e.ForkID, Kind: kind, Tool: d.Name, Args: string(d.Args), Ts: e.Ts})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ts > out[j].Ts })
 	return out

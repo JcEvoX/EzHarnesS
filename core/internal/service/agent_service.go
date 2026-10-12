@@ -61,6 +61,7 @@ type AgentService struct {
 	Term      *TerminalService // 共享终端（魔法看板），可空：term_* 工具与状态注入的前提
 	Browser   *BrowserService  // 共享浏览器桥（魔法看板），可空：browser_* 工具注入的前提
 	McpRouter *mcp.Router      // 系统级 MCP router（全局单例注入），可空：不装配 mcp hook
+	McpAuth   *McpAuthManager  // MCP OAuth 管理器（组 OAuth 配置用），可空
 }
 
 /*
@@ -233,6 +234,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"term_tab", "term_action",
 		"browser_tab", "browser_action",
 	}
+	mcpHook, mcpAuthCh := NewMcpHook(context.Background(), s.Fsys, a.McpRouter, a.McpAuth)
 	agent := core.NewAgent(provider,
 		core.WithModelWarp(modelWarps...),
 		core.WithToolWarp(toolarg.Warp(s.Fsys), limit.Warp(4), safetool.Warp()),
@@ -250,7 +252,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			approver,
 			asker,
 			task.New(),
-			NewMcpHook(context.Background(), s.Fsys, a.McpRouter),
+			mcpHook,
 			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
 				offload.WithAbs(func(p string) string { // 提示给绝对路径：模型不知道 FS 挂载基准，按工作目录拼相对路径必错
 					if abs, err := filepath.Abs(p); err == nil {
@@ -271,6 +273,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		Provider:  provider,
 		ApproveCh: approveCh,
 		AnswerCh:  answerCh,
+		McpAuthCh: mcpAuthCh,
 		Trace:     traceHook,
 		ToolNames: toolNames,
 	})
@@ -542,7 +545,12 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		"\n</memory>")
 	skills := builtinskill.Skills()
 	if user, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir); err == nil {
-		skills = append(skills, user...)
+		// 与内建同名的用户技能让位（内建优先），清单与记忆页同一归置
+		for _, sk := range user {
+			if !slices.ContainsFunc(skills, func(b skill.Skill) bool { return hooks.SkillDirOf(b.Path) == hooks.SkillDirOf(sk.Path) }) {
+				skills = append(skills, sk)
+			}
+		}
 	}
 	if len(st.DisabledSkills) > 0 {
 		kept := skills[:0]
@@ -580,6 +588,9 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		b.WriteString("\n（HTTP 直调：core 把上面的 MCP 服务整体暴露为本机 API，不经你中转，页面、脚本、外部程序都可调——\n" +
 			"POST /api/mcp/call，JSON 载荷 {\"server\":\"服务名\",\"tool\":\"工具名\",\"args\":{参数}}，" +
 			"成功 {\"result\":\"文本\"}、失败 {\"error\":\"原因\"}；GET /api/mcp 返回服务清单。\n" +
+			"需要 OAuth 的服务未授权时返回 HTTP 401 + {\"needs_auth\":true,\"server\":\"服务名\",\"auth_url\":\"授权地址\"}（OAuth 自动检测，无需给 server 配置）；" +
+			"快应用引同源组件 <script src=\"/ez-mcp-auth.js\"></script> 后直接用 ezMcp.call(server,tool,args)——需要授权时它会自动居中弹框、开浏览器、授权后重试，别自己写弹框；" +
+			"组件用法见 quick-app 技能。\n" +
 			"工具名与参数以清单/工具 schema 为准，不要臆造（例：time 服务的工具是 getCurrentTime，不是 timeNow）。\n" +
 			"同源页面（save_app 快应用）用相对路径 fetch('/api/mcp/call', {method: 'POST', " +
 			"headers: {'Content-Type': 'application/json'}, body: JSON.stringify({server: '服务名', tool: '工具名', args: {}})})，" +

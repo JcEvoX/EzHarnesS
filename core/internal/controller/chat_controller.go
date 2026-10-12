@@ -190,6 +190,21 @@ func (c *ChatController) DecideApprove(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+/* DecideMcpAuth POST /api/sessions/:id/decisions/mcp-auth（:id=分支根 ID）。 */
+func (c *ChatController) DecideMcpAuth(g *gin.Context) {
+	var body struct {
+		CallID string `json:"callId" binding:"required"`
+		OK     bool   `json:"ok"`
+		Reason string `json:"reason"`
+	}
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Svc.DecideMcpAuth(g.Param("id"), body.CallID, body.OK, body.Reason)
+	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 /*
 	Notifications GET /api/notifications：全分支未决人机请求汇总（通知栏
 
