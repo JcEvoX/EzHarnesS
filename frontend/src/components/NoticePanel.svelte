@@ -26,6 +26,7 @@
     approve: { label: '审批', icon: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
     ask: { label: '询问', icon: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>' },
     info: { label: '通知', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 11v5"/>' },
+    mcp_auth: { label: '认证', icon: '<circle cx="8" cy="15" r="4"/><path d="M11 12l7-7M16 5l2 2M14 7l2 2"/>' },
   }
 
   let answers = $state<Record<string, string>>({})
@@ -119,7 +120,10 @@
 
           {#if n.status === 'pending'}
             <div class="actions">
-              {#if n.kind === 'approve'}
+              {#if n.kind === 'mcp_auth'}
+                <button class="btn ok" onclick={() => onResolve?.(n.id, 'authorize')}>去授权</button>
+                <button class="btn no" onclick={() => onResolve?.(n.id, 'cancel')}>取消</button>
+              {:else if n.kind === 'approve'}
                 <button class="btn ok" onclick={() => onResolve?.(n.id, 'approve')}>批准</button>
                 <button class="btn no" onclick={() => onResolve?.(n.id, 'reject')}>拒绝</button>
               {:else if n.kind === 'ask'}

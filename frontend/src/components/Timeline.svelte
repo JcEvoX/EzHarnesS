@@ -240,6 +240,9 @@
   流——思考默认折叠，长时间无正文像卡死）与输出（工具参数流式构造期）两
   态；正文一旦流出即收指示（内容本身是进度）。building 工具的参数就是模
   型流式输出，计"输出"避免 tool_chunk→tool_start 间指示条显隐跳变 */
+  /* 实时迭代数（长任务进度；轮末/切分支清零） */
+  const iterLabel = $derived(store.currentIter > 0 ? ` · 第 ${store.currentIter} 轮` : '')
+
   const modelPhase = $derived.by(() => {
     if (!store.modelActive) return ''
     for (let i = store.blocks.length - 1; i >= 0; i--) {
@@ -365,12 +368,20 @@
       {/if}
       {/each}
     {/if}
-    {#if modelPhase || store.lastTool}
+    {#if store.retryInfo}
+      <div class="thinking retry" title={store.retryInfo.err}>
+        <span class="tdot"></span>模型请求失败（{store.retryInfo.err.slice(0, 80) || '未知原因'}），第 {store.retryInfo.attempt}/{store.retryInfo.maxAttempts} 次重试{(store.retryInfo.delayMs / 1000).toFixed(1)}s 后…{iterLabel}
+      </div>
+    {:else if store.wrapPhase}
+      <div class="thinking wrap">
+        <span class="tdot"></span>已达迭代上限，正在总结收尾（不再调用工具）…{iterLabel}
+      </div>
+    {:else if modelPhase || store.lastTool}
       <div class="thinking"><span class="tdot"></span>{store.lastTool
           ? `⚙ ${store.lastTool} 执行中…`
           : modelPhase === 'gen'
             ? '模型输出中…'
-            : '模型思考中…'}</div>
+            : '模型思考中…'}{iterLabel}</div>
     {/if}
     {#if empty}
       <div class="empty">
@@ -579,6 +590,20 @@
     border-radius: 50%;
     background: var(--line-strong);
     animation: breath 1.4s ease-in-out infinite;
+  }
+  /* 重试提示：琥珀色（区别于正常思考的灰） */
+  .thinking.retry {
+    color: #d29922;
+  }
+  .thinking.retry .tdot {
+    background: #d29922;
+  }
+  /* 软收尾提示：蓝色（区别于常规思考） */
+  .thinking.wrap {
+    color: var(--accent);
+  }
+  .thinking.wrap .tdot {
+    background: var(--accent);
   }
   @keyframes breath {
     0%,

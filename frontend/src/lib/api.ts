@@ -81,6 +81,14 @@ export interface AppEntry {
   pinned?: boolean // 已钉到桌面小助手
 }
 
+export interface McpOAuthConfig {
+  enabled: boolean
+  client_id?: string
+  client_secret?: string
+  scopes?: string[]
+  metadata_url?: string
+}
+
 export interface McpServerView {
   name: string
   description: string
@@ -94,6 +102,9 @@ export interface McpServerView {
   tools: number // 页面拉取过的工具数;-1 = 会话在但未拉取,0 = 确实无工具
   headers: Record<string, string>
   allow?: string[]
+  oauth: boolean // 该 server 配置了 OAuth
+  authorized: boolean // OAuth 令牌有效
+  oauth_config?: McpOAuthConfig // 原始配置（编辑/回存用）
 }
 
 export interface McpToolView {
@@ -114,7 +125,22 @@ export interface McpFile {
     env?: Record<string, string>
     allow?: string[]
     enabled?: boolean
+    oauth?: McpOAuthConfig
   }[]
+}
+
+/* McpAuthError 表示 MCP 调用需要 OAuth 认证（后端 401 + needs_auth）。 */
+export class McpAuthError extends Error {
+  server: string
+  authUrl: string
+  metadataUrl: string
+  constructor(server: string, authUrl: string, metadataUrl = '') {
+    super(`需要 OAuth 认证：${server}`)
+    this.name = 'McpAuthError'
+    this.server = server
+    this.authUrl = authUrl
+    this.metadataUrl = metadataUrl
+  }
 }
 
 export interface PathEntry {
@@ -132,6 +158,9 @@ export interface AppConfig {
   memory: { longterm: string; skills: string; topics: string }
 }
 
+/* ReasoningEffort 是思考档位（Claude Code / Codex 分档；请求侧归一为 low/high/max）。 */
+export type ReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+
 export interface Settings {
   systemExtra: string
   trimPercent?: number | null
@@ -139,6 +168,7 @@ export interface Settings {
   closeToTray?: boolean
   maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 64，上限 128）
   debugMode?: boolean // 调试模式：模型完整输入写进日志（即改即生效）
+  reasoningEffort?: ReasoningEffort // 思考档位（''=默认不控制；none=关闭；其余为强度分档）
 }
 
 export interface ModelEntry {
@@ -318,6 +348,7 @@ export const api = {
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
+        approveMode?: '' | 'off' | 'strict'
       }>,
     ),
 
@@ -368,6 +399,9 @@ export const api = {
   decideAnswer: (id: string, callId: string, input: string) =>
     post<{ ok: boolean }>(`/api/sessions/${id}/decisions/answer`, { callId, input }),
 
+  decideMcpAuth: (id: string, callId: string, ok: boolean, reason: string) =>
+    post<{ ok: boolean }>(`/api/sessions/${id}/decisions/mcp-auth`, { callId, ok, reason }),
+
   listNotifications: () => fetch('/api/notifications').then(json<NotificationGroup[]>),
 
   /* 关闭完成通知（info 条）：服务端置空该会话的完成记录 */
@@ -400,16 +434,69 @@ export const api = {
 
   saveMcp: (f: McpFile) => post<{ ok: boolean }>('/api/mcp', f),
 
-  connectMcp: (name: string) => post<{ tools: McpToolView[] }>('/api/mcp/connect', { name }),
+  /* connectMcp 建立连接拉工具；需要 OAuth 时后端回 401 + needs_auth → McpAuthError */
+  connectMcp: async (name: string) => {
+    const res = await fetch('/api/mcp/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (res.status === 401) {
+      const b = (await res.json().catch(() => ({}))) as { server?: string; auth_url?: string; metadata_url?: string }
+      throw new McpAuthError(b.server || name, b.auth_url || '', b.metadata_url || '')
+    }
+    return json<{ tools: McpToolView[] }>(res)
+  },
 
   disconnectMcp: (name: string) => post<{ ok: boolean }>('/api/mcp/disconnect', { name }),
 
-  callMcp: (server: string, tool: string, args: unknown) =>
-    post<{ result: string }>('/api/mcp/call', { server, tool, args }),
+  /* callMcp 调用 MCP 工具；需要 OAuth 时后端回 401 + needs_auth，
+     这里抛出携带 server/auth_url/metadata_url 的 McpAuthError 供调用方引导认证。 */
+  callMcp: async (server: string, tool: string, args: unknown) => {
+    const res = await fetch('/api/mcp/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server, tool, args }),
+    })
+    if (res.status === 401) {
+      const b = (await res.json().catch(() => ({}))) as { server?: string; auth_url?: string; metadata_url?: string }
+      throw new McpAuthError(b.server || server, b.auth_url || '', b.metadata_url || '')
+    }
+    return json<{ result: string }>(res)
+  },
+
+  /* MCP OAuth：取授权 URL（前端用系统浏览器打开）/ 探测是否需 OAuth / 轮询状态 / 取消 / 注销 */
+  oauthStart: (name: string, metadataUrl = '') =>
+    post<{ url: string }>('/api/mcp/oauth/start', metadataUrl ? { name, metadata_url: metadataUrl } : { name }),
+
+  oauthProbe: (name: string) => post<{ oauth: boolean }>('/api/mcp/oauth/probe', { name }),
+
+  oauthStatus: (name: string) =>
+    fetch(`/api/mcp/oauth/status?name=${encodeURIComponent(name)}`).then(json<{ authorized: boolean; pending: boolean }>),
+
+  oauthCancel: (name: string) => post<{ ok: boolean }>('/api/mcp/oauth/cancel', { name }),
+
+  oauthLogout: (name: string) => post<{ ok: boolean }>('/api/mcp/oauth/logout', { name }),
 
   getModels: () => fetch('/api/models').then(json<ModelsConfig>),
 
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
+
+  /* 激活主模型（输入框切换器）：唯一启用该条目并重建 agent，下一次输入生效 */
+  activateModel: (name: string) =>
+    post<{ ok: boolean; model: ModelEntry }>('/api/models/activate', { name }),
+
+  /* 会话审批三档（''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
+  setApproveMode: (id: string, mode: '' | 'off' | 'strict') =>
+    post<{ ok: boolean; mode: string }>(`/api/sessions/${id}/approve-mode`, { mode }),
+
+  /* 思考强度档位（全局；请求侧实时读取，即改即生效） */
+  setReasoningEffort: (effort: ReasoningEffort) =>
+    post<{ ok: boolean; effort: string }>('/api/settings/reasoning', { effort }),
+
+  /* 直调大模型（快应用/脚本；与 /api/mcp/call 同级的内置能力） */
+  callModel: (prompt: string, model = '', images: string[] = []) =>
+    post<{ result: string }>('/api/model/call', { model, prompt, images }),
 
   getMemoryConfig: () => fetch('/api/memory/config').then(json<MemoryConfig>),
 

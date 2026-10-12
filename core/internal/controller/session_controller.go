@@ -52,3 +52,19 @@ func (c *SessionController) Fork(g *gin.Context) {
 	}
 	g.JSON(http.StatusOK, d)
 }
+
+/* SetApproveMode POST /api/sessions/:id/approve-mode：三档审批（''=跟随安全配置 | off | strict），实时生效。 */
+func (c *SessionController) SetApproveMode(g *gin.Context) {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := c.Svc.SetApproveMode(g.Param("id"), req.Mode); err != nil {
+		g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "mode": req.Mode})
+}

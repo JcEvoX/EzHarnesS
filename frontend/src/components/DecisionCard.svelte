@@ -43,6 +43,14 @@
     {#if data.dtype === 'approve'}
       <span class="icon approve">?</span>
       <span class="title">审批请求</span>
+    {:else if data.dtype === 'mcp-auth'}
+      <span class="icon auth">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="15" r="4" />
+          <path d="M11 12l7-7M16 5l2 2M14 7l2 2" />
+        </svg>
+      </span>
+      <span class="title">MCP 需要授权</span>
     {:else}
       <span class="icon ask">?</span>
       <span class="title">ez 想问你</span>
@@ -58,7 +66,14 @@
 
   {#if !collapsed}
   <div class="content">
-    {#if data.dtype === 'ask' && data.question}
+    {#if data.dtype === 'mcp-auth'}
+      <p class="question">
+        服务 <b>{data.name}</b> 需要 OAuth 授权才能调用。点「去授权」在浏览器中完成，完成后本次调用会自动继续。
+      </p>
+      {#if data.err}
+        <p class="err">{data.err}</p>
+      {/if}
+    {:else if data.dtype === 'ask' && data.question}
       <p class="question">{data.question}</p>
       {#if !data.resolved && data.options.length}
         <div class="options">
@@ -86,6 +101,13 @@
         />
         <button class="btn ghost" onclick={() => approve(false)}>拒绝</button>
         <button class="btn solid" onclick={() => approve(true)}>批准</button>
+      </div>
+    {:else if data.dtype === 'mcp-auth'}
+      <div class="actions right">
+        <button class="btn ghost" onclick={() => store.decideMcpAuth(data, false, '已取消')}>取消</button>
+        <button class="btn solid" disabled={data.busy} onclick={() => store.decideMcpAuth(data, true, '')}>
+          {data.busy ? '等待授权…' : '去授权'}
+        </button>
       </div>
     {:else}
       <div class="actions">
@@ -147,6 +169,14 @@
     border: 1px solid var(--line-strong);
     border-radius: 5px;
   }
+  .icon svg {
+    width: 11px;
+    height: 11px;
+  }
+  .icon.auth {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--line-strong));
+  }
   .title {
     font-size: 13px;
     font-weight: 650;
@@ -172,6 +202,16 @@
   .question {
     font-size: 14.5px;
     white-space: pre-wrap;
+  }
+  .question b {
+    font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .err {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #dc2626;
+    word-break: break-word;
   }
   /* 选项按钮：点选即提交，与输入框自由输入二选一 */
   .options {
@@ -220,6 +260,13 @@
     gap: 8px;
     padding: 10px 14px;
     border-top: 1px solid var(--line);
+  }
+  /* 无输入框的动作行（mcp-auth）：按钮靠右 */
+  .actions.right {
+    justify-content: flex-end;
+  }
+  .actions.right .btn[disabled] {
+    opacity: 0.6;
   }
   .actions input {
     flex: 1;

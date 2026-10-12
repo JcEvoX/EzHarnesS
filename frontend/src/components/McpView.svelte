@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { api, type McpServerView, type McpToolView } from '../lib/api'
+  import { onMount, onDestroy } from 'svelte'
+  import { api, McpAuthError, type McpServerView, type McpToolView } from '../lib/api'
+  import { openExternal } from '../lib/desktop'
 
   /* MCP = 外部工具服务器（mcp.json 热加载）。页面侧可手动建立 MCP 会话
   （与 agent 的连接相互独立）：点连接查看工具清单、填参试调用。
@@ -26,6 +27,18 @@
   /* selected 非空时进入 server 详情视图（工具/调用/编辑都在详情，卡片保持恒定高度）。 */
   let selected = $state<McpServerView | null>(null)
   let detailPage = $state<HTMLDivElement | null>(null)
+
+  /* OAuth 认证（页面侧）：授权中 server 名 + 覆盖式授权弹窗 + 状态轮询 */
+  let authBusy = $state('')
+  let authModal = $state<{ server: string; opened: boolean; err: string } | null>(null)
+  let authTimer: ReturnType<typeof setInterval> | null = null
+  function stopAuthPoll() {
+    if (authTimer) {
+      clearInterval(authTimer)
+      authTimer = null
+    }
+  }
+  onDestroy(stopAuthPoll)
 
   /* 进详情时滚动归零——滚动容器在视图切换间被复用，否则停留在网格页的滚动偏移。 */
   $effect(() => {
@@ -99,6 +112,7 @@
               ...(Object.keys(s.headers ?? {}).length ? { headers: s.headers } : {}),
             }),
         ...(s.allow?.length ? { allow: s.allow } : {}), // 透传白名单，防全量保存清掉
+        ...(s.oauth_config?.enabled ? { oauth: s.oauth_config } : {}), // 透传 OAuth 配置，防全量保存清掉
         enabled: s.enabled,
       })),
     }
@@ -113,6 +127,7 @@
       .finally(() => {
         saving = false
       })
+    return persistChain
   }
 
   function toggle(s: McpServerView) {
@@ -120,36 +135,58 @@
     persist()
   }
 
+  /* 名字即 keyed each 的 key 与后端索引键，重名会炸掉整页渲染，必须唯一。 */
   function draftValid(): boolean {
-    if (!draft.name.trim()) return false
+    const name = draft.name.trim()
+    if (!name) return false
+    if (servers.some((x) => x.name === name)) return false
     if (draft.type === 'stdio') return !!draft.command.trim()
     return !!draft.url.trim()
   }
 
-  function addServer() {
+  async function addServer() {
     if (!draftValid()) return
     const isStdio = draft.type === 'stdio'
     const args = argsOf(draft.argsText)
     const command = draft.command.trim()
-    servers = [
-      ...servers,
-      {
-        name: draft.name.trim(),
-        description: draft.desc.trim(),
-        transport: draft.type,
-        endpoint: isStdio ? commandLine(command, args) : draft.url.trim(),
-        command: isStdio ? command : '',
-        args: isStdio ? args : [],
-        env: isStdio ? pairsToRecord(draft.envPairs) : {},
-        enabled: true,
-        connected: false,
-        tools: 0,
-        headers: isStdio ? {} : pairsToRecord(draft.pairs),
-      },
-    ]
+    const entry: McpServerView = {
+      name: draft.name.trim(),
+      description: draft.desc.trim(),
+      transport: draft.type,
+      endpoint: isStdio ? commandLine(command, args) : draft.url.trim(),
+      command: isStdio ? command : '',
+      args: isStdio ? args : [],
+      env: isStdio ? pairsToRecord(draft.envPairs) : {},
+      enabled: true,
+      connected: false,
+      tools: 0,
+      headers: isStdio ? {} : pairsToRecord(draft.pairs),
+      oauth: false, // OAuth 自动检测：保存后探测，命中即亮未授权徽标
+      authorized: false,
+    }
+    servers = [...servers, entry]
     draft = emptyDraft()
     adding = false
-    persist()
+    await persist()
+    if (!isStdio) void probeOAuth(entry.name)
+  }
+
+  /* probeOAuth 新建保存后探测该 server 是否需要 OAuth（探测 well-known 发现文档；
+     未命中不亮徽标——后续真实调用仍会经 401 自动识别）。
+     命中后必须经 servers 数组取响应式实例更新：局部 entry 是原始对象，
+     直接改它不触发渲染。 */
+  async function probeOAuth(name: string) {
+    try {
+      const { oauth } = await api.oauthProbe(name)
+      if (!oauth) return
+      const s = servers.find((x) => x.name === name)
+      if (s) {
+        s.oauth = true
+        s.authorized = false
+      }
+    } catch {
+      /* 探测失败静默 */
+    }
   }
 
   function pairsToRecord(pairs: HeaderPair[]): Record<string, string> {
@@ -212,6 +249,50 @@
     persist()
   }
 
+  /* authorize 取授权 URL 用系统浏览器打开并轮询；已授权即刷新徽标。
+     metadataUrl 来自 401（发现授权服务器用）。 */
+  async function authorize(s: McpServerView, metadataUrl = '') {
+    authBusy = s.name
+    message = ''
+    stopAuthPoll()
+    authModal = { server: s.name, opened: false, err: '' }
+    try {
+      const { url } = await api.oauthStart(s.name, metadataUrl)
+      if (!url) throw new Error('未获得授权地址（检查该 server 的 OAuth 配置）')
+      openExternal(url)
+      authModal = { server: s.name, opened: true, err: '' }
+      const started = Date.now()
+      authTimer = setInterval(async () => {
+        if (Date.now() - started > 5 * 60_000) {
+          stopAuthPoll()
+          return
+        }
+        try {
+          const { authorized } = await api.oauthStatus(s.name)
+          if (authorized) {
+            stopAuthPoll()
+            s.authorized = true
+            authModal = null
+          }
+        } catch {
+          /* 下一轮重试 */
+        }
+      }, 1500)
+    } catch (e) {
+      authModal = { server: s.name, opened: false, err: (e as Error).message }
+    }
+    authBusy = ''
+  }
+
+  async function logout(s: McpServerView) {
+    try {
+      await api.oauthLogout(s.name)
+    } catch {
+      /* 幂等 */
+    }
+    s.authorized = false
+  }
+
   /* 删除走自制居中确认框（原生 confirm 在 WebView 里贴顶，样式突兀）。 */
   function removeServer(s: McpServerView) {
     delTarget = s
@@ -234,13 +315,23 @@
     message = ''
     try {
       const { tools } = await api.connectMcp(s.name)
+      /* 工具行 keyed by name：server 端重名/空名工具去重，防重复 key 崩渲染 */
+      const list = (tools ?? []).filter((t) => t.name).filter((t, i, a) => a.findIndex((x) => x.name === t.name) === i)
       s.connected = true
-      s.tools = (tools ?? []).length
-      connectedTools[s.name] = tools ?? []
+      s.tools = list.length
+      connectedTools[s.name] = list
     } catch (e) {
       s.connected = false
       s.tools = 0
-      message = `连接失败：${(e as Error).message}`
+      if (e instanceof McpAuthError) {
+        // 自动检测到需 OAuth：翻出认证入口并直接发起授权（无需用户预先配置）
+        s.oauth = true
+        s.authorized = false
+        message = `该服务需要 OAuth 认证：${s.name}`
+        void authorize(s, e.metadataUrl)
+      } else {
+        message = `连接失败：${(e as Error).message}`
+      }
     }
     connecting = ''
   }
@@ -309,7 +400,17 @@
       const { result } = await api.callMcp(server, openTool.split('/')[1], args)
       callResult = { ok: true, text: result }
     } catch (e) {
-      callResult = { ok: false, text: (e as Error).message }
+      if (e instanceof McpAuthError) {
+        const s = servers.find((x) => x.name === server)
+        if (s) {
+          s.oauth = true
+          s.authorized = false
+          void authorize(s, e.metadataUrl)
+        }
+        callResult = { ok: false, text: `需要 OAuth 认证：${server}。请在弹窗完成授权后重试。` }
+      } else {
+        callResult = { ok: false, text: (e as Error).message }
+      }
     }
     calling = false
   }
@@ -330,10 +431,18 @@
       </div>
       <div class="detail-title">
         <h1>{selected.name}</h1>
-        <span class="state" class:on={selected.connected && selected.enabled}>
-          <i></i>
-          {selected.enabled ? (selected.connected ? (selected.tools >= 0 ? `已连接 · ${selected.tools} 工具` : '已连接') : '未连接') : '已停用'}
-        </span>
+        <div class="badges">
+          <span class="state" class:on={selected.connected && selected.enabled}>
+            <i></i>
+            {selected.enabled ? (selected.connected ? (selected.tools >= 0 ? `已连接 · ${selected.tools} 工具` : '已连接') : '未连接') : '已停用'}
+          </span>
+          {#if selected.oauth}
+            <span class="state" class:on={selected.authorized} class:warn={!selected.authorized}>
+              <i></i>
+              {selected.authorized ? '已授权' : '未授权'}
+            </span>
+          {/if}
+        </div>
         {#if selected.description && selected.description !== selected.name}
           <p class="detail-desc">{selected.description}</p>
         {/if}
@@ -354,11 +463,14 @@
         class="conn"
         class:on={selected.connected}
         disabled={connecting === selected.name}
-        onclick={() => (selected.connected && connectedTools[sel.name]?.length ? disconnect(sel) : connect(sel))}
+        onclick={() => (sel.connected && connectedTools[sel.name]?.length ? disconnect(sel) : connect(sel))}
       >
         {connecting === selected.name ? '连接中…' : selected.connected ? (connectedTools[selected.name]?.length ? '断开会话' : '拉取工具') : '建立会话'}
       </button>
       <button class="op" onclick={startEdit}>{editing ? '收起编辑' : '编辑'}</button>
+      {#if selected.oauth && selected.authorized}
+        <button class="op" onclick={() => logout(sel)}>注销</button>
+      {/if}
       <button class="op danger" onclick={() => removeServer(sel)}>删除</button>
       <span class="op-label">
         启用
@@ -480,7 +592,12 @@
                 <path d="M7 12h4M11 12l6-6M11 12l6 6" />
               </svg>
             </div>
-            <span class="state" class:on={s.connected && s.enabled}><i></i>{s.enabled ? (s.connected ? (s.tools >= 0 ? `已连接 · ${s.tools} 工具` : '已连接') : '未连接') : '已停用'}</span>
+            <div class="badges">
+              <span class="state" class:on={s.connected && s.enabled}><i></i>{s.enabled ? (s.connected ? (s.tools >= 0 ? `已连接 · ${s.tools} 工具` : '已连接') : '未连接') : '已停用'}</span>
+              {#if s.oauth}
+                <span class="state" class:on={s.authorized} class:warn={!s.authorized}><i></i>{s.authorized ? '已授权' : '未授权'}</span>
+              {/if}
+            </div>
           </div>
           <h2>{s.name}</h2>
           {#if s.description && s.description !== s.name}
@@ -500,6 +617,7 @@
               <button
                 class="conn"
                 class:on={s.connected}
+                class:auth={s.oauth && !s.authorized}
                 disabled={connecting === s.name}
                 onclick={(e) => {
                   e.stopPropagation()
@@ -590,6 +708,29 @@
     <button class="add" onclick={() => (adding = true)}>+ 添加服务器</button>
   {/if}
 </div>
+{/if}
+
+<!-- MCP OAuth 授权弹窗（页面侧）：去授权 → 系统浏览器打开 → 轮询状态 -->
+{#if authModal}
+  <div class="drawer-mask" onclick={() => (authModal = null)}></div>
+  <div class="modal confirm">
+    <h3>OAuth 认证</h3>
+    <p class="modal-hint">
+      正在为「{authModal.server}」申请授权。
+      {#if authModal.opened}
+        已打开系统浏览器，请在浏览器中完成授权，完成后此弹窗会自动关闭。
+      {/if}
+    </p>
+    {#if authModal.err}
+      <p class="modal-hint err">{authModal.err}</p>
+    {/if}
+    <footer>
+      <button class="btn" onclick={() => (authModal = null)}>关闭</button>
+      {#if !authModal.opened}
+        <button class="btn" onclick={() => (servers.find((x) => x.name === authModal!.server) && authorize(servers.find((x) => x.name === authModal!.server)!))}>重试</button>
+      {/if}
+    </footer>
+  </div>
 {/if}
 
 <!-- 删除 server 确认弹窗（居中，样式同 MemoryView 删除技能） -->
@@ -804,6 +945,23 @@
   .state.on i {
     background: var(--accent);
   }
+  /* 未授权：琥珀色，提示需要操作（区别于连接态/错误态） */
+  .state.warn {
+    color: #b8860b;
+    border-color: color-mix(in srgb, #d29922 40%, transparent);
+    background: color-mix(in srgb, #d29922 10%, transparent);
+  }
+  .state.warn i {
+    background: #d29922;
+  }
+  /* badges 徽标行：自动宽度、不随父级拉伸（详情标题列 / 卡片顶栏共用） */
+  .badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-self: flex-start;
+  }
   h2 {
     font-size: 14px;
     font-weight: 650;
@@ -986,6 +1144,16 @@
   .conn:hover {
     border-color: var(--line-strong);
     color: var(--fg);
+  }
+  /* 认证按钮：需要授权时用强调色，吸引导航 */
+  .conn.auth {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+  .conn.auth:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .conn.on {
     border-color: transparent;
@@ -1200,6 +1368,9 @@
     line-height: 1.6;
     color: var(--faint);
     margin: 0;
+  }
+  .modal-hint.err {
+    color: #e5534b;
   }
   .modal footer {
     display: flex;

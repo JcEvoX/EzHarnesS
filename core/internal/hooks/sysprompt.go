@@ -63,6 +63,7 @@ func (s *SysPrompt) SetIdentityFn(fn func() string) {
 	s.mu.Unlock()
 }
 
+
 /*
 	SessionIdentityBlock 渲染会话身份块：ID + 存档绝对路径——上下文整理
 

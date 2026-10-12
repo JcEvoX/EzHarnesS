@@ -11,6 +11,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 
@@ -35,10 +36,33 @@ type McpServerFile struct {
 	Env         map[string]string `json:"env"`                   // stdio 附加环境变量（继承父进程环境之上合并）
 	Allow       []string          `json:"allow"`
 	Enabled     *bool             `json:"enabled,omitempty"`
+	OAuth       *McpOAuthFile     `json:"oauth,omitempty"`
+}
+
+/* McpOAuthFile 描述一个 HTTP 类（http/sse）server 的 OAuth 接入；Enabled 触发 OAuth。 */
+type McpOAuthFile struct {
+	Enabled      bool     `json:"enabled"`
+	ClientID     string   `json:"client_id,omitempty"`     // 空则走动态客户端注册（DCR）
+	ClientSecret string   `json:"client_secret,omitempty"` // 机密客户端才需要
+	Scopes       []string `json:"scopes,omitempty"`
+	MetadataURL  string   `json:"metadata_url,omitempty"` // 授权服务器元数据地址（发现失败时手工指定）
 }
 
 /* IsEnabled 报告服务器是否启用。 */
 func (s McpServerFile) IsEnabled() bool { return s.Enabled == nil || *s.Enabled }
+
+/*
+McpAuthRequiredError 表示某 server 需要 OAuth 授权且当前无有效令牌。
+表现层据此回 HTTP 401 + needs_auth 契约。
+*/
+type McpAuthRequiredError struct {
+	Server      string
+	MetadataURL string // RFC9728 资源元数据地址（来自 401，可能为空）
+}
+
+func (e *McpAuthRequiredError) Error() string {
+	return "mcp server " + e.Server + " requires OAuth authorization"
+}
 
 /*
 McpServerView 是 MCP 页卡片数据。
@@ -58,6 +82,9 @@ type McpServerView struct {
 	Connected   bool              `json:"connected"` // 页面手动会话已建立
 	Tools       int               `json:"tools"`     // 页面拉取过的工具数；-1 = 会话在但未拉取（agent 共用连接池时常见），0 = 确实无工具
 	Allow       []string          `json:"allow,omitempty"`
+	OAuth       bool              `json:"oauth"`                // 该 server 配置了 OAuth
+	Authorized  bool              `json:"authorized"`           // OAuth 令牌有效（非 OAuth server 恒 false）
+	OAuthConfig *McpOAuthFile     `json:"oauth_config,omitempty"` // 原始 OAuth 配置（编辑/回存透传）
 }
 
 /* McpToolView 是连接后返回的工具清单条目。 */
@@ -75,16 +102,18 @@ McpService MCP 配置用例。连接全部走全局 router（系统级单例，
 type McpService struct {
 	Fsys   fs.FileSystem
 	Router *mcp.Router
+	Auth   *McpAuthManager
 
 	mu       sync.Mutex
 	toolDefs map[string][]mcp.ToolDef // 页面连过的工具清单缓存（工具数展示）
 }
 
-/* NewMcpService 构造（main 装配用，router 为系统级单例）。 */
-func NewMcpService(fsys fs.FileSystem, router *mcp.Router) *McpService {
+/* NewMcpService 构造（main 装配用，router 为系统级单例，auth 可空）。 */
+func NewMcpService(fsys fs.FileSystem, router *mcp.Router, auth *McpAuthManager) *McpService {
 	return &McpService{
 		Fsys:     fsys,
 		Router:   router,
+		Auth:     auth,
 		toolDefs: map[string][]mcp.ToolDef{},
 	}
 }
@@ -104,6 +133,11 @@ func (s *McpService) List(ctx context.Context) []McpServerView {
 		if defs, ok := s.toolDefs[srv.Name]; ok {
 			tools = len(defs)
 		}
+		oauth := (srv.OAuth != nil && srv.OAuth.Enabled) || (s.Auth != nil && s.Auth.NeedsOAuth(srv.Name))
+		authorized := false
+		if oauth && s.Auth != nil {
+			authorized, _ = s.Auth.Status(ctx, srv.Name)
+		}
 		out = append(out, McpServerView{
 			Name:        srv.Name,
 			Description: srv.Description,
@@ -117,6 +151,9 @@ func (s *McpService) List(ctx context.Context) []McpServerView {
 			Connected:   connected,
 			Tools:       tools,
 			Allow:       srv.Allow,
+			OAuth:       oauth,
+			Authorized:  authorized,
+			OAuthConfig: srv.OAuth,
 		})
 	}
 	return out
@@ -128,11 +165,19 @@ Connect 经全局 router 建立会话并返回工具清单（连接前按 mcp.js
 禁用的 server 不装配进 router，页面同样不可连（禁用即禁用）。
 */
 func (s *McpService) Connect(ctx context.Context, name string) ([]McpToolView, error) {
-	SyncMcpServers(ctx, s.Router, s.Fsys)
-	defs, err := s.Router.Tools(ctx, name)
+	SyncMcpServers(ctx, s.Router, s.Fsys, s.Auth)
+	defs, err := s.Router.ToolsWithAuth(ctx, name)
 	if err != nil {
+		var ar *mcp.AuthRequired
+		if errors.As(err, &ar) {
+			return nil, &McpAuthRequiredError{Server: ar.Server, MetadataURL: ar.MetadataURL} // 认证未过，重连无意义
+		}
 		s.Router.Drop(name) // 连接失效：逐出重建再试一次
-		if defs, err = s.Router.Tools(ctx, name); err != nil {
+		defs, err = s.Router.ToolsWithAuth(ctx, name)
+		if err != nil {
+			if errors.As(err, &ar) {
+				return nil, &McpAuthRequiredError{Server: ar.Server, MetadataURL: ar.MetadataURL}
+			}
 			return nil, errMcp(name + ": " + err.Error())
 		}
 	}
@@ -159,11 +204,28 @@ func (s *McpService) Call(ctx context.Context, server, tool string, args json.Ra
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
-	out, err := s.Router.Call(ctx, server, tool, args)
+	out, err := s.Router.CallWithAuth(ctx, server, tool, args)
 	if err != nil {
+		var ar *mcp.AuthRequired
+		if errors.As(err, &ar) {
+			return "", &McpAuthRequiredError{Server: ar.Server, MetadataURL: ar.MetadataURL}
+		}
 		return "", errMcp(server + ": " + err.Error())
 	}
 	return out, nil
+}
+
+/* ProbeOAuth 探测一个 server 是否需要 OAuth（新建保存后页面亮未授权徽标用）。 */
+func (s *McpService) ProbeOAuth(ctx context.Context, name string) bool {
+	if s.Auth == nil {
+		return false
+	}
+	srv, ok := findServer(loadMcpFileOrNil(ctx, s.Fsys), name)
+	if !ok {
+		return false
+	}
+	_, hit := s.Auth.DiscoverOAuth(ctx, srv)
+	return hit
 }
 
 /*
@@ -172,10 +234,16 @@ func (s *McpService) Call(ctx context.Context, server, tool string, args json.Ra
 server 的页面会话。
 */
 func (s *McpService) Update(ctx context.Context, f McpFile) error {
+	seen := map[string]bool{}
 	for _, srv := range f.Servers {
 		if srv.Name == "" {
 			return errMcp("server name required")
 		}
+		// 名字是前端 keyed each 的 key 与路由索引键，重名崩页面且 agent 侧无法寻址
+		if seen[srv.Name] {
+			return errMcp("duplicate server name: " + srv.Name)
+		}
+		seen[srv.Name] = true
 		switch srv.Type {
 		case "http", "sse":
 			if srv.URL == "" {
@@ -197,7 +265,7 @@ func (s *McpService) Update(ctx context.Context, f McpFile) error {
 		return err
 	}
 	// 即时热替换：被删除/禁用 server 的连接随之关闭，agent 与页面立即可见
-	SyncMcpServers(ctx, s.Router, s.Fsys)
+	SyncMcpServers(ctx, s.Router, s.Fsys, s.Auth)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for name := range s.toolDefs {
@@ -266,22 +334,23 @@ NewMcpRouter 构造系统级 router（全局唯一，连接跨 session 常驻；
 main 装配一次，换代复用）。SyncMcpServers 按当前 mcp.json 热替换
 server 列表（换代切数据目录、保存配置后即时生效共用此入口）。
 */
-func NewMcpRouter(ctx context.Context, fsys fs.FileSystem) *mcp.Router {
-	return mcp.NewRouter(buildServers(loadMcpFileOrNil(ctx, fsys)))
+func NewMcpRouter(ctx context.Context, fsys fs.FileSystem, auth *McpAuthManager) *mcp.Router {
+	return mcp.NewRouter(buildServers(ctx, loadMcpFileOrNil(ctx, fsys), auth))
 }
 
-func SyncMcpServers(ctx context.Context, r *mcp.Router, fsys fs.FileSystem) {
-	r.ReplaceServers(buildServers(loadMcpFileOrNil(ctx, fsys)))
+func SyncMcpServers(ctx context.Context, r *mcp.Router, fsys fs.FileSystem, auth *McpAuthManager) {
+	r.ReplaceServers(buildServers(ctx, loadMcpFileOrNil(ctx, fsys), auth))
 }
 
 /*
 	NewMcpHook 注入全局 router 构造 mcp hook（连接生命周期归 router，hook 只使用）。
 
-OnLoop Reload 兜底手改 mcp.json 的热加载；禁用项不装配。
+OnLoop Reload 兜底手改 mcp.json 的热加载；禁用项不装配。返回的 channel
+供宿主回传 MCP 授权决策（会话内待认证时解除阻塞）。
 */
-func NewMcpHook(ctx context.Context, fsys fs.FileSystem, router *mcp.Router) *mcp.Hook {
+func NewMcpHook(ctx context.Context, fsys fs.FileSystem, router *mcp.Router, auth *McpAuthManager) (*mcp.Hook, chan<- mcp.AuthDecision) {
 	return mcp.NewHookWithRouter(router, func(context.Context) ([]mcp.ServerConfig, error) {
-		return buildServers(loadMcpFileOrNil(ctx, fsys)), nil
+		return buildServers(ctx, loadMcpFileOrNil(ctx, fsys), auth), nil
 	})
 }
 
@@ -297,7 +366,7 @@ func loadMcpFileOrNil(ctx context.Context, fsys fs.FileSystem) *McpFile {
 	return &f
 }
 
-func buildServers(f *McpFile) []mcp.ServerConfig {
+func buildServers(ctx context.Context, f *McpFile, auth *McpAuthManager) []mcp.ServerConfig {
 	if f == nil {
 		return nil
 	}
@@ -306,20 +375,26 @@ func buildServers(f *McpFile) []mcp.ServerConfig {
 		if !s.IsEnabled() {
 			continue
 		}
-		if sc, ok := buildServerConfig(s); ok {
+		if sc, ok := buildServerConfig(ctx, s, auth); ok {
 			out = append(out, sc)
 		}
 	}
 	return out
 }
 
-func buildServerConfig(s McpServerFile) (mcp.ServerConfig, bool) {
+func buildServerConfig(ctx context.Context, s McpServerFile, auth *McpAuthManager) (mcp.ServerConfig, bool) {
 	sc := mcp.ServerConfig{Name: s.Name, Description: s.Description, Allow: s.Allow}
 	switch s.Type {
 	case "http":
-		sc.Factory = mcp.StreamableHTTP(s.URL, s.Headers)
+		// OAuth 配置在建连时解析（非构建时固化）：DCR 登记的 client id 是
+		// 授权过程中才写盘的，固化会使首次授权后的重试仍带空 client id。
+		sc.Factory = func(cfg mcp.ServerConfig) (mcp.Client, error) {
+			return mcp.StreamableHTTP(s.URL, s.Headers, oauthOpts(ctx, s, auth)...)(cfg)
+		}
 	case "sse":
-		sc.Factory = mcp.SSE(s.URL, s.Headers)
+		sc.Factory = func(cfg mcp.ServerConfig) (mcp.Client, error) {
+			return mcp.SSE(s.URL, s.Headers, oauthOpts(ctx, s, auth)...)(cfg)
+		}
 	case "stdio":
 		if s.Command == "" {
 			return sc, false
@@ -328,5 +403,24 @@ func buildServerConfig(s McpServerFile) (mcp.ServerConfig, bool) {
 	default:
 		return sc, false
 	}
+	// 裸 401 时由宿主探测 OAuth 发现文档（自动识别兜底，http/sse）
+	if auth != nil && (s.Type == "http" || s.Type == "sse") {
+		sc.DiscoverOAuth = func(c context.Context) (string, bool) { return auth.DiscoverOAuth(c, s) }
+	}
 	return sc, true
+}
+
+/*
+oauthOpts 为 http/sse 且需要 OAuth 的 server 组出工厂选项（stdio 不适用）。
+判定：mcp.json 显式启用，或管理器已自动检测出需要 OAuth（无需用户配置）。
+*/
+func oauthOpts(ctx context.Context, s McpServerFile, auth *McpAuthManager) []mcp.Option {
+	if auth == nil || (s.Type != "http" && s.Type != "sse") {
+		return nil
+	}
+	explicit := s.OAuth != nil && s.OAuth.Enabled
+	if !explicit && !auth.NeedsOAuth(s.Name) {
+		return nil
+	}
+	return []mcp.Option{mcp.WithOAuth(*auth.oauthConfig(ctx, s))}
 }

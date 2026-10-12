@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { store, type Attachment, type FileRef } from '../lib/store.svelte'
   import { fileBaseName, isImagePath } from '../lib/textfile'
+  import type { ReasoningEffort } from '../lib/api'
 
   let {
     attachments = [],
@@ -131,6 +132,75 @@
     t.style.height = 'auto'
     t.style.height = Math.min(t.scrollHeight, 200) + 'px'
   }
+
+  /* ── 输入框工具条：模型切换（下一次输入生效）+ 审批三档，均为下拉 ── */
+  let modelOpen = $state(false)
+  let approveOpen = $state(false)
+  let reasonOpen = $state(false)
+  /* 思考档位（默认/关闭 + Claude Code / Codex 五档；强度档下游归一为 low/high/max） */
+  const REASON_MODES = [
+    { v: '', label: '思考·默认', title: '不控制思考参数，用服务端默认行为' },
+    { v: 'none', label: '思考·无（关闭）', title: '关闭思考（快问快答；不支持的服务端自动忽略）' },
+    { v: 'low', label: '思考·low', title: '低强度（归一 low）' },
+    { v: 'medium', label: '思考·medium', title: '中强度（归一 high）' },
+    { v: 'high', label: '思考·high', title: '高强度（归一 high）' },
+    { v: 'xhigh', label: '思考·xhigh', title: '很高（归一 high）' },
+    { v: 'max', label: '思考·max', title: '最大（归一 max）' },
+  ] as const
+  const APPROVE_MODES = [
+    { v: '', label: '跟随安全配置', title: '按安全页的工具规则决定是否审批' },
+    { v: 'off', label: '无审批', title: '本会话全部工具直接放行（谨慎）' },
+    { v: 'strict', label: '严格审批', title: '本会话每次工具调用都需批准' },
+  ] as const
+  const approveLabel = $derived(APPROVE_MODES.find((m) => m.v === store.approveMode)?.label ?? '跟随安全配置')
+  const reasonEffort = $derived((store.settings?.reasoningEffort ?? '') as ReasoningEffort)
+  const reasonLabel = $derived(REASON_MODES.find((m) => m.v === reasonEffort)?.label ?? '思考·默认')
+
+  function toggleModelMenu() {
+    approveOpen = false
+    reasonOpen = false
+    modelOpen = !modelOpen
+    if (modelOpen) void store.ensureModels()
+  }
+
+  function pickModel(name: string) {
+    modelOpen = false
+    void store.activateModel(name)
+  }
+
+  function toggleReasonMenu() {
+    modelOpen = false
+    approveOpen = false
+    reasonOpen = !reasonOpen
+  }
+
+  function pickReason(v: ReasoningEffort) {
+    reasonOpen = false
+    void store.setReasoningEffort(v)
+  }
+
+  function toggleApproveMenu() {
+    modelOpen = false
+    reasonOpen = false
+    approveOpen = !approveOpen
+  }
+
+  function pickApprove(mode: '' | 'off' | 'strict') {
+    approveOpen = false
+    void store.setApproveMode(mode)
+  }
+
+  /* 点击外部收起两个菜单 */
+  function onGlobalDown(e: MouseEvent) {
+    const t = e.target as HTMLElement
+    if (modelOpen && !t.closest('.model-pick')) modelOpen = false
+    if (approveOpen && !t.closest('.approve-pick')) approveOpen = false
+    if (reasonOpen && !t.closest('.reason-pick')) reasonOpen = false
+  }
+  onMount(() => {
+    document.addEventListener('mousedown', onGlobalDown)
+    return () => document.removeEventListener('mousedown', onGlobalDown)
+  })
 </script>
 
 <div class="bar" class:focused>
@@ -231,6 +301,70 @@
         </svg>
       </button>
     {/if}
+  </div>
+  <div class="tools">
+    <div class="reason-pick">
+      <button class="model-btn" onclick={toggleReasonMenu} disabled={!store.activeId}
+        title="思考强度（全局，即改即生效）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18h6M10 22h4" />
+          <path d="M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z" />
+        </svg>
+        <span class="model-name">{reasonLabel}</span>
+      </button>
+      {#if reasonOpen}
+        <div class="model-menu">
+          {#each REASON_MODES as m (m.v || 'default')}
+            <button class="model-item" class:on={reasonEffort === m.v} onclick={() => pickReason(m.v)} title={m.title}>
+              <span class="model-name">{m.label}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="approve-pick">
+      <button class="model-btn" onclick={toggleApproveMenu} disabled={!store.activeId}
+        title="本会话的工具审批档位（实时生效）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+        </svg>
+        <span class="model-name">{approveLabel}</span>
+      </button>
+      {#if approveOpen}
+        <div class="model-menu">
+          {#each APPROVE_MODES as m (m.v || 'follow')}
+            <button class="model-item" class:on={store.approveMode === m.v} onclick={() => pickApprove(m.v)} title={m.title}>
+              <span class="model-name">{m.label}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="model-pick">
+      <button class="model-btn" onclick={toggleModelMenu} disabled={!store.activeId}
+        title="切换主模型（下一次输入生效）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="7" width="10" height="10" rx="2" />
+          <path d="M3 9v6M21 9v6" />
+        </svg>
+        <span class="model-name">{store.status?.model || '未配置'}</span>
+        {#if store.status?.modelVision}<i class="vis" title="支持视觉输入">👁</i>{/if}
+      </button>
+      {#if modelOpen}
+        <div class="model-menu">
+          {#if !store.mainModels.length}
+            <p class="model-empty">main 槽暂无模型（设置 · 模型添加）</p>
+          {:else}
+            {#each store.mainModels as m (m.name)}
+              <button class="model-item" class:on={m.name === store.status?.model} onclick={() => pickModel(m.name)}>
+                <span class="model-name">{m.name}</span>
+                {#if m.vision}<i class="vis" title="支持视觉输入">👁</i>{:else}<i class="vis off" title="不支持视觉输入">👁</i>{/if}
+              </button>
+            {/each}
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
   <p class="meta">Enter 发送 · Shift+Enter 换行</p>
 </div>
@@ -542,6 +676,111 @@
   .stop:hover {
     background: var(--bg-invert);
     color: var(--fg-invert);
+  }
+  /* ── 输入框下工具条：审批档 + 模型切换（均为下拉，右对齐并排） ── */
+  .tools {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 6px 6px 0;
+  }
+  .approve-pick,
+  .reason-pick,
+  .model-pick {
+    position: relative;
+  }
+  .model-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--glass);
+    color: var(--muted);
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    padding: 4px 9px;
+    max-width: 280px;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .model-btn:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .model-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .model-btn svg {
+    width: 12px;
+    height: 12px;
+    flex: none;
+  }
+  .model-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vis {
+    font-style: normal;
+    font-size: 10px;
+    flex: none;
+  }
+  .vis.off {
+    opacity: 0.3;
+  }
+  /* 菜单向上弹（输入条贴底） */
+  .model-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    min-width: 220px;
+    max-width: 340px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    box-shadow: 0 10px 32px rgb(0 0 0 / 16%);
+    padding: 5px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .model-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    text-align: left;
+    padding: 7px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .model-item:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .model-item.on {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .model-item .model-name {
+    flex: 1;
+  }
+  .model-empty {
+    font-size: 10.5px;
+    color: var(--faint);
+    margin: 0;
+    padding: 8px 9px;
   }
   .meta {
     position: absolute;

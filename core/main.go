@@ -113,13 +113,17 @@ func (a *app) buildRouter() *gin.Engine {
 
 	// 系统级 MCP router(全局唯一):agent 的 mcp hook 与页面/API 调用共用
 	// 同一连接池,跨代复用;换代可能切数据目录,按当代 mcp.json 重载列表
-	if a.mcpRouter == nil {
-		a.mcpRouter = service.NewMcpRouter(context.Background(), hub.Fsys)
-	} else {
-		service.SyncMcpServers(context.Background(), a.mcpRouter, hub.Fsys)
+	if a.mcpAuth == nil {
+		a.mcpAuth = service.NewMcpAuthManager(hub.Fsys)
 	}
+	if a.mcpRouter == nil {
+		a.mcpRouter = service.NewMcpRouter(context.Background(), hub.Fsys, a.mcpAuth)
+	} else {
+		service.SyncMcpServers(context.Background(), a.mcpRouter, hub.Fsys, a.mcpAuth)
+	}
+	a.mcpAuth.SetRouter(a.mcpRouter)
 
-	agents := &service.AgentService{Hub: hub, Term: termSvc, Browser: a.browser, McpRouter: a.mcpRouter}
+	agents := &service.AgentService{Hub: hub, Term: termSvc, Browser: a.browser, McpRouter: a.mcpRouter, McpAuth: a.mcpAuth}
 	agents.Assemble(hub.ActiveSession(), hub.SettingsSnapshot())
 
 	appSvc := &service.AppService{
@@ -135,7 +139,7 @@ func (a *app) buildRouter() *gin.Engine {
 			Memory:   &service.MemoryService{Hub: hub},
 		},
 		Topics:    &controller.TopicController{Svc: &service.TopicService{Hub: hub, Agents: agents}},
-		Mcp:       &controller.McpController{Svc: service.NewMcpService(hub.Fsys, a.mcpRouter)},
+		Mcp:       &controller.McpController{Svc: service.NewMcpService(hub.Fsys, a.mcpRouter, a.mcpAuth)},
 		Apps:      &controller.AppsController{Svc: &service.AppsService{Fsys: hub.Fsys, Term: termSvc, Hub: hub}},
 		App:       &controller.AppController{Svc: appSvc},
 		Terminal:  &controller.TerminalController{Svc: termSvc},

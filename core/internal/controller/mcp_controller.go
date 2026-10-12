@@ -3,6 +3,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,11 @@ func (c *McpController) Connect(g *gin.Context) {
 	}
 	tools, err := c.Svc.Connect(g.Request.Context(), req.Name)
 	if err != nil {
+		var ar *service.McpAuthRequiredError
+		if errors.As(err, &ar) {
+			c.authRequired(g, ar.Server, ar.MetadataURL)
+			return
+		}
 		g.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
@@ -77,8 +83,112 @@ func (c *McpController) Call(g *gin.Context) {
 	}
 	result, err := c.Svc.Call(g.Request.Context(), req.Server, req.Tool, req.Args)
 	if err != nil {
+		var ar *service.McpAuthRequiredError
+		if errors.As(err, &ar) {
+			c.authRequired(g, ar.Server, ar.MetadataURL)
+			return
+		}
 		g.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 	g.JSON(http.StatusOK, gin.H{"result": result})
+}
+
+/*
+authRequired 回 HTTP 401 + needs_auth 契约（快应用/脚本据此引导 OAuth）：
+{error, needs_auth, server, auth_url, metadata_url}。auth_url 现取（幂等），
+失败则留空供调用方自取；metadata_url 是 RFC9728 发现文档地址（可空）。
+*/
+func (c *McpController) authRequired(g *gin.Context, server, metadataURL string) {
+	url := ""
+	if c.Svc.Auth != nil {
+		if u, err := c.Svc.Auth.Start(g.Request.Context(), server, metadataURL); err == nil {
+			url = u
+		}
+	}
+	g.JSON(http.StatusUnauthorized, gin.H{
+		"error":        "需要 OAuth 认证",
+		"needs_auth":   true,
+		"server":       server,
+		"auth_url":     url,
+		"metadata_url": metadataURL,
+	})
+}
+
+/* OAuthStart POST /api/mcp/oauth/start：返回授权 URL（前端用系统浏览器打开）。 */
+func (c *McpController) OAuthStart(g *gin.Context) {
+	var req struct {
+		Name        string `json:"name"`
+		MetadataURL string `json:"metadata_url"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	if c.Svc.Auth == nil {
+		g.JSON(http.StatusBadGateway, gin.H{"error": "oauth unavailable"})
+		return
+	}
+	url, err := c.Svc.Auth.Start(g.Request.Context(), req.Name, req.MetadataURL)
+	if err != nil {
+		g.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"url": url})
+}
+
+/* OAuthProbe POST /api/mcp/oauth/probe：探测该 server 是否需要 OAuth（新建后亮徽标）。 */
+func (c *McpController) OAuthProbe(g *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"oauth": c.Svc.ProbeOAuth(g.Request.Context(), req.Name)})
+}
+
+/* OAuthStatus GET /api/mcp/oauth/status?name=：授权状态（前端轮询）。 */
+func (c *McpController) OAuthStatus(g *gin.Context) {
+	name := g.Query("name")
+	if name == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	authorized, pending := false, false
+	if c.Svc.Auth != nil {
+		authorized, pending = c.Svc.Auth.Status(g.Request.Context(), name)
+	}
+	g.JSON(http.StatusOK, gin.H{"authorized": authorized, "pending": pending})
+}
+
+/* OAuthCancel POST /api/mcp/oauth/cancel：取消待完成的授权流程。 */
+func (c *McpController) OAuthCancel(g *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	if c.Svc.Auth != nil {
+		c.Svc.Auth.Cancel(req.Name)
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+/* OAuthLogout POST /api/mcp/oauth/logout：删除令牌并断开该 server。 */
+func (c *McpController) OAuthLogout(g *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	if c.Svc.Auth != nil {
+		c.Svc.Auth.Logout(g.Request.Context(), req.Name)
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true})
 }

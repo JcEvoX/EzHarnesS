@@ -34,6 +34,7 @@ type app struct {
 	term      *service.TerminalService // 当前代共享终端（换代重建；收尾杀全部 shell）
 	browser   *service.BrowserService  // 共享浏览器桥（端无关，跨代复用；真实浏览器在 desktop 壳）
 	mcpRouter *mcp.Router              // 系统级 MCP router（全局唯一：agent hook 与页面/API 共用连接池，跨代复用）
+	mcpAuth   *service.McpAuthManager  // MCP OAuth 认证管理器（全局单例：令牌落盘 + loopback 回调，跨代复用）
 	boot      atomic.Int64             // 服务代际（换代重启递增，跨代共享）
 }
 
@@ -122,10 +123,15 @@ func (a *app) stop() {
 	a.shutdownGeneration()
 	a.mu.Lock()
 	r := a.mcpRouter
+	m := a.mcpAuth
 	a.mcpRouter = nil
+	a.mcpAuth = nil
 	a.mu.Unlock()
 	if r != nil {
 		_ = r.Close()
+	}
+	if m != nil {
+		m.Close()
 	}
 }
 

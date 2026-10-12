@@ -16,10 +16,12 @@ import (
 	"strings"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
+	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/core/internal/builtinskill"
 	"ezharness/core/internal/domain"
 	"ezharness/core/internal/hooks"
+	"ezharness/core/internal/tools"
 	"ezharness/core/internal/warp/modeldump"
 )
 
@@ -37,12 +39,13 @@ TrimPercent/WorkDir/CloseToTray/MaxIterations 用指针：区分"未提交该
 常驻 / 0=迭代次数回默认 12）。
 */
 type SettingsView struct {
-	SystemExtra   string  `json:"systemExtra"`
-	TrimPercent   *int    `json:"compactPercent,omitempty"`
-	WorkDir       *string `json:"workDir,omitempty"`
-	CloseToTray   *bool   `json:"closeToTray,omitempty"`
-	MaxIterations *int    `json:"maxIterations,omitempty"`
-	DebugMode     *bool   `json:"debugMode,omitempty"`
+	SystemExtra     string  `json:"systemExtra"`
+	TrimPercent     *int    `json:"compactPercent,omitempty"`
+	WorkDir         *string `json:"workDir,omitempty"`
+	CloseToTray     *bool   `json:"closeToTray,omitempty"`
+	MaxIterations   *int    `json:"maxIterations,omitempty"`
+	DebugMode       *bool   `json:"debugMode,omitempty"`
+	ReasoningEffort *string `json:"reasoningEffort,omitempty"` // 思考档位（''=默认 | none | low | high | max）
 }
 
 /* Get 返回当前行为设置。 */
@@ -51,7 +54,8 @@ func (s *SettingsService) Get() SettingsView {
 	p := st.TrimPercent
 	w := st.WorkDir
 	return SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w,
-		CloseToTray: &st.CloseToTray, DebugMode: &st.DebugMode}
+		CloseToTray: &st.CloseToTray, DebugMode: &st.DebugMode, ReasoningEffort: &st.ReasoningEffort,
+		MaxIterations: &st.MaxIterations} // 回读必须带——漏了它前端回落默认 64，表现为"切页后被重置"
 }
 
 /* Update 保存行为设置并重建 agent（busy 时拒绝；水位随 Reassemble 生效）。 */
@@ -79,6 +83,12 @@ func (s *SettingsService) Update(ctx context.Context, v SettingsView) error {
 		}
 		st.MaxIterations = *v.MaxIterations
 	}
+	if v.ReasoningEffort != nil {
+		if !validReasoningEffort(*v.ReasoningEffort) {
+			return errors.New("思考档位取值非法（空/none/low/medium/high/xhigh/max）")
+		}
+		st.ReasoningEffort = *v.ReasoningEffort
+	}
 	if st.WorkDir != "" {
 		if abs, err := filepath.Abs(st.WorkDir); err == nil {
 			if err := os.MkdirAll(abs, 0o755); err != nil {
@@ -92,6 +102,63 @@ func (s *SettingsService) Update(ctx context.Context, v SettingsView) error {
 	s.Hub.ApplySettings(st)
 	modeldump.SetEnabled(st.DebugMode) // 调试模式即改即生效，不必等 Reassemble
 	return s.Agents.Reassemble(st)
+}
+
+/*
+ModelCall 是 HTTP /api/model/call 的用例（快应用/脚本直调大模型，与 mcp call
+同级的系统内置能力）：model 空 = 主模型；images 路径按目标模型视觉能力附带。
+*/
+func (s *SettingsService) ModelCall(ctx context.Context, model, prompt string, images []string) (string, error) {
+	if strings.TrimSpace(prompt) == "" {
+		return "", errors.New("prompt required")
+	}
+	m := s.Hub.ModelsSnapshot()
+	entry := m.ActiveMain()
+	if model != "" {
+		if e := findModelEntry(m, model); e != nil {
+			entry = e
+		} else {
+			return "", fmt.Errorf("unknown model %q", model)
+		}
+	}
+	if entry == nil || entry.Name == "" {
+		return "", errors.New("no model configured")
+	}
+	msg := types.Message{Role: types.RoleUser, Content: prompt}
+	if len(images) > 0 {
+		if !entry.Vision {
+			return "", fmt.Errorf("模型 %s 不支持视觉输入（images 被拒绝）", entry.Name)
+		}
+		parts, err := tools.LoadImages(ctx, s.Hub.Fsys, images)
+		if err != nil {
+			return "", err
+		}
+		msg.Images = parts
+	}
+	return OneShotInvoke(ctx, *entry, types.ModelRequest{Messages: []types.Message{msg}})
+}
+
+/* validReasoningEffort 校验思考档位：Claude Code / Codex 分档 + none + 空（请求侧再归一为 low/high/max）。 */
+func validReasoningEffort(e string) bool {
+	switch e {
+	case "", "none", "low", "medium", "high", "xhigh", "max":
+		return true
+	}
+	return false
+}
+
+/* SetReasoningEffort 设置思考档位并落盘（请求侧闭包实时读取，即改即生效，无需重建 agent）。 */
+func (s *SettingsService) SetReasoningEffort(ctx context.Context, effort string) error {
+	if !validReasoningEffort(effort) {
+		return errors.New("思考档位取值非法（空/none/low/medium/high/xhigh/max）")
+	}
+	st := s.Hub.SettingsSnapshot()
+	st.ReasoningEffort = effort
+	if err := SaveSettings(ctx, s.Hub.Fsys, st); err != nil {
+		return err
+	}
+	s.Hub.ApplySettings(st)
+	return nil
 }
 
 /* GetModels 返回模型三槽（空槽归一为 [] 而非 null）。 */
@@ -271,6 +338,10 @@ func (m *MemoryService) Config(ctx context.Context) MemoryConfigView {
 	if entries, err := skill.LoadDir(ctx, m.Hub.Fsys, hooks.SkillsDir); err == nil {
 		for _, s := range entries {
 			id := hooks.SkillDirOf(s.Path)
+			// 与内建技能同名的用户技能让位（内建优先）：id 是前端 keyed each 的 key，撞名崩整页
+			if slices.ContainsFunc(v.Skills.Items, func(it SkillEntryView) bool { return it.ID == id }) {
+				continue
+			}
 			v.Skills.Items = append(v.Skills.Items, SkillEntryView{
 				ID:      id,
 				Name:    s.Name,
@@ -521,4 +592,38 @@ func frontmatterName(body string) string {
 		}
 	}
 	return ""
+}
+
+/*
+ActivateMainModel 把 main 槽切换到指定模型（唯一启用该条目）并重建
+agent（busy 时拒绝，运行中的分支保留旧装配到轮结束）。输入框模型
+切换器用：下一次输入即走新模型。
+*/
+func (s *SettingsService) ActivateMainModel(ctx context.Context, name string) (domain.ModelEntry, error) {
+	m := LoadModelsConfig(ctx, s.Hub.Fsys)
+	found := false
+	for i := range m.Main {
+		m.Main[i].Enabled = m.Main[i].Name == name
+		if m.Main[i].Enabled {
+			found = true
+		}
+	}
+	if !found {
+		return domain.ModelEntry{}, fmt.Errorf("main 槽没有名为 %s 的模型", name)
+	}
+	if err := SaveModelsConfig(ctx, s.Hub.Fsys, normalizeModels(m)); err != nil {
+		return domain.ModelEntry{}, err
+	}
+	s.Hub.ApplyModels(m)
+	if err := s.Agents.Reassemble(s.Hub.SettingsSnapshot()); err != nil {
+		return domain.ModelEntry{}, err
+	}
+	out := domain.ModelEntry{}
+	for _, e := range m.Main {
+		if e.Enabled {
+			out = e
+			break
+		}
+	}
+	return out, nil
 }

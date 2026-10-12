@@ -31,6 +31,7 @@ description: 构建/更新快应用——判断纯前端还是需要后端，app
 **先判断形态，别一上来就写后端：**
 
 1. **能用 MCP 就用 MCP**：本机已配的 MCP 服务可经页面同源直调（`POST /api/mcp/call`，见 `<mcp>` 段），不必起后端。
+   用到大模型能力（总结/翻译/识别/生成）时用 `POST /api/model/call`（见下「大模型直调」），也不必起后端。
 2. **纯前端**：`save_app`（name/title/html）一次写全 `app.quick` + `index.html`。
 3. **需要后端**：`save_app` 带 `backend` 建骨架，再用 `write_file` 把后端脚本等文件写进同一目录（save_app 只写声明与前端，它引用的脚本要先写好）。
 
@@ -57,6 +58,45 @@ description: 构建/更新快应用——判断纯前端还是需要后端，app
 - 前端由 core **同源**伺服（`/apps/<名>/`），所以 `fetch('/api/mcp/call')` 等 core 接口直接可用。
 - 后端在另一个端口 = **跨源**：页面直接 fetch 后端时，后端必须返回 CORS 头（`Access-Control-Allow-Origin: *`），否则浏览器拦掉。
 - **没有就绪握手**：点启动会立刻开窗，后端可能还没监听——页面首次请求自带重试（如 3 次 × 300ms），不要假设一开就有响应。
+
+## 调 MCP（统一组件，别自己写 fetch）
+
+快应用调 MCP 一律走组件——普通 server 直接返回结果；需 OAuth 的自动弹框、开浏览器、授权后重试，**不要自己写 fetch + 弹框 + 轮询**：
+
+```html
+<script src="/ez-mcp-auth.js"></script>
+<script>
+  // 需要授权时组件会自动在页面最外层居中弹出授权框（自带样式、隔离在 Shadow DOM），
+  // 用户点「去授权」→ 系统浏览器打开 → 授权完成后自动重试并返回结果。
+  const data = await ezMcp.call('notion', 'search', { q: 'hello' })
+</script>
+```
+
+- `ezMcp.call(server, tool, args?)` → Promise，resolve 为工具结果（已层层 `JSON.parse` 解包）；失败/取消/超时以 `Error` reject（`message` 是原因）。
+- `ezMcp.authorize(server)` → Promise：只发起授权、不调用工具（做「先授权再用」的入口）。
+- 组件是**单文件零依赖、Shadow DOM 自带样式**，弹框 `position:fixed` 盖在最外层、不参与页面布局，页面的 CSS 不会污染它、它也不污染页面。
+- 同一个 server 的并发调用共用一次授权；用户在应用外（会话弹框 / MCP 设置页 / 通知栏）授权同样有效（令牌全局共享）。
+
+**底层契约（组件已封装，仅当你要自己实现时才需要知道）**：`POST /api/mcp/call` 遇未授权返回 **HTTP 401 + `{"needs_auth":true,"server":"…","auth_url":"…"}`**；`auth_url` 可能为空，则调 `POST /api/mcp/oauth/start {"name":"<server>"}` 现取；轮询 `GET /api/mcp/oauth/status?name=<server>` 返回 `{"authorized":bool,"pending":bool}`；取消用 `POST /api/mcp/oauth/cancel {"name":"<server>"}`。**授权必须由用户本人在浏览器完成，页面/后端都不要替用户跑授权流程。**
+
+## 大模型直调（model call）
+
+前端/后端都可以同源直调大模型，**无需任何密钥**（密钥由 core 持有）：
+
+```js
+const r = await fetch('/api/model/call', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ prompt: '把下面这段翻译成英文：…' })
+})
+const { result } = await r.json()   // result 是模型返回的文本
+```
+
+- body：`{prompt: string, model?: string, images?: string[]}`。`model` 省略 = 当前主模型；填模型名（system `<models>` 段清单里的条目）可选更合适的模型。
+- `images` 是**本机图片绝对路径**列表（最多 4 张）——识别/描述图片时用，但目标模型必须支持视觉（模型页可见「支持视觉」标记），否则返回报错。
+- 返回：`200 {"result": "模型输出文本"}`；失败非 2xx 且 `{"error":"原因"}`。
+- 单次调用最长 5 分钟，失败直接报错，不重试。
+- 用途：翻译、总结、分类、图片识别（把用户选的图片路径传进去）、内容生成等"一次问答"——需要多步推理或工具的活走 MCP/后端，别硬塞进一次 prompt。
 
 ## 重启与边界
 

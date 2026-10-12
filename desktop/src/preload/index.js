@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('ez', {
     openMain: () => ipcRenderer.send('ez:pet-open-main'),
     onMove: (cb) => ipcRenderer.on('ez:pet-move', (_e, x, y) => cb(x, y)),
     passthrough: (on) => ipcRenderer.send('ez:pet-passthrough', !!on),
+    drag: (on) => ipcRenderer.send('ez:pet-drag', !!on),
+    dragMove: (x, y) => ipcRenderer.send('ez:pet-dragmove', x, y),
   },
   /* 通知：铃铛球开独立通知窗（open）；通知窗点条目 → 主进程亮主窗并把
      跳转载荷（{rootId,forkId,id,target}）转给主窗渲染层（jump / onJump） */

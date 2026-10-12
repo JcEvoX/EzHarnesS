@@ -29,6 +29,7 @@ let petWindow = null
 let noticeWindow = null
 const PET_SIZE = 288
 let petHoverTimer = null
+let petDrag = null // { dx, dy }：拖拽中光标与窗口左上角的偏移（JS 拖拽替代 app-region）
 /* API 令牌：每次启动随机生成，env 注入 core、URL query 带入页面。 */
 const coreToken = crypto.randomBytes(18).toString('hex')
 let findBrowserPopout = () => null // registerIpc 注入：当前浏览器页的独立窗口（无则 null）
@@ -234,6 +235,7 @@ function createPetWindow() {
   })
   win.loadURL(pageUrl('/?desktop=1&pet=1'))
   guardWebContents(win.webContents)
+  attachInspectMenu(win.webContents) // 右键=检查元素/开发者工具（与主窗一致，不另造菜单）
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
     petWindow = null
@@ -385,11 +387,34 @@ function registerIpc() {
     petHoverTimer = setInterval(() => {
       const win = petWindow
       if (!win || win.isDestroyed()) return
-      const b = win.getBounds()
       const pt = screen.getCursorScreenPoint()
+      // 拖拽中：移窗改由 ez:pet-dragmove 事件驱动（指针频率，平滑）；
+      // 也不再推 pet-move（穿透已关，渲染层收得到真实鼠标事件，省 IPC）
+      if (petDrag) return
+      const b = win.getBounds()
       win.webContents.send('ez:pet-move', pt.x - b.x, pt.y - b.y)
     }, 60)
   }
+  /* 宠物拖拽移动：渲染层 pointermove 上报屏幕坐标（指针采样频率），
+     主进程即时 setPosition——比轮询移窗平滑得多 */
+  ipcMain.on('ez:pet-dragmove', (_e, x, y) => {
+    const win = petWindow
+    if (!win || win.isDestroyed() || !petDrag) return
+    win.setPosition(Math.round(x - petDrag.dx), Math.round(y - petDrag.dy))
+  })
+  /* 宠物 JS 拖拽：按下记光标与窗口左上角偏移
+     （不用 app-region:drag——那会把右键变成系统窗口菜单） */
+  ipcMain.on('ez:pet-drag', (_e, on) => {
+    const win = petWindow
+    if (!win || win.isDestroyed()) return
+    if (!on) {
+      petDrag = null
+      return
+    }
+    const b = win.getBounds()
+    const pt = screen.getCursorScreenPoint()
+    petDrag = { dx: pt.x - b.x, dy: pt.y - b.y }
+  })
   /* 宠物鼠标穿透：默认整窗穿透（透明区点击归下层应用，forward 保留
      mousemove 转发），光标悬浮进圈后渲染层关穿透换实体可交互 */
   ipcMain.on('ez:pet-passthrough', (_e, on) => {

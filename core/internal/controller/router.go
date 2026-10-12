@@ -58,12 +58,16 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/sessions/:id/notifications/dismiss", c.Chat.DismissNotification)
 		api.POST("/sessions/:id/messages", c.Chat.SendMessage)
 		api.POST("/sessions/:id/cancel", c.Chat.CancelTurn)
+		api.POST("/sessions/:id/approve-mode", c.Session.SetApproveMode) // 三档审批（实时生效）
 		api.POST("/sessions/:id/fork", c.Topics.ForkBranch) // :id=源会话，body{anchor}复制前缀开新线
 
 		api.GET("/settings", c.Settings.GetSettings)
 		api.POST("/settings", c.Settings.UpdateSettings)
+		api.POST("/settings/reasoning", c.Settings.SetReasoning) // 思考档位（输入框下拉，即改即生效）
+		api.POST("/model/call", c.Settings.CallModel)            // 直调大模型（快应用/脚本；与 /mcp/call 同级）
 		api.GET("/models", c.Settings.GetModels)
 		api.POST("/models", c.Settings.UpdateModels)
+		api.POST("/models/activate", c.Settings.ActivateModel) // 主模型切换（输入框选择器；下一次输入生效）
 		api.GET("/security", c.Settings.GetSecurity)
 		api.POST("/security", c.Settings.UpdateSecurity)
 		api.GET("/memory", c.Settings.GetMemory)
@@ -90,6 +94,13 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/mcp/disconnect", c.Mcp.Disconnect)
 		api.POST("/mcp/call", c.Mcp.Call)
 
+		/* MCP OAuth 认证：前端取授权 URL 用系统浏览器打开，轮询状态 */
+		api.POST("/mcp/oauth/start", c.Mcp.OAuthStart)
+		api.POST("/mcp/oauth/probe", c.Mcp.OAuthProbe)
+		api.GET("/mcp/oauth/status", c.Mcp.OAuthStatus)
+		api.POST("/mcp/oauth/cancel", c.Mcp.OAuthCancel)
+		api.POST("/mcp/oauth/logout", c.Mcp.OAuthLogout)
+
 		api.GET("/apps", c.Apps.List)
 		api.POST("/apps/open", c.Apps.Open)     // 名单校验+返回路径标题；开窗由 desktop 壳/web 端执行
 		api.POST("/apps/:name/pin", c.Apps.Pin) // 钉到桌面小助手/取消
@@ -111,6 +122,7 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 
 		api.POST("/sessions/:id/decisions/approve", c.Chat.DecideApprove)
 		api.POST("/sessions/:id/decisions/answer", c.Chat.DecideAnswer)
+		api.POST("/sessions/:id/decisions/mcp-auth", c.Chat.DecideMcpAuth)
 	}
 
 	if dist != nil {

@@ -29,6 +29,7 @@
 
   type PetApp = { name: string; title: string; icon?: string; pinned?: boolean }
 
+  let dragging = false // 拖拽中：跳过 hover 判定（穿透已关，别被轮询扰动）
   let running = $state(false)
   let pending = $state(0)
   let done = $state(false)
@@ -45,6 +46,7 @@
        与球/应用栏之间的缝隙里也不塌；穿透只看 elementFromPoint，与迟滞
        无关，所以压在透明处（如桌面图标）永远漏点。 */
     ez?.pet?.onMove?.((x: number, y: number) => {
+      if (dragging) return
       const dist = Math.hypot(x - C, y - C)
       const inWin = x >= 0 && y >= 0 && x <= C * 2 && y <= C * 2
       const el = document.elementFromPoint(x, y)
@@ -62,7 +64,7 @@
         ])
         running = (topics as { running?: boolean }[]).some((t) => t.running)
         const items = (notices as { items?: { kind?: string }[] }[]).flatMap((g) => g.items ?? [])
-        pending = items.filter((it) => it.kind === 'approve' || it.kind === 'ask').length
+        pending = items.filter((it) => it.kind === 'approve' || it.kind === 'ask' || it.kind === 'mcp_auth').length
         done = items.some((it) => it.kind === 'info')
         apps = ((list as { apps?: PetApp[] }).apps ?? [])
       } catch {
@@ -131,6 +133,34 @@
   <div class="stage">
     <div class="avatar-wrap" class:dim={!hovered}>
       <EzAvatar size={72} run={running} />
+      <button class="drag-handle"
+        onpointerdown={(e) => {
+          if (e.button !== 0) return
+          /* 捕获指针：拖动中窗口随光标移动、指针可能越出窗口，若不捕获
+             pointerup 收不到，拖拽停不下来 */
+          ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+          dragging = true
+          ez?.pet?.drag?.(true)
+        }}
+        onpointermove={(e) => {
+          // 指针事件驱动移窗（屏幕坐标，主进程按按下点偏移换算）——比轮询平滑
+          if (dragging) ez?.pet?.dragMove?.(e.screenX, e.screenY)
+        }}
+        onpointerup={() => {
+          dragging = false
+          ez?.pet?.drag?.(false)
+        }}
+        onpointercancel={() => {
+          dragging = false
+          ez?.pet?.drag?.(false)
+        }}
+        oncontextmenu={(e) => e.preventDefault()}
+        aria-label="拖动小助手"></button>
+      {#if pending > 0}
+        <i class="ndot avatar-dot red"></i>
+      {:else if done}
+        <i class="ndot avatar-dot green"></i>
+      {/if}
     </div>
 
     {#each ring as s (s.kind === 'app' && s.a ? 'a' + s.a.name : s.kind)}
@@ -237,13 +267,35 @@
     height: 72px;
     opacity: 0.92;
     transition: opacity 220ms var(--ease-out);
-    app-region: drag; /* 唯一的拖拽把手 */
+    /* 不用 app-region:drag——Windows 会把 drag 区当标题栏、右键弹系统菜单，
+       拦不住也换不掉；改由 JS 上报拖拽（pointerdown→主进程随光标移窗），
+       右键于是能走正常 context-menu 弹「检查元素/开发者工具」 */
   }
   .avatar-wrap.dim {
     opacity: 0.86;
   }
   .avatar-wrap :global(img) {
     pointer-events: none;
+  }
+  /* 拖拽把手：盖住头像的透明层，只承左键拖动；右键穿透到页面走检查菜单 */
+  .drag-handle {
+    position: absolute;
+    inset: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+    cursor: grab;
+  }
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+  /* 头像右上角常显通知点（不悬浮也可见；与铃铛球同款配色） */
+  .avatar-dot {
+    top: -2px;
+    right: -2px;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg);
   }
 
   /* 铃铛球：与客户端收起态铃铛同款图标，待处理红点 / 完成绿点浮在球上 */
