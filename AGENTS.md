@@ -33,7 +33,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/embed.go` | `go:embed web/dist` + `distFS()` |
 | `core/internal/config/cfg.go` `logfile.go` | 应用根、端口、数据目录、chdir / 日志落盘：`logs/core-YYYYMMDD.log` 按天滚动保留 7 天，stderr 双写（dev 终端可见；打包版 GUI 无控制台，文件是唯一出口）。`OpenLogWriter` 在 main 接管 log/gin/modeldump 输出，换代 `FollowDataDir` 跟随数据目录 |
 | `core/internal/controller/router.go` | 全部路由表 + SPA 静态兜底（`/api` 之外回退 index.html） |
-| `core/internal/controller/*.go` | 表现层，只绑定/校验/响应：`app` `session` `chat` `topic` `settings` `mcp` `apps` `terminal` `browser` `workspace` |
+| `core/internal/controller/*.go` | 表现层，只绑定/校验/响应：`app` `session` `chat` `topic` `settings` `mcp` `apps` `terminal` `browser` `workspace`。settings 另含 `/api/model/call`（直调大模型）与 `/api/settings/reasoning`（思考档位） |
 | `core/internal/service/agent_service.go` | **最重要的文件**：`Assemble` 装配一个 session 的 agent——hook 列表、warp 链、工具集、ToolNames、system 基础段全在这里；approve 的 needs 闭包按**会话审批三档**分派（`off` 全放行 / `strict` 全审 / 空=走 `needsApprove` 查 toolRules，实时读 `Session.ApproveMode` 即改即生效） |
 | `core/internal/service/chat_service.go` | 一轮运行的启停、SSE 推送、用量统计 |
 | `core/internal/service/session_service.go` | 历史读取、bootstrap、status/水位 |
@@ -48,7 +48,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/internal/domain/event.go` | SSE 事件类型与 `MapEvent` |
 | `core/internal/domain/settings.go` `toolrules.go` `stats.go` | 设置模型 / 工具审批规则 / 用量统计 |
 | `core/internal/hooks/` | 宿主侧 hook 与相关实现，见第二节 |
-| `core/internal/tools/` | 宿主侧工具：`tools.go`(save_app)、`term.go`(term_*)、`browser.go`(browser_*)；接口定义在 tools、实现在 service（避免 import 环） |
+| `core/internal/tools/` | 宿主侧工具：`tools.go`(save_app/sleep)、`term.go`(term_*)、`browser.go`(browser_*)、`modelcall.go`(**model_call**：把一次性子任务交给指定模型——images 路径按目标模型视觉能力附带，非视觉直接报错；OneShot 回调由 service 注入，REST /api/model/call 同源复用)；接口定义在 tools、实现在 service（避免 import 环） |
 | `core/internal/warp/` | 模型/工具装饰器，见第三节 |
 | `core/internal/osfs/osfs.go` | 无沙箱全权限 FileSystem |
 | `core/internal/builtinskill/` | 内建技能（go:embed `skills/<目录>/SKILL.md`，现 mcp-config / skill-install / quick-app）：操作手册类，教模型经文件通道自配置应用（mcp.json 热加载、技能目录写入、快应用构建）。buildSystemBase 与用户技能合并进 `<skills>` 清单（标注〔内建〕），记忆页技能卡同样合并展示（`builtin` 标记，可禁用不可删），共用 DisabledSkills 禁用名单、不占用户目录。**新增技能后 `builtinskill_test` 的钉名断言要跟着加** |
@@ -76,7 +76,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 
 | 路径 | 职责 |
 |---|---|
-| `desktop/src/main/index.js` | 主进程：spawn core + 健康轮询、无边框主窗、托盘、关闭语义（托盘/确认框）、快应用子窗、抽屉工具的弹出窗口与**拖拽脱离**（tear-off）、全部窗口类 IPC |
+| `desktop/src/main/index.js` | 主进程：spawn core + 健康轮询、无边框主窗、托盘、关闭语义（托盘/确认框）、快应用子窗、抽屉工具的弹出窗口与**拖拽脱离**（tear-off）、全部窗口类 IPC。**宠物窗也挂 `attachInspectMenu`**（右键=检查元素/开发者工具，与主窗一致；别另造宠物专属菜单） |
 | `desktop/src/main/browser/index.js` | 共享浏览器 = **WebContentsView**（每标签一个，`partition: persist:ezbrowser` 共享登录态）；抽屉页只做 UI，内容区 rect 由渲染层上报、主进程 `setBounds` 贴靠；同时是 core `/api/browser/bridge` 的 WS 客户端与执行器 |
 | `desktop/src/main/browser/devtools.js` | 开发者数据采集（CDP）：`console`/`network` 动作懒加载 attach 并 enable `Runtime`/`Log`/`Network`（**不碰 `Debugger` 域**——拖慢 V8 的是它）；console 带未捕获异常调用栈与 `Log` 的 CSP/混合内容，network 带请求/响应头、耗时、失败原因与按需取响应体（封顶）。attach 独占，用户一开 devtools（`devtools-opened`）立即让出槽位；主框架导航清空缓冲 |
 | `desktop/src/main/inspect.js` | `attachInspectMenu(wc)`：右键菜单「检查元素 / 开发者工具」。**Electron 默认没有右键菜单**，浏览器标签（WebContentsView）与快应用窗口各自在创建处调用；开发者工具一律 detach（dock 会挤压由呈现层上报的内容区 rect） |
@@ -113,7 +113,7 @@ hook 是 ezloop 引擎的横向扩展点（接口见 ezloop `hook/hook.go`：`On
 |---|---|---|
 | `sysprompt.go` `SysPrompt` | `OnStart` | system 消息唯一来源；渲染 = base + 身份块 + 摘要块 |
 | `remind.go` `Remind` | `OnStart` `OnEnd` | 轮首注入 `<agent_status>` 快照（时间/水位/距上次输出/**当前主模型**/运行中终端/浏览器标签——终端与浏览器是进程生命周期态，重启即失，不进 system 固定段，与 skill/mcp 类持久资源分界），有资源变更时另插 `<resource_change>`（含变更后 available 清单）；轮末注入 `<end_reason>`。`SetModelBrief` 注入模型摘要闭包（实时读快照，换模型 Reassemble 后重装） |
-| `reschange.go` | （`Remind` 的内部实现） | skill/MCP/主模型 基线 diff → 变更条目 + 完整清单。技能启停也算变更：基线（`ResSnapshot`，V=3）记启用/停用两份名单，切换渲染为「启用技能/停用技能 X」（与新增/移除同格式，前端零改动）；**主模型切换同通道**：基线记模型摘要（名称+视觉），轮首 diff 出「切换模型到 X（支持视觉）」；available 清单仍只列启用的。V<3 旧快照视为未建静默重建 |
+| `reschange.go` | （`Remind` 的内部实现） | skill/MCP/主模型 基线 diff → 变更条目 + 完整清单。技能启停也算变更：基线（`ResSnapshot`，V=3）记启用/停用两份名单，切换渲染为「启用技能/停用技能 X」（与新增/移除同格式，前端零改动）；**主模型切换同通道**：基线记模型摘要（名称+视觉），轮首 diff 出「切换模型到 X（支持视觉）」；**可选模型清单也进基线**（新增/移除出「新增可选模型/移除可选模型」条目 + available_model 清单行）；available 清单仍只列启用的。V<3 旧快照视为未建静默重建 |
 | `reference_file.go` `RefFileHook` | `OnStart` | 本轮有附件/文件引用时，在用户输入前插 `<reference_file>` 结构化消息 |
 | `trim.go` `Trim` | `OnStart` `OnLoop` `OnToolStart` | 注册 `trim_context` 工具；回边水位整理：就地折叠早期消息为四节结构化摘要（已完成/正在做/待办/关键事实，`normalizeStructuredSummary` 兜底）+ 重写 `sessions/<id>/progress.md` + 插 `<context_trim>` 标记（同一 session 内，连续性导向） |
 | `guard.go` `Guard` | `OnToolEnd` | 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时也卸载 |
@@ -132,7 +132,7 @@ hook 是 ezloop 引擎的横向扩展点（接口见 ezloop `hook/hook.go`：`On
 
 **一份逐条标注的完整上下文（system 十段各自的来源 + 每轮标签的生成者与插入条件）见 `docs/md/context.md`**——改文案、标签或插入位置前先对那一份。
 
-**system 段** — `agent_service.go` 的 `buildSystemBase`（约 460 行）。段序：人格（含总纲句）→ `SystemExtra`（设置页）→ `<workspace>`（三个可写位置 + 行为规则——路径只给写入目标，读取向全部规则化防诱导）→ `<memory>`（记忆树常驻：`harness.md` 入口/读写纪律 + `user.md` + `soul.md` + `project.md` 索引，`hooks.EnsureHarnessMd`；`project-<名>.md` 详情按需读）→ `<skills>`（builtinskill + `skill.LoadDir` 合并、内建同名优先；**只列启用的**（带描述），停用的另起一行只报名字——存在但 load_skill 会拒绝，模型不去调用也不会翻目录发现；启停变更轮内由 `<resource_change>` 告知）、`<model>`（主模型名/上下文窗口/视觉能力——`SysPrompt.modelFn` render 时现读快照，换模型 Reassemble 后 system 每轮自动跟上，不进落盘 base）→ `<mcp>` → `<action>`（行动准则：技能匹配/计划审批/工具选择/并行分身/交付与连续性）→ `<output>`（输出规范：`<$supper_url>` 正误示例、`<@toolArg>`、回复风格——弱模型抄示例）。
+**system 段** — `agent_service.go` 的 `buildSystemBase`（约 460 行）。段序：人格（含总纲句）→ `SystemExtra`（设置页）→ `<workspace>`（三个可写位置 + 行为规则——路径只给写入目标，读取向全部规则化防诱导）→ `<memory>`（记忆树常驻：`harness.md` 入口/读写纪律 + `user.md` + `soul.md` + `project.md` 索引，`hooks.EnsureHarnessMd`；`project-<名>.md` 详情按需读）→ `<skills>`（builtinskill + `skill.LoadDir` 合并、内建同名优先；**只列启用的**（带描述），停用的另起一行只报名字——存在但 load_skill 会拒绝，模型不去调用也不会翻目录发现；启停变更轮内由 `<resource_change>` 告知）、`<models>`（**可用模型清单**（三槽去重、标注槽位与视觉能力）——task/model_call 的 model 参数取值以此为准；与 skill/mcp 同构：清单在固定段存储，**新增/移除走 `<resource_change>`**，主模型每轮见 `<agent_status>`、切换也走 resource_change）→ `<mcp>` → `<action>`（行动准则：技能匹配/计划审批/工具选择/并行分身/交付与连续性）→ `<output>`（输出规范：`<$supper_url>` 正误示例、`<@toolArg>`、回复风格——弱模型抄示例）。
 每 session **只组装一次**：存 `Session.sysP`（`domain/session.go` 的 `SetSysP`/`SysPromptRef`）并落进 `session.json` 状态（`sessionstore.go`）；改了记忆/skill/MCP 要下个 session 才进 system，期间由 `<resource_change>` 告知模型。归档换代时热换。
 
 **历史** — `Session.history`（`domain/session.go`），追加落盘 `sessions/<id>/trace.jsonl`（`kind=message` 行，只增不改；trim 折叠是内存视图处理，盘上仅追加 marker 行）。`StartRun` 把 `modelViewLocked(history)` 交给引擎；ModelView 从**最后一个 `<context_trim>` 标记**起（折叠掉的旧档只留在存档里）。`FinishRun`：本轮有折叠 → `hooks.MergeFull(history, state)`，否则整轮替换。`Store.OnEnd` 对盘上消息做同样的合并后**只追加新增尾部**（MergeFull 输出恒等于纯尾部追加）。
@@ -193,12 +193,13 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 模型链 `core.WithModelWarp(...)`（约 161 行），工具链 `core.WithToolWarp(...)`（约 182 行）。
 
 **模型链**（先 = 外）：
-`modeldump → modelretry → noempty → visionguard → provider`
+`modeldump → reasoningeffort → modelretry → noempty → visionguard → provider`
 
 | warp | 来源 | 作用 |
 |---|---|---|
 | `modeldump` | 本仓库 `internal/warp/modeldump` | 每次模型请求的全量输入 dump（Messages + Tools，图片 base64 截断）到包级 `Out`（恒为日志 writer）。写不写由 `SetEnabled` 开关决定：设置页「调试模式」（settings.json `debugMode`，保存即生效）+ `EZ_MODEL_DUMP=1`（dev.bat，启动期强制）。放最外层，重试不会重复打印 |
-| `modelretry` | ezloop `ext/warp/model/modelretry` | 指数退避重试 |
+| `modelretry` | ezloop `ext/warp/model/modelretry` | 指数退避重试。装配参数：**10 次尝试、基数 1s、总预算 5 分钟**（并发 task 分身挤出的 429 要等得起；`TotalBudget` 按剩余预算封顶单次等待） |
+| `reasoningeffort` | 本仓库 `internal/warp/reasoningeffort` | 全局思考档位（设置 `reasoningEffort`：空/none/low/high/max）写进请求副本；闭包实时读设置，**输入框切换即改即生效**。协议映射在各 provider 请求侧（openai `reasoning_effort`、anthropic `thinking{type}`、responses `output_config.effort`；none 在 openai 协议下落到"不发字段"） |
 | `noempty` | 本仓库 `internal/warp/noempty` | 纯附件轮：user 消息 content 为空时填占位文案（否则部分 provider 报错） |
 | `visionguard` | 本仓库 `internal/warp/visionguard` | 主模型 `Vision=false` 时剥掉请求里的图片、给 `<image_loaded>` 开标签加 `omitted` 说明。**只改请求副本，落盘历史不动**（换回多模态自动恢复） |
 

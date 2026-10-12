@@ -158,6 +158,9 @@ export interface AppConfig {
   memory: { longterm: string; skills: string; topics: string }
 }
 
+/* ReasoningEffort 是思考档位（Claude Code / Codex 分档；请求侧归一为 low/high/max）。 */
+export type ReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+
 export interface Settings {
   systemExtra: string
   trimPercent?: number | null
@@ -165,6 +168,7 @@ export interface Settings {
   closeToTray?: boolean
   maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 64，上限 128）
   debugMode?: boolean // 调试模式：模型完整输入写进日志（即改即生效）
+  reasoningEffort?: ReasoningEffort // 思考档位（''=默认不控制；none=关闭；其余为强度分档）
 }
 
 export interface ModelEntry {
@@ -485,6 +489,14 @@ export const api = {
   /* 会话审批三档（''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
   setApproveMode: (id: string, mode: '' | 'off' | 'strict') =>
     post<{ ok: boolean; mode: string }>(`/api/sessions/${id}/approve-mode`, { mode }),
+
+  /* 思考强度档位（全局；请求侧实时读取，即改即生效） */
+  setReasoningEffort: (effort: ReasoningEffort) =>
+    post<{ ok: boolean; effort: string }>('/api/settings/reasoning', { effort }),
+
+  /* 直调大模型（快应用/脚本；与 /api/mcp/call 同级的内置能力） */
+  callModel: (prompt: string, model = '', images: string[] = []) =>
+    post<{ result: string }>('/api/model/call', { model, prompt, images }),
 
   getMemoryConfig: () => fetch('/api/memory/config').then(json<MemoryConfig>),
 

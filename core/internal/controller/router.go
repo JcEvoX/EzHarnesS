@@ -63,6 +63,8 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 
 		api.GET("/settings", c.Settings.GetSettings)
 		api.POST("/settings", c.Settings.UpdateSettings)
+		api.POST("/settings/reasoning", c.Settings.SetReasoning) // 思考档位（输入框下拉，即改即生效）
+		api.POST("/model/call", c.Settings.CallModel)            // 直调大模型（快应用/脚本；与 /mcp/call 同级）
 		api.GET("/models", c.Settings.GetModels)
 		api.POST("/models", c.Settings.UpdateModels)
 		api.POST("/models/activate", c.Settings.ActivateModel) // 主模型切换（输入框选择器；下一次输入生效）

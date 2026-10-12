@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xuanlv2002/ezloop/event"
+	"github.com/xuanlv2002/ezloop/ext/warp/model/modelretry"
 	"github.com/xuanlv2002/ezloop/types"
 
 	"ezharness/core/internal/hooks"
@@ -21,6 +22,14 @@ type Event struct {
 	Iter   int             `json:"iter"`
 	ForkID string          `json:"forkId,omitempty"`
 	Data   json.RawMessage `json:"data,omitempty"`
+}
+
+/* RetryData 是 modelretry.retry 的数据（模型请求失败即将重试）。 */
+type RetryData struct {
+	Attempt     int    `json:"attempt"`     // 即将开始的尝试序号（2 = 第二次）
+	MaxAttempts int    `json:"maxAttempts"`
+	DelayMs     int64  `json:"delayMs"`
+	Err         string `json:"err,omitempty"`
 }
 
 /* ToolStartData 是 tool_start 的数据。 */
@@ -118,6 +127,16 @@ func MapEvent(e event.Event) Event {
 		out.Data = raw(e.Data) // []string 变更条目原样透传（前端变更卡）
 	case hooks.EventLoopGuard:
 		out.Data = raw(e.Data) // LoopGuardData 原样透传（前端时间线护栏小字条）
+	case "final_wrap":
+		out.Data = raw(e.Data) // MaxIterations；前端标示"正在总结收尾"
+	case "modelretry.retry":
+		if r, ok := e.Data.(*modelretry.RetryInfo); ok {
+			d := RetryData{Attempt: r.Attempt, MaxAttempts: r.MaxAttempts, DelayMs: r.Delay.Milliseconds()}
+			if r.Err != nil {
+				d.Err = r.Err.Error()
+			}
+			out.Data = raw(d)
+		}
 	case "task.start", "task.end":
 		mapTaskEvent(&out, e)
 	case "mcp.auth.request":

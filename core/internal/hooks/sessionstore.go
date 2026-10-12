@@ -44,7 +44,8 @@ type ResSnapshot struct {
 	Skills    []string `json:"skills,omitempty"`    // 启用中技能名
 	SkillsOff []string `json:"skillsOff,omitempty"` // 已停用技能名（启停 diff 用）
 	Mcps      []string `json:"mcps,omitempty"`
-	Model     string   `json:"model,omitempty"` // 主模型摘要（名称+视觉；切换进 resource_change）
+	Models    []string `json:"models,omitempty"` // 可选模型名清单（新增/移除进 resource_change）
+	Model     string   `json:"model,omitempty"`  // 主模型摘要（名称+视觉；切换进 resource_change）
 }
 
 /* ForkOrigin 是 fork 线的展示元数据（时间线渲染"分叉自 X"，非结构依赖）。 */

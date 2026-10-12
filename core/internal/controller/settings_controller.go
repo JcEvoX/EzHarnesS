@@ -168,3 +168,41 @@ func (c *SettingsController) ActivateModel(g *gin.Context) {
 	}
 	g.JSON(http.StatusOK, gin.H{"ok": true, "model": e})
 }
+
+/* SetReasoning POST /api/settings/reasoning：思考强度档位（输入框下拉；请求侧实时读取，即改即生效）。 */
+func (c *SettingsController) SetReasoning(g *gin.Context) {
+	var req struct {
+		Effort string `json:"effort"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := c.Settings.SetReasoningEffort(g.Request.Context(), req.Effort); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "effort": req.Effort})
+}
+
+/*
+CallModel POST /api/model/call：快应用/脚本直调大模型（与 /api/mcp/call 同级的
+系统内置能力）。body {model?, prompt, images?: [路径]}；返回 {result}。
+*/
+func (c *SettingsController) CallModel(g *gin.Context) {
+	var req struct {
+		Model  string   `json:"model"`
+		Prompt string   `json:"prompt"`
+		Images []string `json:"images"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := c.Settings.ModelCall(g.Request.Context(), req.Model, req.Prompt, req.Images)
+	if err != nil {
+		g.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"result": result})
+}

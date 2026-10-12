@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"ezharness/core/internal/config"
 
@@ -50,6 +51,7 @@ import (
 	"ezharness/core/internal/osfs"
 	"ezharness/core/internal/tools"
 	"ezharness/core/internal/warp/modeldump"
+	"ezharness/core/internal/warp/reasoningeffort"
 	"ezharness/core/internal/warp/noempty"
 	"ezharness/core/internal/warp/toolarg"
 	"ezharness/core/internal/warp/visionguard"
@@ -90,6 +92,49 @@ func buildProvider(m *domain.ModelEntry) provider.ModelProvider {
 	default:
 		return openai.New(opts)
 	}
+}
+
+/* allModelEntries 汇总三槽全部条目（model_call/task 按名取模型的取值域）。 */
+func allModelEntries(m domain.ModelsConfig) []domain.ModelEntry {
+	out := make([]domain.ModelEntry, 0, len(m.Main)+len(m.Image)+len(m.Audio))
+	out = append(out, m.Main...)
+	out = append(out, m.Image...)
+	out = append(out, m.Audio...)
+	return out
+}
+
+/* findModelEntry 按名在三槽里找条目（不限启用与否）。 */
+func findModelEntry(m domain.ModelsConfig, name string) *domain.ModelEntry {
+	all := allModelEntries(m)
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
+		}
+	}
+	return nil
+}
+
+/* modelFactoryOf 产出 task 分身的模型工厂：按名取条目（三槽任意）现造 provider，
+未知名字返回 nil（task 把"unknown model"作为工具结果回传，模型自纠）。
+包级函数而非内联闭包：Assemble 里 provider 是局部变量，会遮蔽 provider 包名。 */
+func modelFactoryOf(hub *domain.Hub) func(string) provider.ModelProvider {
+	return func(name string) provider.ModelProvider {
+		if e := findModelEntry(hub.ModelsSnapshot(), name); e != nil {
+			return buildProvider(e)
+		}
+		return nil
+	}
+}
+
+/* OneShotInvoke 用指定模型条目做一次无工具请求并返回文本（model_call 工具与 HTTP /api/model/call 共用）。 */
+func OneShotInvoke(ctx context.Context, entry domain.ModelEntry, req types.ModelRequest) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	resp, err := buildProvider(&entry).Invoke(ctx, &req)
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
 }
 
 /* absSkillsDir 技能库的绝对路径（提示里给模型的路径一律绝对）。 */
@@ -151,26 +196,10 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	} else if snap := s.Snapshot(); snap != nil {
 		sys = hooks.NewSysPrompt(snap.SystemBase, snap.SummaryBlock)
 	} else {
-		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys), "")
+		sys = hooks.NewSysPrompt(buildSystemBase(ctx, st, s.Fsys, a.Hub.ModelsSnapshot()), "")
 	}
 	s.SetSysP(sys)
 	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
-	// 主模型信息块：render 时现读快照——换模型 Reassemble 后闭包重装，system 每轮自动跟上
-	sys.SetModelFn(func() string {
-		m := a.Hub.ModelsSnapshot().ActiveMain()
-		if m == nil {
-			return ""
-		}
-		window := "未知"
-		if m.ContextWindow > 0 {
-			window = fmt.Sprintf("%d tokens", m.ContextWindow)
-		}
-		vision := "不支持（带图请求会自动省略图片；需要识别图片时告知用户在设置·模型切换到支持视觉的模型）"
-		if m.Vision {
-			vision = "支持（图片会作为输入进入上下文）"
-		}
-		return "<model>\n当前主模型：" + m.Name + "\n上下文窗口：" + window + "\n视觉输入：" + vision + "\n</model>"
-	})
 	s.Sess.BindSys(sys, main.Name)
 
 	// 审批三档（会话级，实时读取即改即生效）：off 全放行 / strict 全审 / '' 跟随安全配置
@@ -235,6 +264,9 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		}
 		return m.Name + "（不支持视觉）"
 	})
+	// 可选模型清单（与 skill/mcp 同构）：新增/移除随资源变更进上下文；
+	// 清单本体在 system 的 <models> 固定段（session 组装时存储）
+	remindHook.SetModelList(func() []hooks.StatusMcp { return modelStatusList(a.Hub.ModelsSnapshot()) })
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
 		window*st.TrimPercent/100,             // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
@@ -258,9 +290,22 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 
 	// visionguard 最内层（紧贴 provider）：无视觉模型每次实际请求（含 retry）
 	// 剥历史图片消息（请求视图，落盘不动，换回多模态自动恢复）
-	modelWarps := []warp.ModelHandler{modeldump.Warp(), modelretry.Warp(), noempty.Warp(), visionguard.Warp(mainVision)}
+	// 思考档位：请求侧覆盖（闭包实时读设置，输入框切换即改即生效）
+	effortWarp := reasoningeffort.Warp(func() string { return a.Hub.SettingsSnapshot().ReasoningEffort })
+	// 重试：退避 0.5s 起指数翻倍（0.5/1/2/4/8/16/32/64s，共 8 次退避、
+	// 总尝试 9 次）——并发分身挤出的 429 要等得起；不设总时间上限
+	retryWarp := modelretry.Warp(func(o *modelretry.Options) {
+		o.MaxAttempts = 9
+		o.BaseDelay = 500 * time.Millisecond
+	})
+	modelWarps := []warp.ModelHandler{modeldump.Warp(), effortWarp, retryWarp, noempty.Warp(), visionguard.Warp(mainVision)}
 	agentTools := append(append(tools.SaveApp(s.Fsys), tools.Sleep()), tools.SharedTerm(a.Term)...)
 	agentTools = append(agentTools, tools.SharedBrowser(a.Browser)...)
+	// model_call：把一次性子任务（识别/翻译/改写）交给指定模型；视觉任务走这里
+	agentTools = append(agentTools, tools.ModelCall(s.Fsys,
+		func() []domain.ModelEntry { return allModelEntries(a.Hub.ModelsSnapshot()) },
+		func() *domain.ModelEntry { return a.Hub.ModelsSnapshot().ActiveMain() },
+		OneShotInvoke))
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
 	}
@@ -268,7 +313,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
-		"term_tab", "term_action",
+		"model_call", "term_tab", "term_action",
 		"browser_tab", "browser_action",
 	}
 	mcpHook, mcpAuthCh := NewMcpHook(context.Background(), s.Fsys, a.McpRouter, a.McpAuth)
@@ -288,7 +333,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			hooks.NewRefFile(), // 有引用轮次在输入前插 <reference_file> 结构化告知（附件+文件页标注统一，模型按需 read_file）
 			approver,
 			asker,
-			task.New(),
+			task.New(task.WithModelFactory(modelFactoryOf(a.Hub))),
 			mcpHook,
 			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
 				offload.WithAbs(func(p string) string { // 提示给绝对路径：模型不知道 FS 挂载基准，按工作目录拼相对路径必错
@@ -538,7 +583,7 @@ buildSystemBase 组装 session 的 system 基础段：人格 + SystemExtra +
 skill 全文与记忆细节不注入（模型按需用文件工具读取），列表变更要等
 下个 session 才进 system，期间由 remind 变更段的 <resource_change> 告知模型。
 */
-func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) string {
+func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc domain.ModelsConfig) string {
 	var b strings.Builder
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
 		"能用工具就用工具，回答简洁。" +
@@ -618,6 +663,16 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		}
 		b.WriteString("\n</skills>")
 	}
+	// 可用模型清单（固定段，session 组装时存储；与 skill/mcp 同构）：task/model_call
+	// 的 model 参数取值以此为准；增删随 <resource_change> 告知，主模型每轮见 <agent_status>
+	if ms := modelStatusList(mc); len(ms) > 0 {
+		b.WriteString("\n\n<models>\n（可用模型清单：task 与 model_call 的 model 参数取值以此为准，不要臆造；" +
+			"当前主模型每轮见 <agent_status>，增删与主模型切换见 <resource_change>）")
+		for _, m := range ms {
+			b.WriteString("\n- " + m.Name + "（" + m.Desc + "）")
+		}
+		b.WriteString("\n</models>")
+	}
 	if lines := mcpListLines(fsys); len(lines) > 0 {
 		b.WriteString("\n\n<mcp>\n（可用 MCP 服务清单，以此为准，不要读取 mcp.json 来发现服务；" +
 			"经 mcp_router 工具调用，先用 tool_list 拉取某服务的工具清单再 tool_call，轮内变更见 <resource_change>）")
@@ -640,6 +695,11 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 		}
 		b.WriteString("\n</mcp>")
 	}
+	// 大模型直调与 MCP 无关，独立成段（未配 MCP 的服务也要可见）
+	b.WriteString("\n\n<local_api>\n（core 暴露的本机 API：快应用/脚本直调，无需密钥——密钥由 core 持有）\n" +
+		"大模型直调：POST /api/model/call，载荷 {\"prompt\":\"提示词\", \"model\":\"可选模型名（省略=主模型）\", " +
+		"\"images\":[\"可选的本机图片绝对路径，目标模型须支持视觉\"]}，返回 {\"result\":\"模型输出文本\"}；" +
+		"翻译/总结/识别/生成这类一次问答直接调它，不必绕道 MCP 或后端。\n</local_api>")
 	b.WriteString("\n\n<action>\n" +
 		"# 行动准则\n" +
 		"1. 接任务先匹配技能：对照 <skills> 清单，命中就 load_skill 加载后按其指引执行，不要绕过现成技能自己造流程；没命中再自行设计。\n" +
@@ -729,6 +789,29 @@ func mcpStatusList(fsys osfs.OS) []hooks.StatusMcp {
 			continue
 		}
 		out = append(out, hooks.StatusMcp{Name: srv.Name, Desc: srv.Description})
+	}
+	return out
+}
+
+/* modelStatusList 汇总可选模型（三槽去重，名字+槽位/视觉能力），供 <models> 段与资源清单共用。 */
+func modelStatusList(mc domain.ModelsConfig) []hooks.StatusMcp {
+	seen := map[string]bool{}
+	var out []hooks.StatusMcp
+	for _, slot := range []struct {
+		label   string
+		entries []domain.ModelEntry
+	}{{"对话", mc.Main}, {"图像", mc.Image}, {"语音", mc.Audio}} {
+		for _, e := range slot.entries {
+			if e.Name == "" || seen[e.Name] {
+				continue
+			}
+			seen[e.Name] = true
+			v := "不支持视觉"
+			if e.Vision {
+				v = "支持视觉"
+			}
+			out = append(out, hooks.StatusMcp{Name: e.Name, Desc: slot.label + "槽 · " + v})
+		}
 	}
 	return out
 }

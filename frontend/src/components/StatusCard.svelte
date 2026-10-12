@@ -79,6 +79,10 @@
     {/if}
   </div>
   <div class="row">
+    <span class="label">本轮迭代</span>
+    <span class="value">{store.currentIter > 0 ? `第 ${store.currentIter} 轮` : '-'}</span>
+  </div>
+  <div class="row">
     <span class="label">缓存命中率</span>
     <span class="value">{hit}</span>
   </div>

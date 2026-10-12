@@ -65,6 +65,7 @@ func DefaultToolRules() []ToolRule {
 		{Key: "ask_user", Level: LevelAuto},
 		{Key: "trim_context", Level: LevelAuto},
 		{Key: "load_skill", Level: LevelAuto},
+		{Key: "model_call", Level: LevelAuto}, // 调模型只读无副作用：默认免审
 		{Key: "mcp.*", Level: LevelAsk},
 	}
 }

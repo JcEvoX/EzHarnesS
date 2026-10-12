@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { store, type Attachment, type FileRef } from '../lib/store.svelte'
   import { fileBaseName, isImagePath } from '../lib/textfile'
+  import type { ReasoningEffort } from '../lib/api'
 
   let {
     attachments = [],
@@ -135,15 +136,29 @@
   /* ── 输入框工具条：模型切换（下一次输入生效）+ 审批三档，均为下拉 ── */
   let modelOpen = $state(false)
   let approveOpen = $state(false)
+  let reasonOpen = $state(false)
+  /* 思考档位（默认/关闭 + Claude Code / Codex 五档；强度档下游归一为 low/high/max） */
+  const REASON_MODES = [
+    { v: '', label: '思考·默认', title: '不控制思考参数，用服务端默认行为' },
+    { v: 'none', label: '思考·无（关闭）', title: '关闭思考（快问快答；不支持的服务端自动忽略）' },
+    { v: 'low', label: '思考·low', title: '低强度（归一 low）' },
+    { v: 'medium', label: '思考·medium', title: '中强度（归一 high）' },
+    { v: 'high', label: '思考·high', title: '高强度（归一 high）' },
+    { v: 'xhigh', label: '思考·xhigh', title: '很高（归一 high）' },
+    { v: 'max', label: '思考·max', title: '最大（归一 max）' },
+  ] as const
   const APPROVE_MODES = [
     { v: '', label: '跟随安全配置', title: '按安全页的工具规则决定是否审批' },
     { v: 'off', label: '无审批', title: '本会话全部工具直接放行（谨慎）' },
     { v: 'strict', label: '严格审批', title: '本会话每次工具调用都需批准' },
   ] as const
   const approveLabel = $derived(APPROVE_MODES.find((m) => m.v === store.approveMode)?.label ?? '跟随安全配置')
+  const reasonEffort = $derived((store.settings?.reasoningEffort ?? '') as ReasoningEffort)
+  const reasonLabel = $derived(REASON_MODES.find((m) => m.v === reasonEffort)?.label ?? '思考·默认')
 
   function toggleModelMenu() {
     approveOpen = false
+    reasonOpen = false
     modelOpen = !modelOpen
     if (modelOpen) void store.ensureModels()
   }
@@ -153,8 +168,20 @@
     void store.activateModel(name)
   }
 
+  function toggleReasonMenu() {
+    modelOpen = false
+    approveOpen = false
+    reasonOpen = !reasonOpen
+  }
+
+  function pickReason(v: ReasoningEffort) {
+    reasonOpen = false
+    void store.setReasoningEffort(v)
+  }
+
   function toggleApproveMenu() {
     modelOpen = false
+    reasonOpen = false
     approveOpen = !approveOpen
   }
 
@@ -168,6 +195,7 @@
     const t = e.target as HTMLElement
     if (modelOpen && !t.closest('.model-pick')) modelOpen = false
     if (approveOpen && !t.closest('.approve-pick')) approveOpen = false
+    if (reasonOpen && !t.closest('.reason-pick')) reasonOpen = false
   }
   onMount(() => {
     document.addEventListener('mousedown', onGlobalDown)
@@ -275,6 +303,25 @@
     {/if}
   </div>
   <div class="tools">
+    <div class="reason-pick">
+      <button class="model-btn" onclick={toggleReasonMenu} disabled={!store.activeId}
+        title="思考强度（全局，即改即生效）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18h6M10 22h4" />
+          <path d="M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z" />
+        </svg>
+        <span class="model-name">{reasonLabel}</span>
+      </button>
+      {#if reasonOpen}
+        <div class="model-menu">
+          {#each REASON_MODES as m (m.v || 'default')}
+            <button class="model-item" class:on={reasonEffort === m.v} onclick={() => pickReason(m.v)} title={m.title}>
+              <span class="model-name">{m.label}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <div class="approve-pick">
       <button class="model-btn" onclick={toggleApproveMenu} disabled={!store.activeId}
         title="本会话的工具审批档位（实时生效）">
@@ -639,6 +686,7 @@
     padding: 6px 6px 0;
   }
   .approve-pick,
+  .reason-pick,
   .model-pick {
     position: relative;
   }

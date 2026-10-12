@@ -72,7 +72,8 @@ type Remind struct {
 	disabled  func() []string // 可空：禁用技能目录名（实时读设置快照）
 	terms     func() []string // 可空：运行中终端名（终端/浏览器是进程生命周期态，重启即失，
 	tabs      func() []string // 不进 system 固定段，走每轮快照——与 skill/mcp 类持久资源分界
-	model     func() string   // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
+	model     func() string     // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
+	modelList func() []StatusMcp // 可空：可选模型清单（名称+能力）；资源变更 diff + available 清单
 }
 
 /*
@@ -94,11 +95,14 @@ func (h *Remind) Name() string { return "remind" }
 Assemble 装配后换模型经 Reassemble 重装）。快照段展示 + 资源变更基线 diff 共用。 */
 func (h *Remind) SetModelBrief(fn func() string) { h.model = fn }
 
+/* SetModelList 注入可选模型清单（名称+能力；实时读快照）——新增/移除走资源变更。 */
+func (h *Remind) SetModelList(fn func() []StatusMcp) { h.modelList = fn }
+
 /* OnStart 轮首两段：变更段（有变化才说话）在前、快照段照旧每轮一条。 */
 func (h *Remind) OnStart(ctx context.Context, state *types.LoopState) error {
-	if items, skills, mcps := h.buildChanges(ctx); len(items) > 0 {
+	if items, skills, mcps, models := h.buildChanges(ctx); len(items) > 0 {
 		h.insertBeforeLastUser(state, types.Message{Role: types.RoleUser,
-			Content: renderResChange(items, skills, mcps)})
+			Content: renderResChange(items, skills, mcps, models)})
 		state.EmitEvent(EventResChange, items)
 	}
 	data := h.buildSnapshot()
@@ -197,7 +201,7 @@ renderResChange 渲染资源变更记录：变更条目行前缀 "- " 是前端�
 模型据此即时可知全部资源，不必读目录与配置文件发现）。desc 压平换行
 防伪造条目行。
 */
-func renderResChange(items []string, skills, mcps []StatusMcp) string {
+func renderResChange(items []string, skills, mcps, models []StatusMcp) string {
 	var b strings.Builder
 	b.WriteString("<" + ResChangeTag + ">")
 	b.WriteString("\n（系统检测到的本轮资源变更，非用户发言，无需回应，无需回溯处理）")
@@ -218,6 +222,13 @@ func renderResChange(items []string, skills, mcps []StatusMcp) string {
 		}
 	} else {
 		b.WriteString("\navailable_mcp: （当前无可用 MCP 服务）")
+	}
+	if len(models) > 0 {
+		var names []string
+		for _, m := range models {
+			names = append(names, m.Name+"（"+descOrNone(m.Desc)+"）")
+		}
+		b.WriteString("\navailable_model: " + strings.Join(names, "、"))
 	}
 	b.WriteString("\n</" + ResChangeTag + ">")
 	return b.String()

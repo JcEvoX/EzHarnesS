@@ -11,6 +11,7 @@ import {
   type HistoryMessage,
   type ImagePayload,
   type ModelEntry,
+  type ReasoningEffort,
   type Settings,
   type SseEvent,
   type Status,
@@ -230,6 +231,12 @@ class AppStore {
   private boardTag = ''
   /* 模型调用进行中（model_start→model_end），思考指示用 */
   modelActive = $state(false)
+  /* 模型请求失败正在重试（modelretry.retry 事件；model_end/turn_end 清空） */
+  retryInfo = $state<{ attempt: number; maxAttempts: number; delayMs: number; err: string } | null>(null)
+  /* 迭代上限软收尾进行中（final_wrap 事件置位；新轮/切分支清空） */
+  wrapPhase = $state(false)
+  /* 本轮已进行的迭代数（SSE 帧 iter 实时更新；轮末/切分支清零）——长任务实时看进度 */
+  currentIter = $state(0)
 
   status = $state<Status | null>(null)
   /* 最新 agent_status 快照（status.snapshot 事件实时更新，右上角水位条数据源） */
@@ -352,6 +359,9 @@ class AppStore {
     // 分支切换：输出/工具指示与实时水位不跨分支（原分支的 turn_end
     // 已收不到——单 SSE 只订阅当前分支，残留标志会永远挂着）
     this.modelActive = false
+    this.retryInfo = null
+    this.wrapPhase = false
+    this.currentIter = 0
     this.lastTool = ''
     this.live = null
     this.liveChanges = []
@@ -381,6 +391,9 @@ class AppStore {
       }
       this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [], s.id)
       this.busy = s.busy
+      // 切回运行中的分支：model_start/tool_start 等增量事件不重放，用 busy 兜底
+      // 点亮活动指示（否则"思考中"整段消失、像没在执行）；后续事件到达自然接管
+      this.modelActive = s.busy
       this.approveMode = s.approveMode ?? ''
       this.prevCursor = s.id
       // fork 就是 fork：对话内容不标注来源（体内副本自包含）；
@@ -805,6 +818,19 @@ class AppStore {
     } catch (e) {
       this.approveMode = prev
       this.lastStatus = `审批模式切换失败：${(e as Error).message}`
+    }
+  }
+
+  /* 思考档位切换（全局；请求侧实时读取，即改即生效） */
+  async setReasoningEffort(effort: ReasoningEffort) {
+    if (!this.settings || (this.settings.reasoningEffort ?? '') === effort) return
+    const prev = this.settings.reasoningEffort ?? ''
+    this.settings = { ...this.settings, reasoningEffort: effort }
+    try {
+      await api.setReasoningEffort(effort)
+    } catch (e) {
+      this.settings = { ...this.settings, reasoningEffort: prev }
+      this.lastStatus = `思考档位切换失败：${(e as Error).message}`
     }
   }
 
@@ -1331,6 +1357,8 @@ class AppStore {
 
   apply(ev: SseEvent) {
     this.tick++
+    // 迭代数实时跟随（所有帧都带 iter；loop_start/turn_end 在上面各自清零）
+    if (typeof ev.iter === 'number' && ev.iter > 0) this.currentIter = ev.iter
     switch (ev.type) {
       case 'loop.guard': {
         // 循环护栏：时间线实时小字条（历史重建由 <loop_guard> 消息渲染，回放不重发）
@@ -1359,6 +1387,7 @@ class AppStore {
         break
       }
       case 'loop_start': {
+        this.currentIter = 0
         /* 回放重建：本轮 user 输入（实时路径 send 已本地 push，同文本去重）。
         主轮带引用时载荷是对象 {text, files, fileRefs}（后端 Publish 附带——
         本轮消息要等轮结束才并入历史，运行中切回分支全靠回放帧重建 chips） */
@@ -1424,6 +1453,24 @@ class AppStore {
       }
       case 'model_start': {
         this.modelActive = true
+        this.retryInfo = null // 新一次调用开始，旧重试信息作废
+        break
+      }
+      case 'final_wrap': {
+        // 达到迭代上限，正在做总结收尾调用（与普通迭代无区别，须显式标识）
+        this.wrapPhase = true
+        break
+      }
+      case 'modelretry.retry': {
+        const d = ev.data as { attempt?: number; maxAttempts?: number; delayMs?: number; err?: string } | null
+        if (d) {
+          this.retryInfo = {
+            attempt: d.attempt ?? 0,
+            maxAttempts: d.maxAttempts ?? 0,
+            delayMs: d.delayMs ?? 0,
+            err: d.err ?? '',
+          }
+        }
         break
       }
       case 'tool_chunk': {
@@ -1501,6 +1548,7 @@ class AppStore {
       }
       case 'model_end': {
         this.modelActive = false
+        this.retryInfo = null
         // 关闭本次调用所属块流的流式态（fork 关自己的）：否则下一轮正文
         // 会追加进工具调用前的旧流式块（思考直调工具时正文顺序错乱）
         const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
@@ -1773,8 +1821,11 @@ class AppStore {
         break
       }
       case 'turn_end': {
+        this.currentIter = 0
         this.busy = false
         this.modelActive = false
+        this.retryInfo = null
+        this.wrapPhase = false
         this.lastTool = ''
         this.pendingUserUid = 0
         this.pendingUserText = ''
