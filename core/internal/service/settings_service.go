@@ -526,3 +526,37 @@ func frontmatterName(body string) string {
 	}
 	return ""
 }
+
+/*
+ActivateMainModel 把 main 槽切换到指定模型（唯一启用该条目）并重建
+agent（busy 时拒绝，运行中的分支保留旧装配到轮结束）。输入框模型
+切换器用：下一次输入即走新模型。
+*/
+func (s *SettingsService) ActivateMainModel(ctx context.Context, name string) (domain.ModelEntry, error) {
+	m := LoadModelsConfig(ctx, s.Hub.Fsys)
+	found := false
+	for i := range m.Main {
+		m.Main[i].Enabled = m.Main[i].Name == name
+		if m.Main[i].Enabled {
+			found = true
+		}
+	}
+	if !found {
+		return domain.ModelEntry{}, fmt.Errorf("main 槽没有名为 %s 的模型", name)
+	}
+	if err := SaveModelsConfig(ctx, s.Hub.Fsys, normalizeModels(m)); err != nil {
+		return domain.ModelEntry{}, err
+	}
+	s.Hub.ApplyModels(m)
+	if err := s.Agents.Reassemble(s.Hub.SettingsSnapshot()); err != nil {
+		return domain.ModelEntry{}, err
+	}
+	out := domain.ModelEntry{}
+	for _, e := range m.Main {
+		if e.Enabled {
+			out = e
+			break
+		}
+	}
+	return out, nil
+}

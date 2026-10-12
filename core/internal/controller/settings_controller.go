@@ -151,3 +151,20 @@ func (c *SettingsController) ToggleSkill(g *gin.Context) {
 	}
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+/* ActivateModel POST /api/models/activate：主模型切换（输入框选择器；下一次输入生效）。 */
+func (c *SettingsController) ActivateModel(g *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		g.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	e, err := c.Settings.ActivateMainModel(g.Request.Context(), req.Name)
+	if err != nil {
+		g.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "model": e})
+}

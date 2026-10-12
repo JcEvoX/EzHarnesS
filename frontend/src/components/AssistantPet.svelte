@@ -62,7 +62,7 @@
         ])
         running = (topics as { running?: boolean }[]).some((t) => t.running)
         const items = (notices as { items?: { kind?: string }[] }[]).flatMap((g) => g.items ?? [])
-        pending = items.filter((it) => it.kind === 'approve' || it.kind === 'ask').length
+        pending = items.filter((it) => it.kind === 'approve' || it.kind === 'ask' || it.kind === 'mcp_auth').length
         done = items.some((it) => it.kind === 'info')
         apps = ((list as { apps?: PetApp[] }).apps ?? [])
       } catch {
@@ -131,6 +131,11 @@
   <div class="stage">
     <div class="avatar-wrap" class:dim={!hovered}>
       <EzAvatar size={72} run={running} />
+      {#if pending > 0}
+        <i class="ndot avatar-dot red"></i>
+      {:else if done}
+        <i class="ndot avatar-dot green"></i>
+      {/if}
     </div>
 
     {#each ring as s (s.kind === 'app' && s.a ? 'a' + s.a.name : s.kind)}
@@ -244,6 +249,14 @@
   }
   .avatar-wrap :global(img) {
     pointer-events: none;
+  }
+  /* 头像右上角常显通知点（不悬浮也可见；与铃铛球同款配色） */
+  .avatar-dot {
+    top: -2px;
+    right: -2px;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg);
   }
 
   /* 铃铛球：与客户端收起态铃铛同款图标，待处理红点 / 完成绿点浮在球上 */

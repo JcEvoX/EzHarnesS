@@ -344,6 +344,7 @@ export const api = {
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
+        approveMode?: '' | 'off' | 'strict'
       }>,
     ),
 
@@ -476,6 +477,14 @@ export const api = {
   getModels: () => fetch('/api/models').then(json<ModelsConfig>),
 
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
+
+  /* 激活主模型（输入框切换器）：唯一启用该条目并重建 agent，下一次输入生效 */
+  activateModel: (name: string) =>
+    post<{ ok: boolean; model: ModelEntry }>('/api/models/activate', { name }),
+
+  /* 会话审批三档（''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
+  setApproveMode: (id: string, mode: '' | 'off' | 'strict') =>
+    post<{ ok: boolean; mode: string }>(`/api/sessions/${id}/approve-mode`, { mode }),
 
   getMemoryConfig: () => fetch('/api/memory/config').then(json<MemoryConfig>),
 

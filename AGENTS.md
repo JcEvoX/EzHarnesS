@@ -34,7 +34,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/internal/config/cfg.go` `logfile.go` | 应用根、端口、数据目录、chdir / 日志落盘：`logs/core-YYYYMMDD.log` 按天滚动保留 7 天，stderr 双写（dev 终端可见；打包版 GUI 无控制台，文件是唯一出口）。`OpenLogWriter` 在 main 接管 log/gin/modeldump 输出，换代 `FollowDataDir` 跟随数据目录 |
 | `core/internal/controller/router.go` | 全部路由表 + SPA 静态兜底（`/api` 之外回退 index.html） |
 | `core/internal/controller/*.go` | 表现层，只绑定/校验/响应：`app` `session` `chat` `topic` `settings` `mcp` `apps` `terminal` `browser` `workspace` |
-| `core/internal/service/agent_service.go` | **最重要的文件**：`Assemble` 装配一个 session 的 agent——hook 列表、warp 链、工具集、ToolNames、system 基础段全在这里 |
+| `core/internal/service/agent_service.go` | **最重要的文件**：`Assemble` 装配一个 session 的 agent——hook 列表、warp 链、工具集、ToolNames、system 基础段全在这里；approve 的 needs 闭包按**会话审批三档**分派（`off` 全放行 / `strict` 全审 / 空=走 `needsApprove` 查 toolRules，实时读 `Session.ApproveMode` 即改即生效） |
 | `core/internal/service/chat_service.go` | 一轮运行的启停、SSE 推送、用量统计 |
 | `core/internal/service/session_service.go` | 历史读取、bootstrap、status/水位 |
 | `core/internal/service/topic_service.go` | 分支线（topics.json）、归档换代、分叉 |
@@ -63,7 +63,7 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `src/lib/store.svelte.ts` | 全局状态机：bootstrap、SSE 归约（`apply`）、历史重建（`buildBlocks`）、抽屉/弹窗/草稿/附件/通知。前端最核心的文件 |
 | `src/lib/term.ts` | 终端 WS 管理器：单连接多路复用（帧带 id 路由）+ 断线重连 + hello 快照 |
 | `src/lib/desktop.ts` `textfile.ts` `filePaneState.ts` | `?desktop=1` 判定 / 路径工具 / 资源页跨窗口状态胶囊 |
-| `src/components/ChatView.svelte` `Timeline.svelte` `MessageItem.svelte` `InputBar.svelte` `FindBar.svelte` | 对话主列：时间线按 block kind 分发、消息渲染、输入框与附件；FindBar=Ctrl+F 页面内查找（**纯 DOM 自绘高亮**：TreeWalker 遍历文本节点，匹配拆分包裹 `.ezfh` span，当前项 `.ezfh-cur` 居中滚动；跳过表单/可编辑/查找栏自身子树。**别改回 Electron findInPage**——它抢文档焦点、有会话竞态、导航按钮 click 被焦点护栏吞掉，连出三次事故后废弃） |
+| `src/components/ChatView.svelte` `Timeline.svelte` `MessageItem.svelte` `InputBar.svelte` `FindBar.svelte` | 对话主列：时间线按 block kind 分发、消息渲染、输入框与附件；InputBar 底部工具条（右对齐两个下拉）=审批档（跟随安全配置/无/严格，会话级 `POST /sessions/:id/approve-mode` 实时生效）+ 主模型切换（`POST /models/activate` 唯一启用+Reassemble，下一次输入生效；前端本地先推一条状态栏变更行作即时反馈，**正式记录走下轮 `<resource_change>`**——remind 轮首 diff 出「切换模型到 X」落盘+时间线卡）；FindBar=Ctrl+F 页面内查找（**纯 DOM 自绘高亮**：TreeWalker 遍历文本节点，匹配拆分包裹 `.ezfh` span，当前项 `.ezfh-cur` 居中滚动；跳过表单/可编辑/查找栏自身子树。**别改回 Electron findInPage**——它抢文档焦点、有会话竞态、导航按钮 click 被焦点护栏吞掉，连出三次事故后废弃） |
 | `src/components/TabBar.svelte` `ChatEmpty.svelte` | **会话标签条**：store.tabs 的开/关/激活（关标签≠停会话，后台轮照跑；`openTab`/`closeTab`/`newChatTab` 是入口，switchBranch 退为内部原语）。右键菜单：关闭 / 关闭其他（`closeOtherTabs`）/ 关闭右侧（`closeRightTabs`），fixed 定位、点外部/Escape 收起。最后一个标签关闭 → ChatEmpty 空状态（`activeId=''`：loadHistory/resubscribe 均判空短路，**不得**开 `/api/sessions//events`）。后台标签活性靠 3s 通知轮询顺带拉分支列表（`bgTabsBusy` 门控）。每标签输入草稿在 `store.drafts`（InputBar 以 activeId 为键存取，untrack 防环） |
 | `src/components/Timeline.svelte` 的行模型 | **紧凑回复组**：user 块独立成行（无头像），其余块并入其后回复组——一个用户输入只对应一个组头像（组内 assistant 用 `MessageItem bare` 无头像）；首 user 前的系统记录成 leader 组（无头像）。组 key 用前置 user 块 uid（中段增删不换 key）。`--proc-indent` 变量是过程卡缩进基准：组内 0（对齐正文）、未设处回落 40px（ForkPanel 保持旧缩进）；endtick/imgload 的缩进 = `calc(var(--proc-indent, 40px) + 8px)`。工具段 ≥2 即折叠（TOOL_GROUP_MIN=2）。左下角活动指示（`modelPhase`）：思考流式/首 token 前＝「模型思考中…」、工具参数构造＝「模型输出中…」、正文一流出即收；工具执行中由 `lastTool` 压过。 |
 | `src/components/EzAvatar.svelte` | **表情头像**：资产随前端打包（`frontend/public/ezavatar/expr/<表情>/`，透明底 `anim.webp` 动画 + `still.png` 静帧），不依赖应用数据目录。最新回复组＝动画（运行中 `spin` 转圈 / 平时 hello→wink→sleep→look 轮询），历史组＝静帧（不产生播放开销），空页面＝随机池轮播；加载失败回退 children（`ez` 徽章 / Logo）。新增/重做表情素材后需重新同步资产目录并重建 |
@@ -112,8 +112,8 @@ hook 是 ezloop 引擎的横向扩展点（接口见 ezloop `hook/hook.go`：`On
 | 文件 | 接口方法 | 职责 |
 |---|---|---|
 | `sysprompt.go` `SysPrompt` | `OnStart` | system 消息唯一来源；渲染 = base + 身份块 + 摘要块 |
-| `remind.go` `Remind` | `OnStart` `OnEnd` | 轮首注入 `<agent_status>` 快照（时间/水位/距上次输出/运行中终端/浏览器标签——终端与浏览器是进程生命周期态，重启即失，不进 system 固定段，与 skill/mcp 类持久资源分界），有资源变更时另插 `<resource_change>`（含变更后 available 清单）；轮末注入 `<end_reason>` |
-| `reschange.go` | （`Remind` 的内部实现） | skill/MCP 基线 diff → 变更条目 + 完整清单 |
+| `remind.go` `Remind` | `OnStart` `OnEnd` | 轮首注入 `<agent_status>` 快照（时间/水位/距上次输出/**当前主模型**/运行中终端/浏览器标签——终端与浏览器是进程生命周期态，重启即失，不进 system 固定段，与 skill/mcp 类持久资源分界），有资源变更时另插 `<resource_change>`（含变更后 available 清单）；轮末注入 `<end_reason>`。`SetModelBrief` 注入模型摘要闭包（实时读快照，换模型 Reassemble 后重装） |
+| `reschange.go` | （`Remind` 的内部实现） | skill/MCP/主模型 基线 diff → 变更条目 + 完整清单。技能启停也算变更：基线（`ResSnapshot`，V=3）记启用/停用两份名单，切换渲染为「启用技能/停用技能 X」（与新增/移除同格式，前端零改动）；**主模型切换同通道**：基线记模型摘要（名称+视觉），轮首 diff 出「切换模型到 X（支持视觉）」；available 清单仍只列启用的。V<3 旧快照视为未建静默重建 |
 | `reference_file.go` `RefFileHook` | `OnStart` | 本轮有附件/文件引用时，在用户输入前插 `<reference_file>` 结构化消息 |
 | `trim.go` `Trim` | `OnStart` `OnLoop` `OnToolStart` | 注册 `trim_context` 工具；回边水位整理：就地折叠早期消息为四节结构化摘要（已完成/正在做/待办/关键事实，`normalizeStructuredSummary` 兜底）+ 重写 `sessions/<id>/progress.md` + 插 `<context_trim>` 标记（同一 session 内，连续性导向） |
 | `guard.go` `Guard` | `OnToolEnd` | 窗口余量兜底：offload 豁免名单（read_file 等）的大结果放不下时也卸载 |
@@ -132,7 +132,7 @@ hook 是 ezloop 引擎的横向扩展点（接口见 ezloop `hook/hook.go`：`On
 
 **一份逐条标注的完整上下文（system 十段各自的来源 + 每轮标签的生成者与插入条件）见 `docs/md/context.md`**——改文案、标签或插入位置前先对那一份。
 
-**system 段** — `agent_service.go` 的 `buildSystemBase`（约 460 行）。段序：人格（含总纲句）→ `SystemExtra`（设置页）→ `<workspace>`（三个可写位置 + 行为规则——路径只给写入目标，读取向全部规则化防诱导）→ `<memory>`（记忆树常驻：`harness.md` 入口/读写纪律 + `user.md` + `soul.md` + `project.md` 索引，`hooks.EnsureHarnessMd`；`project-<名>.md` 详情按需读）→ `<skills>`（builtinskill + `skill.LoadDir`，按 `DisabledSkills` 过滤）→ `<mcp>` → `<action>`（行动准则：技能匹配/计划审批/工具选择/并行分身/交付与连续性）→ `<output>`（输出规范：`<$supper_url>` 正误示例、`<@toolArg>`、回复风格——弱模型抄示例）。
+**system 段** — `agent_service.go` 的 `buildSystemBase`（约 460 行）。段序：人格（含总纲句）→ `SystemExtra`（设置页）→ `<workspace>`（三个可写位置 + 行为规则——路径只给写入目标，读取向全部规则化防诱导）→ `<memory>`（记忆树常驻：`harness.md` 入口/读写纪律 + `user.md` + `soul.md` + `project.md` 索引，`hooks.EnsureHarnessMd`；`project-<名>.md` 详情按需读）→ `<skills>`（builtinskill + `skill.LoadDir` 合并、内建同名优先；**只列启用的**（带描述），停用的另起一行只报名字——存在但 load_skill 会拒绝，模型不去调用也不会翻目录发现；启停变更轮内由 `<resource_change>` 告知）、`<model>`（主模型名/上下文窗口/视觉能力——`SysPrompt.modelFn` render 时现读快照，换模型 Reassemble 后 system 每轮自动跟上，不进落盘 base）→ `<mcp>` → `<action>`（行动准则：技能匹配/计划审批/工具选择/并行分身/交付与连续性）→ `<output>`（输出规范：`<$supper_url>` 正误示例、`<@toolArg>`、回复风格——弱模型抄示例）。
 每 session **只组装一次**：存 `Session.sysP`（`domain/session.go` 的 `SetSysP`/`SysPromptRef`）并落进 `session.json` 状态（`sessionstore.go`）；改了记忆/skill/MCP 要下个 session 才进 system，期间由 `<resource_change>` 告知模型。归档换代时热换。
 
 **历史** — `Session.history`（`domain/session.go`），追加落盘 `sessions/<id>/trace.jsonl`（`kind=message` 行，只增不改；trim 折叠是内存视图处理，盘上仅追加 marker 行）。`StartRun` 把 `modelViewLocked(history)` 交给引擎；ModelView 从**最后一个 `<context_trim>` 标记**起（折叠掉的旧档只留在存档里）。`FinishRun`：本轮有折叠 → `hooks.MergeFull(history, state)`，否则整轮替换。`Store.OnEnd` 对盘上消息做同样的合并后**只追加新增尾部**（MergeFull 输出恒等于纯尾部追加）。

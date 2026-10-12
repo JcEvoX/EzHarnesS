@@ -24,6 +24,7 @@ type SysPrompt struct {
 	base       string
 	summary    string
 	identityFn func() string // 会话身份块（render 时求值：换代/承源后 ID 永远正确，不进落盘 base）
+	modelFn    func() string // 主模型信息块（render 时求值：换模型 Reassemble 后闭包重装，system 自动跟上）
 }
 
 /* NewSysPrompt 创建（base 必有，summary 是 compact 产物可为空）。 */
@@ -63,6 +64,13 @@ func (s *SysPrompt) SetIdentityFn(fn func() string) {
 	s.mu.Unlock()
 }
 
+/* SetModelFn 设置主模型信息块（Assemble 时注入，实时读模型快照）。 */
+func (s *SysPrompt) SetModelFn(fn func() string) {
+	s.mu.Lock()
+	s.modelFn = fn
+	s.mu.Unlock()
+}
+
 /*
 	SessionIdentityBlock 渲染会话身份块：ID + 存档绝对路径——上下文整理
 
@@ -95,6 +103,11 @@ func (s *SysPrompt) render() string {
 	if s.identityFn != nil {
 		if id := s.identityFn(); id != "" {
 			parts = append(parts, id)
+		}
+	}
+	if s.modelFn != nil {
+		if m := s.modelFn(); m != "" {
+			parts = append(parts, m)
 		}
 	}
 	if s.summary != "" {

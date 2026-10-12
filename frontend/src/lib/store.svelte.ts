@@ -10,6 +10,7 @@ import {
   type ForkSummary,
   type HistoryMessage,
   type ImagePayload,
+  type ModelEntry,
   type Settings,
   type SseEvent,
   type Status,
@@ -236,6 +237,11 @@ class AppStore {
   /* 本轮资源变更条目（resource.change 事件更新，右上角 StatusCard 数据源；
      loop_start 清空——事件按需推送，不清会滞留上一轮的旧变更） */
   liveChanges = $state<string[]>([])
+  /* 会话审批模式（''=跟随安全配置 | off | strict；输入框切换器，实时生效） */
+  approveMode = $state('')
+  /* main 槽模型清单（输入框模型切换器；打开时懒加载） */
+  mainModels = $state<ModelEntry[]>([])
+  private modelsFetched = false
   settings = $state<Settings | null>(null)
   total = $state<TotalUsage>({ prompt: 0, completion: 0, cached: 0 })
 
@@ -375,6 +381,7 @@ class AppStore {
       }
       this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [], s.id)
       this.busy = s.busy
+      this.approveMode = s.approveMode ?? ''
       this.prevCursor = s.id
       // fork 就是 fork：对话内容不标注来源（体内副本自包含）；
       // 来源信息只在记忆页的会话树上展示
@@ -783,6 +790,52 @@ class AppStore {
       if (f.blocks.length === 0) f.blocks = this.buildBlocks(r.messages, r.decisions)
     } catch {
       f.loaded = false // 失败可重试
+    }
+  }
+
+  /* ── 审批模式 / 模型切换（输入框工具条） ── */
+
+  /* 审批三档（会话级，实时生效；loadHistory 按会话恢复） */
+  async setApproveMode(mode: '' | 'off' | 'strict') {
+    if (!this.activeId || mode === this.approveMode) return
+    const prev = this.approveMode
+    this.approveMode = mode
+    try {
+      await api.setApproveMode(this.activeId, mode)
+    } catch (e) {
+      this.approveMode = prev
+      this.lastStatus = `审批模式切换失败：${(e as Error).message}`
+    }
+  }
+
+  /* main 槽模型清单（切换器首次打开时拉取） */
+  async ensureModels() {
+    if (this.modelsFetched) return
+    try {
+      const m = await api.getModels()
+      this.mainModels = m.main ?? []
+      this.modelsFetched = true
+    } catch {
+      /* 下次打开再试 */
+    }
+  }
+
+  /* 切换主模型（下一次输入生效）：状态栏变更行提示（与资源变更同通道，
+     下轮 loop_start 清空——提示寿命与"待生效"窗口一致） */
+  async activateModel(name: string) {
+    if (!name || name === this.status?.model) return
+    try {
+      const { model: e } = await api.activateModel(name)
+      if (this.status) {
+        this.status.model = e.name
+        this.status.modelVision = !!e.vision
+      }
+      this.liveChanges = [
+        ...this.liveChanges.filter((x) => !x.startsWith('切换模型')),
+        `切换模型到 ${e.name}（${e.vision ? '支持视觉' : '不支持视觉'}）`,
+      ]
+    } catch (err) {
+      this.lastStatus = `模型切换失败：${(err as Error).message}`
     }
   }
 

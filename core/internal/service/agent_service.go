@@ -155,9 +155,34 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	}
 	s.SetSysP(sys)
 	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
+	// 主模型信息块：render 时现读快照——换模型 Reassemble 后闭包重装，system 每轮自动跟上
+	sys.SetModelFn(func() string {
+		m := a.Hub.ModelsSnapshot().ActiveMain()
+		if m == nil {
+			return ""
+		}
+		window := "未知"
+		if m.ContextWindow > 0 {
+			window = fmt.Sprintf("%d tokens", m.ContextWindow)
+		}
+		vision := "不支持（带图请求会自动省略图片；需要识别图片时告知用户在设置·模型切换到支持视觉的模型）"
+		if m.Vision {
+			vision = "支持（图片会作为输入进入上下文）"
+		}
+		return "<model>\n当前主模型：" + m.Name + "\n上下文窗口：" + window + "\n视觉输入：" + vision + "\n</model>"
+	})
 	s.Sess.BindSys(sys, main.Name)
 
-	approver, approveCh := approve.New(a.needsApprove)
+	// 审批三档（会话级，实时读取即改即生效）：off 全放行 / strict 全审 / '' 跟随安全配置
+	approver, approveCh := approve.New(func(c *types.ToolCall) bool {
+		switch s.ApproveMode() {
+		case "off":
+			return false
+		case "strict":
+			return true
+		}
+		return a.needsApprove(c)
+	})
 	asker, answerCh := askuser.New()
 
 	window := main.ContextWindow
@@ -198,6 +223,18 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		termsBrief,
 		tabsBrief,
 	)
+	// 主模型摘要（快照行 + 变更基线共用）：换模型 Reassemble 后读新快照，
+	// 轮首 diff 出「切换模型到 …」与 skill/mcp 同通道进上下文
+	remindHook.SetModelBrief(func() string {
+		m := a.Hub.ModelsSnapshot().ActiveMain()
+		if m == nil || m.Name == "" {
+			return ""
+		}
+		if m.Vision {
+			return m.Name + "（支持视觉）"
+		}
+		return m.Name + "（不支持视觉）"
+	})
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
 		window*st.TrimPercent/100,             // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
@@ -552,21 +589,17 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 			}
 		}
 	}
-	if len(st.DisabledSkills) > 0 {
-		kept := skills[:0]
-		for _, sk := range skills {
-			if !slices.Contains(st.DisabledSkills, hooks.SkillDirOf(sk.Path)) {
-				kept = append(kept, sk)
-			}
-		}
-		skills = kept
-	}
 	if len(skills) > 0 {
 		b.WriteString("\n\n<skills>\n（可用技能清单，以此为准，不要读取 memory/skills 目录来发现技能；" +
 			"技能正文在 " + memRoot + "/skills/<名>/SKILL.md，可用文件工具编辑，改动下个 session 生效，" +
-			"轮内变更见 <resource_change>；使用前先调用 load_skill 获取完整指令与脚本路径。" +
+			"轮内变更（新增/移除/启用/停用）见 <resource_change>；使用前先调用 load_skill 获取完整指令与脚本路径。" +
 			"标注〔内建〕的技能随应用分发，正文同样可 load_skill 查看）")
+		var offNames []string
 		for _, sk := range skills {
+			if slices.Contains(st.DisabledSkills, hooks.SkillDirOf(sk.Path)) {
+				offNames = append(offNames, sk.Name)
+				continue
+			}
 			desc := sk.Description
 			if desc == "" {
 				desc = "（无描述）"
@@ -576,6 +609,12 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS) stri
 				mark = "〔内建〕"
 			}
 			fmt.Fprintf(&b, "\n- %s%s: %s", sk.Name, mark, desc)
+		}
+		// 停用的只报名字（省上下文）：存在但 load_skill 会拒绝，模型不去调用也不会翻目录找
+		if len(offNames) > 0 {
+			slices.Sort(offNames)
+			b.WriteString("\n已停用（存在但不可用，load_skill 会拒绝，不要尝试；用户需要时会在记忆页启用）：" +
+				strings.Join(offNames, "、"))
 		}
 		b.WriteString("\n</skills>")
 	}

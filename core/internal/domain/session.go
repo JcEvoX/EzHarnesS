@@ -85,6 +85,7 @@ type Session struct {
 	snapAcc     map[string]*StreamSnapshot // forkID → in-flight 流累积快照（chunk 到达即累积）
 	snapIdx     map[string]int             // forkID → 快照帧在 turnFrames 的下标
 	snapFlushed map[string]int             // forkID → 上次序列化时的内容规模
+	approveMode string                     // 审批模式（''=跟随安全配置 | off | strict；needsApprove 实时读取）
 }
 
 /* Attach 注入装配产物（service 层构造，领域持有引用）。 */
@@ -99,6 +100,26 @@ func (s *Session) Wired() *Wiring {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.wired
+}
+
+/* ApproveMode 返回会话审批模式（''=跟随安全配置 | off=无审批 | strict=严格审批）。 */
+func (s *Session) ApproveMode() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.approveMode
+}
+
+/* SetApproveMode 设置审批模式（白名单外回落跟随）并同步落盘侧（轮末随 session.json 持久化）。 */
+func (s *Session) SetApproveMode(m string) {
+	switch m {
+	case "off", "strict":
+	default:
+		m = ""
+	}
+	s.mu.Lock()
+	s.approveMode = m
+	s.mu.Unlock()
+	s.Sess.SetApproveMode(m)
 }
 
 /* History 返回消息历史副本。 */
@@ -822,6 +843,7 @@ func (s *Session) restoreFrom(snap *hooks.SessionSnap) {
 		s.SetCtxTokens(hooks.LastCtxTokens(snap.Messages))
 	}
 	s.Sess.SetLineRoot(s.RootID)
+	s.SetApproveMode(snap.ApproveMode)
 	s.Sess.SetEdge(hooks.SnapEdge{
 		TargetID: snap.TargetID, Anchor: snap.Anchor,
 		SeedKind: snap.SeedKind, ForkedFrom: snap.ForkedFrom,

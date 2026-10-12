@@ -58,12 +58,14 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/sessions/:id/notifications/dismiss", c.Chat.DismissNotification)
 		api.POST("/sessions/:id/messages", c.Chat.SendMessage)
 		api.POST("/sessions/:id/cancel", c.Chat.CancelTurn)
+		api.POST("/sessions/:id/approve-mode", c.Session.SetApproveMode) // 三档审批（实时生效）
 		api.POST("/sessions/:id/fork", c.Topics.ForkBranch) // :id=源会话，body{anchor}复制前缀开新线
 
 		api.GET("/settings", c.Settings.GetSettings)
 		api.POST("/settings", c.Settings.UpdateSettings)
 		api.GET("/models", c.Settings.GetModels)
 		api.POST("/models", c.Settings.UpdateModels)
+		api.POST("/models/activate", c.Settings.ActivateModel) // 主模型切换（输入框选择器；下一次输入生效）
 		api.GET("/security", c.Settings.GetSecurity)
 		api.POST("/security", c.Settings.UpdateSecurity)
 		api.GET("/memory", c.Settings.GetMemory)

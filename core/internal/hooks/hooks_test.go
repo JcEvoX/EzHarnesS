@@ -319,3 +319,84 @@ func TestStoreOnEndSanitizesCorruptedArgs(t *testing.T) {
 		t.Fatalf("persisted args should carry corruption marker, got %s", snap.Messages[1].ToolCalls[0].Args)
 	}
 }
+
+/* 技能启停也是变更：停用报"停用技能"并从 available 清单消失，再启用报"启用技能"。 */
+func TestRemindSkillToggleChanges(t *testing.T) {
+	ctx := context.Background()
+	fsys := memFS{}
+	_ = fsys.Write(ctx, "memory/skills/pdf/SKILL.md", []byte("---\nname: pdf\ndescription: PDF 处理\n---\n步骤"))
+	store := NewStore(fsys, "t1")
+	disabled := func() []string { return nil }
+	h := NewRemind(fsys, store, func() int { return 0 }, 1000, nil, func() []string { return disabled() }, nil, nil)
+	state1 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}})
+	if err := h.OnStart(ctx, state1); err != nil {
+		t.Fatal(err)
+	} // 首轮建基线（启用）
+
+	disabled = func() []string { return []string{"pdf"} }
+	state2 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}, {Role: types.RoleUser, Content: "q2"}})
+	if err := h.OnStart(ctx, state2); err != nil {
+		t.Fatal(err)
+	}
+	change := state2.Messages[1].Content
+	if !strings.Contains(change, "停用技能 pdf") || strings.Contains(change, "available_skill: pdf") {
+		t.Fatalf("disable round wrong: %q", change)
+	}
+
+	disabled = func() []string { return nil }
+	state3 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}, {Role: types.RoleUser, Content: "q3"}})
+	if err := h.OnStart(ctx, state3); err != nil {
+		t.Fatal(err)
+	}
+	change3 := state3.Messages[1].Content
+	if !strings.Contains(change3, "启用技能 pdf") || !strings.Contains(change3, "available_skill: pdf") {
+		t.Fatalf("enable round wrong: %q", change3)
+	}
+}
+
+/* 旧格式基线（V<2）视为未建：静默重建为 V2，不把存量状态误报成变更。 */
+func TestRemindLegacySnapshotRebuild(t *testing.T) {
+	ctx := context.Background()
+	fsys := memFS{}
+	_ = fsys.Write(ctx, "memory/skills/pdf/SKILL.md", []byte("---\nname: pdf---\n步骤"))
+	store := NewStore(fsys, "t1")
+	store.SetResSnap(&ResSnapshot{V: 1, Skills: []string{"pdf"}})
+	h := NewRemind(fsys, store, func() int { return 0 }, 1000, nil, func() []string { return []string{"pdf"} }, nil, nil)
+	state := newTestState([]types.Message{{Role: types.RoleUser, Content: "q"}})
+	if err := h.OnStart(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range state.Messages {
+		if strings.Contains(m.Content, "<"+ResChangeTag+">") {
+			t.Fatalf("legacy snapshot must rebuild silently, got change: %q", m.Content)
+		}
+	}
+	snap := store.ResSnap()
+	if snap.V != resSnapV || len(snap.SkillsOff) != 1 || snap.SkillsOff[0] != "pdf" {
+		t.Fatalf("rebuilt baseline wrong: %+v", snap)
+	}
+}
+
+/* 模型切换进 resource_change：轮间换模型（brief 变化）→ 条目「切换模型到 …」。 */
+func TestRemindModelSwitchChange(t *testing.T) {
+	ctx := context.Background()
+	fsys := memFS{}
+	store := NewStore(fsys, "t1")
+	brief := "m-a（支持视觉）"
+	h := NewRemind(fsys, store, func() int { return 0 }, 1000, nil, nil, nil, nil)
+	h.SetModelBrief(func() string { return brief })
+	state1 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}})
+	if err := h.OnStart(ctx, state1); err != nil {
+		t.Fatal(err)
+	} // 首轮建基线（含模型）
+
+	brief = "m-b（不支持视觉）"
+	state2 := newTestState([]types.Message{{Role: types.RoleUser, Content: "q1"}, {Role: types.RoleUser, Content: "q2"}})
+	if err := h.OnStart(ctx, state2); err != nil {
+		t.Fatal(err)
+	}
+	change := state2.Messages[1].Content
+	if !strings.Contains(change, "切换模型到 m-b（不支持视觉）") {
+		t.Fatalf("model switch change missing: %q", change)
+	}
+}
