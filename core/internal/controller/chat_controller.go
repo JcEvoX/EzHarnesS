@@ -27,7 +27,8 @@ const sseHeartbeatInterval = 20 * time.Second
 
 /* ChatController 对话表现层。 */
 type ChatController struct {
-	Svc *service.ChatService
+	Svc    *service.ChatService
+	Memory *service.MemoryService // 通知聚合：记忆待确认操作（跨会话全局）
 }
 
 /*
@@ -228,6 +229,14 @@ func (c *ChatController) Notifications(g *gin.Context) {
 		}
 		sort.Slice(items, func(i, j int) bool { return items[i].Ts > items[j].Ts })
 		out = append(out, noticeGroup{RootID: s.Root(), Items: items})
+	}
+	// 记忆待确认操作是全局的（不隶属分支）：独立一组，点击在通知内处理；
+	// 组内同样按时间降序（与其他组一致：新的在前），组间比较才正确
+	if c.Memory != nil {
+		if items := c.Memory.MemoryPendingNotices(g.Request.Context()); len(items) > 0 {
+			sort.Slice(items, func(i, j int) bool { return items[i].Ts > items[j].Ts })
+			out = append(out, noticeGroup{RootID: "memory", Items: items})
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Items[0].Ts > out[j].Items[0].Ts

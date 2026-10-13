@@ -35,3 +35,6 @@ data/
 # 内建技能的嵌入资源是源码（上面的 skills/ 规则只针对运行时用户技能目录）
 !core/internal/builtinskill/skills/
 !core/internal/builtinskill/skills/**
+
+# 运行时记忆目录（cwd=包目录跑测试时的残留）
+core/internal/hooks/memory/

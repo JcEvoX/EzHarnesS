@@ -1,9 +1,18 @@
-/* 记忆树目录布局、入口模板与初始化（注入走 buildSystemBase 的 <memory> 段）。 */
+/*
+记忆树目录布局与条目式存储（注入走 buildSystemBase 的 <memory> 段）：
+user/soul 是条目集合（数据库式，唯一键 ID 一条条），项目记忆 = 索引
+（projects.json）+ 每项目一个全文 md。agent 侧读写只能走 memory 工具，
+用户侧在记忆页结构化编辑——两端共用本存储层。
+*/
 package hooks
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xuanlv2002/ezloop/ext/fs"
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
@@ -11,13 +20,12 @@ import (
 
 /* 记忆体系目录布局（工作目录相对）。 */
 const (
-	MemoryDir   = "memory"
-	LongtermDir = "memory/longterm"
-	SkillsDir   = "memory/skills"
-	HarnessMd   = LongtermDir + "/harness.md" // 记忆入口：树说明 + 读写纪律（常驻）
-	UserMd      = LongtermDir + "/user.md"    // 用户个人信息（常驻）
-	SoulMd      = LongtermDir + "/soul.md"    // agent 工作习惯（常驻）
-	ProjectMd   = LongtermDir + "/project.md" // 项目记忆索引（常驻）
+	MemoryDir    = "memory"
+	LongtermDir  = "memory/longterm"
+	SkillsDir    = "memory/skills"
+	UserJson     = LongtermDir + "/user.json"     // 用户个人信息（条目式）
+	SoulJson     = LongtermDir + "/soul.json"     // agent 工作习惯（条目式）
+	ProjectsJson = LongtermDir + "/projects.json" // 项目索引（条目式）
 )
 
 /* SkillDirOf 从 SKILL.md 路径提取技能目录名（技能的稳定身份）。 */
@@ -25,28 +33,106 @@ func SkillDirOf(path string) string {
 	return skill.DirOf(path)
 }
 
-/* DefaultHarnessMd 是记忆入口文件的初始模板（缺失时落盘，此后归 agent 维护）。 */
-const DefaultHarnessMd = `# ezharness 长期记忆入口
+/* MemoryItem 是 user/soul 的一条记忆（唯一键 ID，前缀 u/s 区分目标）。 */
+type MemoryItem struct {
+	ID        string    `json:"id"`
+	Text      string    `json:"text"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
 
-记忆树（四个文件都在本文件同目录；各自绝对路径见 system <memory> 段的段标题，
-文件工具一律用其给出的绝对路径）：
-- user.md — 用户个人信息：偏好与习惯、背景、工作环境、约定（归档时系统自动沉淀）
-- soul.md — agent 自己的工作习惯：本环境下顺手的做法、工具与验证方式偏好（归档时系统自动沉淀）
-- project.md — 项目记忆索引：一行一个项目（- 项目名 — 项目描述 | 记忆: 记忆文件绝对地址）
-- project-<名>.md — 单个项目的记忆（背景、约定、进度），按需读取
+/* ProjectEntry 是项目索引条目；记忆全文在 project-<id>.md。 */
+type ProjectEntry struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
 
-读写纪律：
-- user/soul/项目索引随上下文常驻；project-<名>.md 相关时才 read_file，不主动全读
-- 对话中出现值得长期保留的用户信息或工作习惯，直接编辑 user.md/soul.md，无需声明
-- 项目记忆：判断值得跨会话保留时写 project-<名>.md（同目录），并在 project.md 加/改索引行；项目结束或信息过时及时更新
-- 更新一律覆盖式：读旧全文 → 融合新信息 → 写新全文；宁精勿杂，过时即删
-`
-
-/* EnsureHarnessMd 确保记忆入口文件存在（缺失写默认模板），返回当前内容。 */
-func EnsureHarnessMd(ctx context.Context, fsys fs.FileSystem) string {
-	if data, err := fsys.Read(ctx, HarnessMd); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-		return string(data)
+/* LoadItems 读条目文件（缺失/空文件=空集合）。 */
+func LoadItems(ctx context.Context, fsys fs.FileSystem, path string) ([]MemoryItem, error) {
+	data, err := fsys.Read(ctx, path)
+	if err != nil || len(data) == 0 {
+		return nil, nil
 	}
-	_ = fsys.Write(ctx, HarnessMd, []byte(DefaultHarnessMd))
-	return DefaultHarnessMd
+	var items []MemoryItem
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, fmt.Errorf("memory items %s: %w", path, err)
+	}
+	return items, nil
+}
+
+/* SaveItems 写条目文件。 */
+func SaveItems(ctx context.Context, fsys fs.FileSystem, path string, items []MemoryItem) error {
+	b, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsys.Write(ctx, path, b)
+}
+
+/* LoadProjects 读项目索引（缺失=空）。 */
+func LoadProjects(ctx context.Context, fsys fs.FileSystem) ([]ProjectEntry, error) {
+	data, err := fsys.Read(ctx, ProjectsJson)
+	if err != nil || len(data) == 0 {
+		return nil, nil
+	}
+	var projects []ProjectEntry
+	if err := json.Unmarshal(data, &projects); err != nil {
+		return nil, fmt.Errorf("memory projects: %w", err)
+	}
+	return projects, nil
+}
+
+/* SaveProjects 写项目索引。 */
+func SaveProjects(ctx context.Context, fsys fs.FileSystem, projects []ProjectEntry) error {
+	b, err := json.MarshalIndent(projects, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsys.Write(ctx, ProjectsJson, b)
+}
+
+/* MaxItemNumber 返回同前缀条目的最大序号（0=无）。 */
+func MaxItemNumber(items []MemoryItem, prefix string) int {
+	max := 0
+	for _, it := range items {
+		if n, err := strconv.Atoi(strings.TrimPrefix(it.ID, prefix)); err == nil && n > max {
+			max = n
+		}
+	}
+	return max
+}
+
+/* NextItemID 生成下一条目 id：同前缀现有最大序号 +1（u3/s7）。 */
+func NextItemID(items []MemoryItem, prefix string) string {
+	return fmt.Sprintf("%s%d", prefix, MaxItemNumber(items, prefix)+1)
+}
+
+/* ProjectContentPath 项目记忆全文路径。 */
+func ProjectContentPath(id string) string {
+	return LongtermDir + "/project-" + id + ".md"
+}
+
+/*
+ProjectSlug 规范项目标识：小写、空白与下划线转连字符、去文件名非法
+字符（保留中英文数字与连字符），压缩连续连字符，截 64 字符。
+*/
+func ProjectSlug(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-',
+			r >= 0x4e00 && r <= 0x9fff:
+			b.WriteRune(r)
+		case r == ' ' || r == '_' || r == '\t':
+			b.WriteRune('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
+	if len(out) > 64 {
+		out = out[:64]
+	}
+	return out
 }

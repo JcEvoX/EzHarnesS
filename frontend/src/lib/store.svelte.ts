@@ -69,7 +69,7 @@ export interface DecisionData {
 export interface NoticeData {
   id: string // 决策回传键（工具调用 ID）
   rootId: string // 所属分支根（跳转与决策端点路由键）
-  kind: 'approve' | 'ask' | 'info' | 'mcp_auth'
+  kind: 'approve' | 'ask' | 'info' | 'mcp_auth' | 'memory'
   source: string // 'agent'、分支名或 fork 标识
   forkId: string // 非空＝分身请求：跳转打开分身抽屉而非主时间线
   title: string
@@ -77,7 +77,8 @@ export interface NoticeData {
   time: string
   status: 'pending' | 'done'
   resolution: string
-  target: string // 时间线跳转锚点（decision-<id>）
+  target: string // 时间线跳转锚点（decision-<id>）；本地记忆通知用 'memory-view'
+  local?: boolean // 本地生成（非后端轮询来源）：refreshNotices 不覆盖、dismiss 不回传
 }
 
 /* 消息锚点（分叉定位）：owner=消息所属 session ID（leaf 或上翻出的旧世代），
@@ -197,6 +198,7 @@ class AppStore {
   blocks = $state<Block[]>([])
   forks = $state<Record<string, ForkState>>({})
   notices = $state<NoticeData[]>([])
+  jumpView = $state<'' | 'memory'>('') // 通知跳页请求（App 消费后清空）
   lastTool = $state('')
   busy = $state(false)
   archivingRootId = $state('') // 归档进行中的分支（线根 ID，空=无）：锁该分支输入与按钮
@@ -846,6 +848,11 @@ class AppStore {
     }
   }
 
+  /* 模型清单失效（设置页增删改后调用）：清缓存，下次打开切换器重新拉取 */
+  invalidateModels() {
+    this.modelsFetched = false
+  }
+
   /* 切换主模型（下一次输入生效）：状态栏变更行提示（与资源变更同通道，
      下轮 loop_start 清空——提示寿命与"待生效"窗口一致） */
   async activateModel(name: string) {
@@ -1278,17 +1285,19 @@ class AppStore {
             time: new Date(it.ts || Date.now()).toTimeString().slice(0, 5),
             status: done ? 'done' : 'pending',
             resolution: done ? '已完成' : '',
-            target: done ? '' : `decision-${it.callId}`,
+            target: done || it.kind === 'memory' ? '' : `decision-${it.callId}`,
           })
         }
       }
+      const local = this.notices.filter((n) => n.local)
+      const remote = this.notices.filter((n) => !n.local)
       const same =
-        out.length === this.notices.length &&
+        out.length === remote.length &&
         out.every((n, i) => {
-          const c = this.notices[i]
+          const c = remote[i]
           return c.id === n.id && c.rootId === n.rootId && c.detail === n.detail && c.time === n.time
         })
-      if (!same) this.notices = out
+      if (!same) this.notices = [...local, ...out]
       // 当前会话的完成通知即刻已读（正在看它，不必刷红点）
       this.readCompletions(this.activeId)
     } catch {
@@ -1299,6 +1308,18 @@ class AppStore {
   /* resolveNoticeGlobal 通知栏内联决策：按通知携带的分支直接回传（不依赖
   当前分支的时间线）。乐观移除在前（点击即消失），失败则刷新恢复真实状态。 */
   async resolveNoticeGlobal(n: NoticeData, action: string, input?: string) {
+    // 记忆待确认：确认应用/取消丢弃（全局端点，非分支决策）
+    if (n.kind === 'memory') {
+      this.notices = this.notices.filter((x) => x.id !== n.id)
+      try {
+        const r = await api.decideMemoryPending(n.id, action === 'accept')
+        this.lastStatus = r.result
+      } catch (e) {
+        this.lastStatus = `记忆操作处理失败：${(e as Error).message}`
+      }
+      await this.refreshNotices()
+      return
+    }
     // MCP 授权：通知栏直接跑流程并回传决策（多为后台分支，无时间线卡）
     if (n.kind === 'mcp_auth') {
       void this.resolveNoticeMcpAuth(n, action === 'authorize')
@@ -1317,6 +1338,11 @@ class AppStore {
   切换（等待历史加载），分身请求打开抽屉定位，主时间线经 jumpMain 锚点
   由 ChatView 滚动。 */
   async jumpToNoticeRef(ref: Pick<NoticeData, 'rootId' | 'forkId' | 'id' | 'target'>) {
+    if (ref.target === 'memory-view') {
+      // 本地记忆通知：打开记忆页（用户查看即确认，关闭通知条即已读）
+      this.jumpView = 'memory'
+      return
+    }
     if (ref.rootId && ref.rootId !== this.activeId) await this.openTab(ref.rootId)
     if (!ref.target) return // 完成通知：切到该会话即可，无时间线锚点
     if (ref.forkId) {
@@ -1334,8 +1360,8 @@ class AppStore {
   dismissNotice(id: string) {
     const n = this.notices.find((x) => x.id === id)
     this.notices = this.notices.filter((x) => x.id !== id)
-    // 完成通知（info）在服务端置空——否则下一轮轮询又拉回来
-    if (n?.kind === 'info') void api.dismissNotification(n.rootId, n.id).catch(() => this.refreshNotices())
+    // 完成通知（info）在服务端置空——否则下一轮轮询又拉回来；本地通知无服务端对应
+    if (n?.kind === 'info' && !n.local) void api.dismissNotification(n.rootId, n.id).catch(() => this.refreshNotices())
   }
 
   /* activate 切换活动会话（分支三操作/分叉/新建/引导都走它）：该会话的完成
@@ -1763,6 +1789,27 @@ class AppStore {
         if (!items.length) break
         this.liveChanges = items
         this.insertBeforeLastUser({ kind: 'resourcechange', uid: this.nuid(), items })
+        // 记忆变更进通知栏（本地条目，点击打开记忆页确认）
+        const memItems = items.filter((s) => /^(新增|更新|移除)(项目)?记忆 /.test(s))
+        if (memItems.length) {
+          this.notices = [
+            {
+              id: `memory-${Date.now()}`,
+              rootId: this.activeId,
+              kind: 'info',
+              source: 'agent',
+              forkId: '',
+              title: '记忆已更新',
+              detail: memItems.join('；'),
+              time: new Date().toTimeString().slice(0, 5),
+              status: 'pending',
+              resolution: '',
+              target: 'memory-view',
+              local: true,
+            },
+            ...this.notices,
+          ]
+        }
         break
       }
       case 'status.snapshot': {

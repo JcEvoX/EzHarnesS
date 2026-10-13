@@ -27,7 +27,20 @@
     ask: { label: '询问', icon: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/><path d="M12 17h.01"/>' },
     info: { label: '通知', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 11v5"/>' },
     mcp_auth: { label: '认证', icon: '<circle cx="8" cy="15" r="4"/><path d="M11 12l7-7M16 5l2 2M14 7l2 2"/>' },
+    memory: { label: '记忆', icon: '<path d="M12 3a4 4 0 0 0-4 4c0 1.1.45 2.1 1.17 2.83L12 12l2.83-2.17A4 4 0 0 0 12 3z"/><path d="M5 8h14l1 12H4L5 8z"/>' },
   }
+
+  /* 记忆待确认：点击行展开详情全文（确认前查看完整内容） */
+  let memExpanded = $state<Set<string>>(new Set())
+  function toggleMemoryDetail(id: string) {
+    const s = new Set(memExpanded)
+    if (s.has(id)) s.delete(id)
+    else s.add(id)
+    memExpanded = s
+  }
+  /* detail = 摘要首行 + 正文：行内只显示摘要，展开才给正文（不重复堆叠） */
+  const memSummary = (n: NoticeData) => (n.detail || '').split('\n')[0]
+  const memBody = (n: NoticeData) => (n.detail || '').split('\n').slice(1).join('\n').trim()
 
   let answers = $state<Record<string, string>>({})
 
@@ -91,7 +104,15 @@
     <div class="list">
       {#each notices as n (`${n.rootId}:${n.id}`)}
         <div class="notice" class:pending={n.status === 'pending'} class:done={n.status === 'done'}>
-          <div class="row" role={n.rootId ? 'button' : undefined} tabindex="0" onclick={() => n.rootId && onJump?.(n)}>
+          <div
+            class="row"
+            role={n.rootId ? 'button' : undefined}
+            tabindex="0"
+            onclick={() => {
+              if (n.kind === 'memory') toggleMemoryDetail(n.id)
+              else n.rootId && onJump?.(n)
+            }}
+          >
             <span class="kind-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 {@html kindMeta[n.kind].icon}
@@ -105,10 +126,17 @@
                 {/if}
               </span>
               {#if n.detail}
-                <span class="detail">{n.detail}</span>
+                <span class="detail">{n.kind === 'memory' ? memSummary(n) : n.detail}</span>
               {/if}
             </div>
             <span class="time">{n.time}</span>
+            {#if n.kind === 'memory'}
+              <span class="exp" class:on={memExpanded.has(n.id)} title={memExpanded.has(n.id) ? '收起详情' : '展开详情'}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </span>
+            {/if}
             {#if n.status === 'done'}
               <button class="close" onclick={() => onDismiss?.(n.id)} title="关闭通知">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -118,9 +146,16 @@
             {/if}
           </div>
 
+          {#if n.kind === 'memory' && memExpanded.has(n.id) && memBody(n)}
+            <pre class="memfull">{memBody(n)}</pre>
+          {/if}
+
           {#if n.status === 'pending'}
             <div class="actions">
-              {#if n.kind === 'mcp_auth'}
+              {#if n.kind === 'memory'}
+                <button class="btn ok" onclick={() => onResolve?.(n.id, 'accept')}>确认</button>
+                <button class="btn no" onclick={() => onResolve?.(n.id, 'cancel')}>取消</button>
+              {:else if n.kind === 'mcp_auth'}
                 <button class="btn ok" onclick={() => onResolve?.(n.id, 'authorize')}>去授权</button>
                 <button class="btn no" onclick={() => onResolve?.(n.id, 'cancel')}>取消</button>
               {:else if n.kind === 'approve'}
@@ -403,6 +438,44 @@
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
+  }
+  /* 记忆待确认：行尾展开箭头（收起/展开详情） */
+  .exp {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    color: var(--faint);
+    transition:
+      transform var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .exp.on {
+    transform: rotate(180deg);
+    color: var(--accent);
+  }
+  .exp svg {
+    width: 11px;
+    height: 11px;
+  }
+  /* 记忆待确认展开正文：安静的一块，不要花哨描边（行内摘要已给上下文） */
+  .memfull {
+    margin: 0;
+    padding: 9px 11px;
+    max-height: 220px;
+    overflow: auto;
+    font-family: inherit;
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: var(--muted);
+    background: var(--bg-soft);
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
   }
   .actions input {
     flex: 1;

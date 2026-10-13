@@ -25,7 +25,6 @@ import (
 	"ezharness/core/internal/config"
 
 	"github.com/xuanlv2002/ezloop/core"
-	"github.com/xuanlv2002/ezloop/ext/fs"
 	"github.com/xuanlv2002/ezloop/ext/hook/approve"
 	"github.com/xuanlv2002/ezloop/ext/hook/askuser"
 	"github.com/xuanlv2002/ezloop/ext/hook/contextfix"
@@ -146,27 +145,32 @@ func absSkillsDir() string {
 	return filepath.ToSlash(abs)
 }
 
-/* stripTitle 剥首行 markdown 标题（段标题已标注来源，文件头再写一遍是冗余）。 */
-func stripTitle(s string) string {
-	if !strings.HasPrefix(s, "#") {
-		return s
+/* renderMemoryItems 渲染条目集合为 "- [id] text（更新于 YYYY-MM-DD）" 行
+（按更新时间新→旧排序；空集合给占位符）。 */
+func renderMemoryItems(items []hooks.MemoryItem) string {
+	if len(items) == 0 {
+		return "（暂无）"
 	}
-	if i := strings.IndexByte(s, '\n'); i > 0 {
-		if body := strings.TrimSpace(s[i+1:]); body != "" {
-			return body
-		}
+	sorted := make([]hooks.MemoryItem, len(items))
+	copy(sorted, items)
+	slices.SortStableFunc(sorted, func(a, b hooks.MemoryItem) int {
+		return b.UpdatedAt.Compare(a.UpdatedAt) // 新的在前
+	})
+	var b strings.Builder
+	for _, it := range sorted {
+		b.WriteString("- [" + it.ID + "] " + strings.ReplaceAll(it.Text, "\n", " ") + memoryUpdatedHint(it.UpdatedAt) + "\n")
 	}
-	return ""
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
-/* readMemo 读常驻记忆文件内容（剥首行标题；缺失或空给占位符）。 */
-func readMemo(ctx context.Context, fsys fs.FileSystem, path string) string {
-	if data, err := fsys.Read(ctx, path); err == nil {
-		if s := stripTitle(strings.TrimSpace(string(data))); s != "" {
-			return s
-		}
+/* memoryUpdatedHint 渲染条目的更新日期（零值给空）。给绝对日期而非"距今
+X"：system 段每 session 组装一次并固化，相对时长会随对话进行越变越不准，
+绝对日期永不漂移，由模型自己与每轮 <agent_status> 的当前时间比对。 */
+func memoryUpdatedHint(t time.Time) string {
+	if t.IsZero() {
+		return ""
 	}
-	return "（暂无）"
+	return "（更新于 " + t.Format("2006-01-02") + "）"
 }
 
 /* Assemble 按配置装配 agent 并注入会话（主模型取 models 四槽 main 启用条目）。 */
@@ -306,6 +310,8 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		func() []domain.ModelEntry { return allModelEntries(a.Hub.ModelsSnapshot()) },
 		func() *domain.ModelEntry { return a.Hub.ModelsSnapshot().ActiveMain() },
 		OneShotInvoke))
+	// memory：长期记忆唯一写入通道（提案制，用户在记忆页审阅）
+	agentTools = append(agentTools, tools.Memory(s.Fsys))
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
 	}
@@ -313,7 +319,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
-		"model_call", "term_tab", "term_action",
+		"model_call", "memory", "term_tab", "term_action",
 		"browser_tab", "browser_action",
 	}
 	mcpHook, mcpAuthCh := NewMcpHook(context.Background(), s.Fsys, a.McpRouter, a.McpAuth)
@@ -588,7 +594,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
 		"能用工具就用工具，回答简洁。" +
 		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动（需要后端进程的见 quick-app 技能）。" +
-		"重要的用户偏好与事实可写入长期记忆（结构见 <memory> 块）。" +
+		"重要的用户偏好与事实用 memory 工具随手读写长期记忆（结构见 <memory> 块）。" +
 		"接任务先看 <action> 行动准则；给用户的可点击入口与输出格式遵守 <output>。")
 	if st.SystemExtra != "" {
 		b.WriteString("\n\n" + st.SystemExtra)
@@ -602,7 +608,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		"# 工作区：三个可写位置\n" +
 		"# " + p("workspace") + "   工作目录，草稿/脚本/命令产物一律放这里（terminal 默认执行目录：" + filepath.ToSlash(workDir) + "）；" +
 		"其下 tmp/ 是用户上传附件的暂存处，需要附件内容时用 read_file 按路径读取（图片会作为图片消息进入你的上下文，无需调用识别工具）\n" +
-		"# " + memRoot + "/longterm   长期记忆（user.md/soul.md/project-<名>.md，结构见 <memory> 段，读写按其纪律）\n" +
+		"# 长期记忆——不提供路径（读写纪律见 <memory> 段：写入只走 memory 工具提案，项目记忆按索引行地址读取）\n" +
 		"# " + memRoot + "/skills     技能库：每技能一个子目录（SKILL.md 指令 + scripts/ 脚本），新建后下个 session 进清单\n" +
 		"# " + p("apps") + "   快应用目录：每个应用一个子目录（声明 app.quick + 前端 + 可选后端脚本），构建约定见 quick-app 技能\n" +
 		"# 行为规则（不需要记路径，按规则做即可）：\n" +
@@ -617,13 +623,29 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		"# - terminal 每条命令是独立进程（cd 不跨命令保留）；所有文件读写与命令一律绝对路径，临时文件不要丢在工作目录外。\n" +
 		"# - 定时等待用 sleep 工具（真阻塞，用户停止即中断）；terminal/term_action send 里跑 timeout 之类的睡眠命令在 Windows 下立即退出，等不住。\n" +
 		"</workspace>")
-	ltRoot := memRoot + "/longterm"
+	userItems, _ := hooks.LoadItems(ctx, fsys, hooks.UserJson)
+	soulItems, _ := hooks.LoadItems(ctx, fsys, hooks.SoulJson)
+	projects, _ := hooks.LoadProjects(ctx, fsys)
+	var projLines strings.Builder
+	if len(projects) == 0 {
+		projLines.WriteString("（暂无）")
+	} else {
+		for _, pr := range projects {
+			projLines.WriteString("- " + pr.ID + " — " + pr.Name + " — " + pr.Description + "\n")
+		}
+	}
 	b.WriteString("\n\n<memory>\n" +
-		"# 长期记忆（记忆树，入口 " + ltRoot + "/harness.md）\n" +
-		stripTitle(hooks.EnsureHarnessMd(ctx, fsys)) +
-		"\n\n# " + ltRoot + "/user.md（用户个人信息）\n" + readMemo(ctx, fsys, hooks.UserMd) +
-		"\n\n# " + ltRoot + "/soul.md（agent 工作习惯）\n" + readMemo(ctx, fsys, hooks.SoulMd) +
-		"\n\n# " + ltRoot + "/project.md（项目索引）\n" + readMemo(ctx, fsys, hooks.ProjectMd) +
+		"# 长期记忆（条目式，按更新时间新→旧排；[id] 标注；条目后的「更新于 YYYY-MM-DD」是最近更新时间——" +
+		"与当前时间（每轮见 <agent_status> 的「当前时间」）比对，间隔过久的当作可能已漂移的旧信息；" +
+		"项目详情按 id 用 memory 工具 project-read 读取）\n" +
+		"# user（用户个人信息）\n" + renderMemoryItems(userItems) +
+		"\n# soul（agent 工作习惯）\n" + renderMemoryItems(soulItems) +
+		"\n# project（项目索引：id — 名称 — 描述）\n" + strings.TrimSuffix(projLines.String(), "\n") +
+		"\n# 读写纪律（现行，优先级最高）\n" +
+		"# - 记忆只能用 memory 工具读写：条目 add/update/remove（target=user|soul，id 用上面的标注），项目 project-save/project-remove/project-read；不可用文件工具读写 memory/ 下任何文件\n" +
+		"# - 提交的变更先存待确认区，用户在通知栏确认后才生效（取消即丢弃）：同一条信息不要重复提交，生效与否以下一轮 resource_change 为准\n" +
+		"# - 发现值得长期保留的用户信息或工作习惯随手提交；过时条目随手提交 remove，宁精勿杂\n" +
+		"# - 归档时系统也会自动生成记忆修改方案（同样待用户确认）\n" +
 		"\n</memory>")
 	skills := builtinskill.Skills()
 	if user, err := skill.LoadDir(ctx, fsys, hooks.SkillsDir); err == nil {

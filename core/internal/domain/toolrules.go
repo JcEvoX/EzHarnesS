@@ -62,6 +62,7 @@ func DefaultToolRules() []ToolRule {
 		{Key: "task", Level: LevelAuto},
 		{Key: "save_app", Level: LevelAuto},
 		{Key: "sleep", Level: LevelAuto},
+		{Key: "memory", Level: LevelAuto}, // 提案本身即待审（用户在记忆页审阅），双重审批无意义
 		{Key: "ask_user", Level: LevelAuto},
 		{Key: "trim_context", Level: LevelAuto},
 		{Key: "load_skill", Level: LevelAuto},

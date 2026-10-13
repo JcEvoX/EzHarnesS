@@ -13,9 +13,12 @@ package hooks
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
+	"strings"
 
+	"github.com/xuanlv2002/ezloop/ext/fs"
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 
 	"ezharness/core/internal/builtinskill"
@@ -68,6 +71,10 @@ func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps
 		sort.Slice(models, func(i, j int) bool { return models[i].Name < models[j].Name })
 	}
 
+	// 长期记忆基线（memory 工具轮内改 / distill 归档应用，下轮 diff 出变更）
+	memSigs := memorySignatures(ctx, h.fsys)
+	projSigs := projectSignatures(ctx, h.fsys)
+
 	prev := h.store.ResSnap()
 	curModel := ""
 	if h.model != nil {
@@ -99,6 +106,8 @@ func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps
 		if prev.Model != "" && curModel != "" && curModel != prev.Model {
 			items = append(items, "切换模型到 "+curModel)
 		}
+		items = append(items, diffMemorySignatures(prev.Memory, memSigs)...)
+		items = append(items, diffProjectSignatures(prev.Projects, projSigs)...)
 	}
 
 	// 推进基线（启用/停用分列）；available 清单与返回值只含启用的
@@ -112,8 +121,106 @@ func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps
 		}
 	}
 	h.store.SetResSnap(&ResSnapshot{V: resSnapV, Skills: onNames, SkillsOff: offNames, Mcps: names(mcps),
-		Models: names(models), Model: curModel})
+		Models: names(models), Model: curModel, Memory: memSigs, Projects: projSigs})
 	return items, skills, mcps, models
+}
+
+/* memorySignatures 收集 user/soul 条目签名（"目标 id|text"，text 压平单行）。 */
+func memorySignatures(ctx context.Context, fsys fs.FileSystem) []string {
+	var out []string
+	for _, t := range []struct {
+		name string
+		path string
+	}{
+		{"user", UserJson},
+		{"soul", SoulJson},
+	} {
+		items, err := LoadItems(ctx, fsys, t.path)
+		if err != nil {
+			continue // 读失败不挡变更检测
+		}
+		for _, it := range items {
+			out = append(out, t.name+" "+it.ID+"|"+strings.ReplaceAll(strings.ReplaceAll(it.Text, "\r", ""), "\n", " "))
+		}
+	}
+	return out
+}
+
+/* projectSignatures 收集项目签名（"id|name|description|内容字节数"）——
+名称、描述与记忆全文变化都能 diff 出（记忆页手动编辑同样触发）。 */
+func projectSignatures(ctx context.Context, fsys fs.FileSystem) []string {
+	projects, err := LoadProjects(ctx, fsys)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(projects))
+	for _, p := range projects {
+		n := -1
+		if data, rerr := fsys.Read(ctx, ProjectContentPath(p.ID)); rerr == nil {
+			n = len(data)
+		}
+		out = append(out, fmt.Sprintf("%s|%s|%s|%d", p.ID, p.Name, p.Description, n))
+	}
+	return out
+}
+
+/*
+diffMemorySignatures 对比记忆条目签名：签名键 = 目标+id，文本不同 =
+更新；新增/移除按键。渲染 "新增记忆 user u8：…"（与 skill/mcp 条目
+同格式，前端变更卡与通知按"记忆"前缀识别）。
+*/
+func diffMemorySignatures(oldS, newS []string) []string {
+	key := func(s string) string { return s[:strings.Index(s, "|")] }
+	text := func(s string) string { return s[strings.Index(s, "|")+1:] }
+	var out []string
+	for _, s := range newS {
+		k := key(s)
+		if i := slices.IndexFunc(oldS, func(o string) bool { return key(o) == k }); i >= 0 {
+			if text(oldS[i]) != text(s) {
+				out = append(out, "更新记忆 "+k+"："+oneLine80(text(s)))
+			}
+			continue
+		}
+		out = append(out, "新增记忆 "+k+"："+oneLine80(text(s)))
+	}
+	for _, s := range oldS {
+		k := key(s)
+		if !slices.ContainsFunc(newS, func(n string) bool { return key(n) == k }) {
+			out = append(out, "移除记忆 "+k)
+		}
+	}
+	return out
+}
+
+/* diffProjectSignatures 对比项目签名（条目带名称与描述）。 */
+func diffProjectSignatures(oldS, newS []string) []string {
+	parts := func(s string) []string { return strings.SplitN(s, "|", 4) }
+	var out []string
+	for _, s := range newS {
+		p := parts(s)
+		if i := slices.IndexFunc(oldS, func(o string) bool { return parts(o)[0] == p[0] }); i >= 0 {
+			if oldS[i] != s {
+				out = append(out, "更新项目记忆 "+p[1]+"（"+p[2]+"）")
+			}
+			continue
+		}
+		out = append(out, "新增项目记忆 "+p[1]+"（"+p[2]+"）")
+	}
+	for _, s := range oldS {
+		p := parts(s)
+		if !slices.ContainsFunc(newS, func(n string) bool { return parts(n)[0] == p[0] }) {
+			out = append(out, "移除项目记忆 "+p[0])
+		}
+	}
+	return out
+}
+
+/* oneLine80 截一行摘要（变更条目回显用）。 */
+func oneLine80(s string) string {
+	if r := []rune(s); len(r) > 80 {
+		return string(r[:80]) + "…"
+	}
+	return s
 }
 
 /* names 取摘要清单的名字序列（基线 diff 用）。 */

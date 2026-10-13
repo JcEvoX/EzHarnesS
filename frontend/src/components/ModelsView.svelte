@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { api, type ModelEntry, type ModelsConfig } from '../lib/api'
+  import { store } from '../lib/store.svelte'
 
   /*
   「主模型 + 能力槽」三类：main（驱动 agent 循环的唯一对话模型，支持
@@ -58,6 +59,7 @@
     message = ''
     try {
       await api.saveModels(cfg)
+      store.invalidateModels() // 输入框的模型切换器缓存失效，下次打开重新拉取
       message = '已保存，下一轮生效'
     } catch (e) {
       message = `保存失败：${(e as Error).message}（agent 运行中请等本轮结束）`

@@ -85,10 +85,9 @@
 {/if}
 
 <style>
+  /* 无独立底色与分割线：标签条与内容同底，只有标签自身是胶囊 */
   .tabbar {
     flex: none;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
     padding: 5px 10px;
   }
   /* 无标签不渲染（也不显示底线），但根元素常在以回报高度 0 */

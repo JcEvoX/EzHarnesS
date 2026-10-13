@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 	"github.com/xuanlv2002/ezloop/types"
@@ -37,14 +36,15 @@ func (s *SessionService) Bootstrap(ctx context.Context) BootstrapData {
 	st := s.Hub.SettingsSnapshot()
 	p := st.TrimPercent
 	w := st.WorkDir
-	memData, memErr := s.Hub.Fsys.Read(ctx, hooks.HarnessMd)
+	userItems, _ := hooks.LoadItems(ctx, s.Hub.Fsys, hooks.UserJson)
+	soulItems, _ := hooks.LoadItems(ctx, s.Hub.Fsys, hooks.SoulJson)
 	return BootstrapData{
 		SessionID:    sess.RootID,
 		LeafID:       sess.ID,
 		Branches:     buildBranchViews(s.Hub),
 		Settings:     SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w},
 		Status:       s.Snapshot(ctx),
-		MemoryExists: memErr == nil && len(strings.TrimSpace(string(memData))) > 0,
+		MemoryExists: len(userItems) > 0 || len(soulItems) > 0,
 	}
 }
 

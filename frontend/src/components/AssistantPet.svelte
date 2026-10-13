@@ -64,7 +64,7 @@
         ])
         running = (topics as { running?: boolean }[]).some((t) => t.running)
         const items = (notices as { items?: { kind?: string }[] }[]).flatMap((g) => g.items ?? [])
-        pending = items.filter((it) => it.kind === 'approve' || it.kind === 'ask' || it.kind === 'mcp_auth').length
+        pending = items.filter((it) => it.kind === 'approve' || it.kind === 'ask' || it.kind === 'mcp_auth' || it.kind === 'memory').length
         done = items.some((it) => it.kind === 'info')
         apps = ((list as { apps?: PetApp[] }).apps ?? [])
       } catch {

@@ -133,12 +133,12 @@ func (a *app) buildRouter() *gin.Engine {
 	}
 	controllers := controller.Controllers{
 		Session: &controller.SessionController{Svc: &service.SessionService{Hub: hub}},
-		Chat:    &controller.ChatController{Svc: &service.ChatService{Hub: hub}},
+		Chat:    &controller.ChatController{Svc: &service.ChatService{Hub: hub}, Memory: &service.MemoryService{Hub: hub}},
 		Settings: &controller.SettingsController{
 			Settings: &service.SettingsService{Hub: hub, Agents: agents},
 			Memory:   &service.MemoryService{Hub: hub},
 		},
-		Topics:    &controller.TopicController{Svc: &service.TopicService{Hub: hub, Agents: agents}},
+		Topics:   &controller.TopicController{Svc: &service.TopicService{Hub: hub, Agents: agents}},
 		Mcp:       &controller.McpController{Svc: service.NewMcpService(hub.Fsys, a.mcpRouter, a.mcpAuth)},
 		Apps:      &controller.AppsController{Svc: &service.AppsService{Fsys: hub.Fsys, Term: termSvc, Hub: hub}},
 		App:       &controller.AppController{Svc: appSvc},

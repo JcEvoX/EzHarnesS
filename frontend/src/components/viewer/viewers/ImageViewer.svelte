@@ -22,28 +22,68 @@
   let saving = $state(false)
   let savedAt = $state('')
 
-  onMount(async () => {
+  /* SVG 不原位写回：画板导出的是 PNG，覆盖 .svg 会把文件改成「扩展名
+     svg 的 PNG 内容」，之后按 SVG 解码必失败（文件被破坏）。画笔产物
+     首次落盘即分流为 tmp 下的 PNG 草稿（realPath），此后写回都写它，
+     原 SVG 永不被改写 */
+  const isSvg = (tab.path || '').toLowerCase().endsWith('.svg')
+  let realPath = $state('')
+
+  onMount(() => void load())
+
+  /* decodeCheck 预验证浏览器可解码（onload/onerror 都挂）：SVG 语法
+     损坏等解码失败若漏到画板，MagicBoard 的 init 会永久挂起 */
+  function decodeCheck(blob: Blob): Promise<void> {
+    const url = URL.createObjectURL(blob)
+    return new Promise<void>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('浏览器无法解码该图片（损坏或 SVG 含错误/外链）'))
+      img.src = url
+    }).finally(() => URL.revokeObjectURL(url))
+  }
+
+  async function load() {
     if (!tab.path) return
+    err = ''
     loading = true
     try {
       const r = await fetch('/api/workspace/file?path=' + encodeURIComponent(tab.path), { cache: 'no-store' })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const blob = await r.blob()
+      await decodeCheck(blob)
       srcFile = new File([blob], fileBaseName(tab.path), { type: blob.type || 'image/png' })
     } catch (e) {
       err = `图片加载失败：${(e as Error).message}`
     } finally {
       loading = false
     }
-  })
+  }
 
-  /* 写回真身（合成图覆盖原路径）：保存钮与「添加到对话」共用 */
+  /* persist 落盘分流并返回真身路径：普通图片原位覆盖；SVG 首次落盘
+     stash 成 tmp PNG 草稿（此后 realPath 固定，原位覆盖这张草稿） */
+  async function persist(f: File): Promise<string | null> {
+    if (realPath) {
+      await api.saveBin(realPath, f)
+      return realPath
+    }
+    if (isSvg) {
+      const [p] = await api.stash([f])
+      return p ?? null
+    }
+    await api.saveBin(tab.path!, f)
+    return tab.path!
+  }
+
+  /* 写回真身：保存钮与「添加到对话」共用 */
   async function writeBack(f: File): Promise<boolean> {
     if (!tab.path || saving) return false
     saving = true
     try {
-      await api.saveBin(tab.path, f)
-      store.bumpImg(tab.path)
+      const p = await persist(f)
+      if (!p) throw new Error('未取到落盘路径')
+      realPath = realPath || p
+      store.bumpImg(p)
       savedAt = new Date().toTimeString().slice(0, 5)
       dirty = false
       return true
@@ -81,9 +121,8 @@
        回流会重挂本组件，干净画布写回会覆盖另一个窗口刚写的新图 */
     if (!dirty) return
     const b = board
-    const path = tab.path
-    if (!b || !path || saving) return
-    void b.exportFile().then((f) => api.saveBin(path, f)).catch(() => {})
+    if (!b || !tab.path || saving) return
+    void b.exportFile().then((f) => persist(f)).catch(() => {})
   })
 
   function onKey(e: KeyboardEvent) {
@@ -99,7 +138,8 @@
   async function addToChat(f: File) {
     if (!tab.path) return
     if (!(await writeBack(f))) return
-    store.pendingAttachments = [{ name: fileBaseName(tab.path), path: tab.path }]
+    const p = realPath || tab.path
+    store.pendingAttachments = [{ name: fileBaseName(p), path: p }]
   }
 </script>
 
@@ -107,7 +147,10 @@
 
 <div class="image-viewer">
   {#if err}
-    <div class="veil err">{err}</div>
+    <div class="veil err">
+      {err}
+      <button class="retry" onclick={() => void load()}>重试</button>
+    </div>
   {:else if loading}
     <div class="veil">加载中…</div>
   {:else}
@@ -119,7 +162,7 @@
     <!-- 状态条（与文本系统一风格）：保存写回 + 状态（「添加到对话」在
     画板 footer 主按钮上） -->
     <div class="statusbar">
-      <button class="savebtn" class:busy={saving} disabled={saving || !!err || loading} onclick={() => void save()} title="写回原文件（Ctrl+S）——历史与输入框中的同名缩略图将同步更新">
+      <button class="savebtn" class:busy={saving} disabled={saving || !!err || loading} onclick={() => void save()} title={isSvg ? '另存 PNG 草稿（Ctrl+S）——原 SVG 文件不变，历史与输入框中的缩略图同步更新' : '写回原文件（Ctrl+S）——历史与输入框中的同名缩略图将同步更新'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
           <polyline points="17 21 17 13 7 13 7 21" />
@@ -127,7 +170,17 @@
         </svg>
       </button>
       <span class="stat">
-        {#if saving}<i>保存中…</i>{:else if savedAt}<i>已写回 {savedAt}</i>{:else}<i>改动自动写回原文件 · Ctrl+S 立即写回</i>{/if}
+        {#if saving}
+          <i>保存中…</i>
+        {:else if savedAt && isSvg && realPath}
+          <i>画笔已存 {fileBaseName(realPath)} · {savedAt}（原 SVG 不变）</i>
+        {:else if savedAt}
+          <i>已写回 {savedAt}</i>
+        {:else if isSvg}
+          <i>SVG 不原位写回 · 画笔自动另存 PNG 草稿</i>
+        {:else}
+          <i>改动自动写回原文件 · Ctrl+S 立即写回</i>
+        {/if}
       </span>
     </div>
   {/if}
@@ -161,6 +214,22 @@
     color: #e74c3c;
     padding: 0 20px;
     text-align: center;
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+  }
+  .veil.err .retry {
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--bg-soft);
+    color: var(--fg);
+    font-size: 12px;
+    padding: 4px 14px;
+    cursor: pointer;
+  }
+  .veil.err .retry:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .statusbar {
     flex: none;
