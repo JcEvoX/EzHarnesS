@@ -1,5 +1,6 @@
 <script lang="ts">
   import { store, type Block } from '../lib/store.svelte'
+  import { buildRows, TOOL_GROUP_MIN } from '../lib/rows'
   import Logo from './Logo.svelte'
   import EzAvatar from './EzAvatar.svelte'
   import MessageItem from './MessageItem.svelte'
@@ -57,50 +58,8 @@
     el.scrollTo({ top, behavior: 'smooth' })
   }
 
-  /* 行模型：user 块独立成行，其余块并入其后的回复组（一个用户输入只对
-  应一个头像）；首 user 之前的系统记录成引导组（无头像平铺）。组内连续
-  tool 段 ≥ TOOL_GROUP_MIN 折成一条摘要（审批卡等非 tool 块打断分组）。
-  组 key 用前置 user 块 uid——组内中段增删不换 key，流式与展开态不抖 */
-  const TOOL_GROUP_MIN = 2
-  type ToolBlockB = Extract<Block, { kind: 'tool' }>
-  type Seg = { type: 'one'; b: Block } | { type: 'tools'; blocks: ToolBlockB[] }
-  type Row =
-    | { kind: 'leader'; key: 'L'; segs: Seg[] }
-    | { kind: 'user'; key: string; b: Extract<Block, { kind: 'user' }> }
-    | { kind: 'group'; key: string; segs: Seg[] }
-  const rows = $derived.by(() => {
-    const out: Row[] = []
-    let segs: Seg[] = []
-    let toolRun: ToolBlockB[] = []
-    let curKey = 'L'
-    const flushTools = () => {
-      if (toolRun.length) {
-        segs.push({ type: 'tools', blocks: toolRun })
-        toolRun = []
-      }
-    }
-    const flushGroup = () => {
-      flushTools()
-      if (!segs.length) return
-      if (curKey === 'L') out.push({ kind: 'leader', key: 'L', segs })
-      else out.push({ kind: 'group', key: 'g' + curKey, segs })
-      segs = []
-    }
-    for (const b of store.blocks) {
-      if (b.kind === 'user') {
-        flushGroup()
-        out.push({ kind: 'user', key: 'u' + b.uid, b })
-        curKey = String(b.uid)
-      } else if (b.kind === 'tool') {
-        toolRun.push(b)
-      } else {
-        flushTools()
-        segs.push({ type: 'one', b })
-      }
-    }
-    flushGroup()
-    return out
-  })
+  /* 行模型见 lib/rows（主时间线与分身抽屉共用同一组装） */
+  const rows = $derived(buildRows(store.blocks))
 
   /* 空状态判定：note/status/resourcechange/endtick/imgload 是系统自动记录
      （压缩翻页后的新会话仅含一条 <end_reason> 收尾），不算对话内容——

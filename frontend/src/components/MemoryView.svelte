@@ -3,7 +3,10 @@
   import {
     api,
     type HistoryMessage,
+    type LongtermMemory,
     type MemoryConfig,
+    type MemoryItem,
+    type MemoryProjectDetail,
     type MemorySkillEntry,
     type SessionNode,
     type TraceSpan,
@@ -46,14 +49,160 @@
     }
   }
 
-  onMount(async () => {
+  /* 三段数据互不依赖：并发拉取（串行时长期记忆要等会话树，进页面空等） */
+  onMount(() => {
+    void loadConfig()
+    void loadTree()
+    void loadLongterm()
+  })
+
+  async function loadConfig() {
     try {
       cfg = await api.getMemoryConfig()
     } catch {
       message = '记忆数据加载失败（后端不可达）'
     }
-    await loadTree()
-  })
+  }
+
+  /* ── 长期记忆（条目式，与 memory 工具同一存储）：user/soul 条目面板
+     + 项目卡片，直接编辑保存（整组回写）── */
+
+  let longterm = $state<LongtermMemory | null>(null)
+  const panels: Array<{ target: 'user' | 'soul'; label: string }> = [
+    { target: 'user', label: '用户个人信息' },
+    { target: 'soul', label: 'agent 工作习惯' },
+  ]
+  let editing = $state<{ target: 'user' | 'soul'; index: number; text: string } | null>(null)
+  let adding = $state<{ target: 'user' | 'soul'; text: string } | null>(null)
+  let memBusy = $state(false)
+
+  async function loadLongterm() {
+    try {
+      longterm = await api.getLongterm()
+    } catch {
+      message = '长期记忆加载失败（后端不可达）'
+    }
+  }
+
+  function itemsOf(target: 'user' | 'soul'): MemoryItem[] {
+    return (longterm?.[target] ?? []) as MemoryItem[]
+  }
+
+  /* 条目更新距今（列表展示；空/非法时间返回空串） */
+  function relTime(s: string): string {
+    const t = s ? new Date(s).getTime() : 0
+    if (!t || Number.isNaN(t)) return ''
+    const d = Date.now() - t
+    const min = 60_000
+    const hour = 60 * min
+    const day = 24 * hour
+    if (d < min) return '刚刚'
+    if (d < hour) return `${Math.floor(d / min)} 分钟前`
+    if (d < day) return `${Math.floor(d / hour)} 小时前`
+    if (d < 30 * day) return `${Math.floor(d / day)} 天前`
+    if (d < 365 * day) return `${Math.floor(d / (30 * day))} 个月前`
+    return `${Math.floor(d / (365 * day))} 年前`
+  }
+
+  async function saveItems(target: 'user' | 'soul', items: MemoryItem[]) {
+    if (memBusy) return
+    memBusy = true
+    try {
+      const r = await api.saveLongtermItems(target, items)
+      if (longterm) longterm[target] = r.items || items
+    } catch (e) {
+      message = `记忆保存失败：${(e as Error).message}`
+    } finally {
+      memBusy = false
+    }
+  }
+
+  function commitEdit() {
+    if (!editing || !longterm) return
+    const { target, index } = editing
+    const items = [...itemsOf(target)]
+    if (!items[index]) return
+    const text = editing.text.trim()
+    if (!text) {
+      message = '条目内容不能为空（删除请用条目上的 ✕）'
+      return
+    }
+    items[index] = { ...items[index], text }
+    editing = null
+    void saveItems(target, items)
+  }
+
+  function removeItem(target: 'user' | 'soul', index: number) {
+    const items = itemsOf(target).filter((_, i) => i !== index)
+    void saveItems(target, items)
+  }
+
+  function commitAdd() {
+    if (!adding || !longterm) return
+    const text = adding.text.trim()
+    if (!text) {
+      adding = null
+      return
+    }
+    const target = adding.target
+    adding = null
+    void saveItems(target, [...itemsOf(target), { id: '', text, updatedAt: '' }])
+  }
+
+  /* ── 项目记忆：卡片列表 + 展开编辑全文 ── */
+
+  let projectDraft = $state<MemoryProjectDetail | null>(null)
+  let projectNew = $state(false)
+
+  async function openProject(id: string) {
+    if (projectDraft?.id === id) {
+      projectDraft = null
+      return
+    }
+    try {
+      projectDraft = await api.getMemoryProject(id)
+      projectNew = false
+    } catch (e) {
+      message = `项目记忆读取失败：${(e as Error).message}`
+    }
+  }
+
+  async function commitProject() {
+    if (!projectDraft || memBusy) return
+    memBusy = true
+    try {
+      await api.saveMemoryProject({
+        id: projectNew ? '' : projectDraft.id,
+        name: projectDraft.name,
+        description: projectDraft.description,
+        content: projectDraft.content,
+      })
+      projectDraft = null
+      projectNew = false
+      await loadLongterm()
+    } catch (e) {
+      message = `项目记忆保存失败：${(e as Error).message}`
+    } finally {
+      memBusy = false
+    }
+  }
+
+  async function removeProject(id: string) {
+    if (memBusy) return
+    memBusy = true
+    try {
+      await api.deleteMemoryProject(id)
+      if (projectDraft?.id === id) {
+        projectDraft = null
+        projectNew = false
+      }
+      await loadLongterm()
+    } catch (e) {
+      message = `项目删除失败：${(e as Error).message}`
+    } finally {
+      memBusy = false
+    }
+  }
 
   /* 回顾：侧边抽屉只读全文；压缩新叶几乎无消息，摘要段给上下文。
      调用链独立取（无 trace.jsonl 的旧会话返回空，不拖垮消息回顾） */
@@ -447,32 +596,109 @@
     <p class="lead err">{message}</p>
   {/if}
 
-  <!-- ── 长期记忆 ── -->
+  <!-- ── 长期记忆（条目式，agent 的 memory 工具与本页同一存储）── -->
   <section>
     <header>
       <div>
         <h2>长期记忆</h2>
-        <p class="hint">harness.md 索引随上下文初始加载，其余文件由 agent 按需检索。</p>
+        <p class="hint">条目式数据库：agent 用 memory 工具读写（变更进通知栏），你也可以在这里直接增删改。</p>
       </div>
     </header>
-    <p class="dir"><span>📁</span>{cfg ? cfg.longterm.dir : '—'}</p>
-    <div class="list">
-      {#if cfg}
-        {#if cfg.longterm.harnessMd}
-          <div class="file index">
-            <span class="name">harness.md</span>
-            <span class="badge">初始加载</span>
-            <span class="stat">{fmtSize(cfg.longterm.harnessMd.size)} · {cfg.longterm.harnessMd.mtime}</span>
+    <div class="memgrid">
+      {#each panels as panel (panel.target)}
+        <div class="mempnel">
+          <div class="memhead">
+            <h3>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
+            <button class="memadd" onclick={() => (adding = { target: panel.target, text: '' })}>＋ 添加</button>
           </div>
-        {/if}
-        {#each cfg.longterm.files as f (f.name)}
-          <div class="file">
-            <span class="name">{f.name}</span>
-            <span class="stat">{fmtSize(f.size)} · {f.mtime}</span>
+          <div class="memlist">
+            {#each itemsOf(panel.target) as it, i}
+              <div class="memitem">
+                {#if editing?.target === panel.target && editing.index === i}
+                  <div class="memeditwrap">
+                    <textarea class="memedit" rows="2" value={editing.text} oninput={(e) => (editing!.text = e.currentTarget.value)}></textarea>
+                    <div class="memops">
+                      <button class="mop primary" onclick={commitEdit} disabled={memBusy}>保存</button>
+                      <button class="mop" onclick={() => (editing = null)}>取消</button>
+                    </div>
+                  </div>
+                {:else}
+                  <span class="membadge">{it.id || '新'}</span>
+                  <span class="memtext">{it.text}</span>
+                  <span class="memtime">{relTime(it.updatedAt)}</span>
+                  <span class="memacts">
+                    <button class="micon" title="编辑" onclick={() => (editing = { target: panel.target, index: i, text: it.text })}>✎</button>
+                    <button class="micon danger" title="删除" onclick={() => removeItem(panel.target, i)}>✕</button>
+                  </span>
+                {/if}
+              </div>
+            {/each}
+            {#if adding?.target === panel.target}
+              <div class="memitem">
+                <span class="membadge">新</span>
+                <div class="memeditwrap">
+                  <textarea class="memedit" rows="2" placeholder="一条新记忆（自包含的一句话）" value={adding.text} oninput={(e) => (adding!.text = e.currentTarget.value)}></textarea>
+                  <div class="memops">
+                    <button class="mop primary" onclick={commitAdd} disabled={memBusy}>保存</button>
+                    <button class="mop" onclick={() => (adding = null)}>取消</button>
+                  </div>
+                </div>
+              </div>
+            {:else if !itemsOf(panel.target).length}
+              <div class="empty">暂无条目——对话中 agent 会把值得保留的信息沉淀进来。</div>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    <!-- 项目记忆 -->
+    <div class="projwrap">
+      <div class="projhead">
+        <h3>项目记忆</h3>
+        <button
+          class="memadd"
+          onclick={() => {
+            projectDraft = { id: '', name: '', description: '', content: '' }
+            projectNew = true
+          }}>＋ 新建项目</button
+        >
+      </div>
+      <div class="list">
+        {#each longterm?.projects ?? [] as p (p.id)}
+          <div class="file proj" class:open={projectDraft?.id === p.id}>
+            <button class="projrow" onclick={() => void openProject(p.id)} title="展开编辑项目记忆">
+              <span class="pname">{p.name}</span>
+              <span class="stat">{p.description}</span>
+              <span class="pid mono">{p.id}</span>
+            </button>
+            <span class="memacts">
+              <button class="micon danger" title="删除项目" onclick={() => void removeProject(p.id)}>✕</button>
+            </span>
           </div>
         {/each}
-        {:else}
-        <div class="empty">暂无文件——agent 会把重要的用户偏好与事实沉淀到这里。</div>
+        {#if !(longterm?.projects ?? []).length}
+          <div class="empty">暂无项目——围绕明确项目的会话，agent 会建立项目记忆。</div>
+        {/if}
+      </div>
+      {#if projectDraft}
+        <div class="projedit">
+          <div class="prow">
+            <label>名称<input class="pin" bind:value={projectDraft.name} placeholder="项目名" /></label>
+            <label>描述<input class="pin" bind:value={projectDraft.description} placeholder="一句话描述" /></label>
+          </div>
+          <textarea class="pcontent" rows="10" bind:value={projectDraft.content} placeholder="项目记忆全文（背景/约定/关键路径…，markdown）" spellcheck="false"></textarea>
+          <div class="memops">
+            <button class="mop primary" onclick={() => void commitProject()} disabled={memBusy}>保存</button>
+            <button
+              class="mop"
+              onclick={() => {
+                projectDraft = null
+                projectNew = false
+              }}>取消</button
+            >
+          </div>
+        </div>
       {/if}
     </div>
   </section>
@@ -945,6 +1171,322 @@
   .file.index {
     background: color-mix(in srgb, var(--accent) 4%, var(--bg));
   }
+
+  /* ── 长期记忆：条目面板与项目编辑 ── */
+  .memgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(288px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .mempnel {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .memhead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--line);
+  }
+  .memhead h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--fg);
+  }
+  .memcnt {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--faint);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0 6px;
+    line-height: 1.6;
+  }
+  .memadd {
+    flex: none;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 3px 8px;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .memadd:hover {
+    background: var(--accent-soft);
+  }
+  .memlist {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px;
+    min-height: 52px;
+  }
+  .memitem {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .memitem:hover {
+    background: var(--bg-soft);
+  }
+  .membadge {
+    flex: none;
+    min-width: 24px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--faint);
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+    margin-top: 2px;
+  }
+  .memtext {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* 行内操作占位不塌（visibility 而非 display 切换），悬浮不引起布局抖动 */
+  .memtime {
+    flex: none;
+    font-size: 10px;
+    color: var(--faint);
+    white-space: nowrap;
+    margin-top: 3px;
+  }
+  .memacts {
+    flex: none;
+    display: inline-flex;
+    gap: 2px;
+    visibility: hidden;
+  }
+  .memitem:hover .memacts,
+  .file.proj:hover .memacts {
+    visibility: visible;
+  }
+  .micon {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--faint);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .micon:hover {
+    background: var(--bg);
+    color: var(--fg);
+  }
+  .micon.danger:hover {
+    background: color-mix(in srgb, #c0392b 10%, var(--bg));
+    color: #c0392b;
+  }
+  .memeditwrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .memedit {
+    width: 100%;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    padding: 8px 10px;
+    box-sizing: border-box;
+  }
+  .memedit:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .memops {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .mop {
+    font: inherit;
+    font-size: 12px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .mop:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .mop:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .mop.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .mop.primary:hover:not(:disabled) {
+    color: #fff;
+    filter: brightness(1.08);
+  }
+
+  /* 项目记忆：清单行 + 展开编辑面板 */
+  .projwrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .projhead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .projhead h3 {
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--muted);
+  }
+  .projwrap .list {
+    background: var(--bg);
+  }
+  .file.proj {
+    gap: 6px;
+    padding: 9px 12px;
+  }
+  .file.proj.open {
+    background: var(--accent-soft);
+  }
+  .projrow {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    padding: 0;
+    font: inherit;
+    color: var(--fg);
+  }
+  .projrow .pname {
+    flex: none;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .projrow .stat {
+    margin-left: 0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .projrow .pid {
+    flex: none;
+    font-size: 10.5px;
+    color: var(--faint);
+    opacity: 0.75;
+  }
+  .projedit {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg);
+  }
+  .prow {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .prow label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .pin {
+    width: 220px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--fg);
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+  .pin:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .pcontent {
+    width: 100%;
+    resize: vertical;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-sizing: border-box;
+  }
+  .pcontent:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
 
   /* 能力记忆：技能卡片 */
   .grid {

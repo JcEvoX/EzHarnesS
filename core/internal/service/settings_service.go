@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 	"github.com/xuanlv2002/ezloop/types"
@@ -293,11 +295,6 @@ type SkillEntryView struct {
 话题记忆（完整会话树）走独立端点 GET /api/memory/tree。
 */
 type MemoryConfigView struct {
-	Longterm struct {
-		Dir       string         `json:"dir"`
-		HarnessMd *FileInfoView  `json:"harnessMd"`
-		Files     []FileInfoView `json:"files"`
-	} `json:"longterm"`
 	Skills struct {
 		Dir   string           `json:"dir"`
 		Items []SkillEntryView `json:"items"`
@@ -310,23 +307,9 @@ type MemoryConfigView struct {
 /* Config 汇总记忆页数据（目录缺失容错为空列表）。 */
 func (m *MemoryService) Config(ctx context.Context) MemoryConfigView {
 	var v MemoryConfigView
-	v.Longterm.Dir = hooks.LongtermDir
 	v.Skills.Dir = hooks.SkillsDir
 	v.Topics.Dir = hooks.SessionsDir
 
-	if entries, err := m.Hub.Fsys.List(ctx, hooks.LongtermDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir {
-				continue
-			}
-			fi := FileInfoView{Name: e.Name, Size: e.Size, Mtime: fileMtime(hooks.LongtermDir + "/" + e.Name)}
-			if e.Name == "harness.md" {
-				v.Longterm.HarnessMd = &fi
-			} else {
-				v.Longterm.Files = append(v.Longterm.Files, fi)
-			}
-		}
-	}
 	disabled := m.Hub.SettingsSnapshot().DisabledSkills
 	for _, s := range builtinskill.Skills() {
 		id := hooks.SkillDirOf(s.Path)
@@ -350,9 +333,6 @@ func (m *MemoryService) Config(ctx context.Context) MemoryConfigView {
 			})
 		}
 	}
-	if v.Longterm.Files == nil {
-		v.Longterm.Files = []FileInfoView{}
-	}
 	if v.Skills.Items == nil {
 		v.Skills.Items = []SkillEntryView{}
 	}
@@ -366,15 +346,162 @@ func fileMtime(path string) string {
 	return ""
 }
 
-/* GetMemory 返回 harness.md 内容。 */
-func (m *MemoryService) GetMemory(ctx context.Context) string {
-	data, _ := m.Hub.Fsys.Read(ctx, hooks.HarnessMd)
-	return string(data)
+/* ── 长期记忆（条目式，与 memory 工具同一存储层）── */
+
+/* LongtermView 是条目式长期记忆全量数据。 */
+type LongtermView struct {
+	User     []hooks.MemoryItem   `json:"user"`
+	Soul     []hooks.MemoryItem   `json:"soul"`
+	Projects []hooks.ProjectEntry `json:"projects"`
 }
 
-/* SaveMemory 写入 harness.md（下一轮对话即注入 system）。 */
-func (m *MemoryService) SaveMemory(ctx context.Context, content string) error {
-	return m.Hub.Fsys.Write(ctx, hooks.HarnessMd, []byte(content))
+/* Longterm 返回 user/soul 条目与项目索引。 */
+func (m *MemoryService) Longterm(ctx context.Context) (*LongtermView, error) {
+	user, err := hooks.LoadItems(ctx, m.Hub.Fsys, hooks.UserJson)
+	if err != nil {
+		return nil, err
+	}
+	soul, err := hooks.LoadItems(ctx, m.Hub.Fsys, hooks.SoulJson)
+	if err != nil {
+		return nil, err
+	}
+	projects, err := hooks.LoadProjects(ctx, m.Hub.Fsys)
+	if err != nil {
+		return nil, err
+	}
+	return &LongtermView{User: user, Soul: soul, Projects: projects}, nil
+}
+
+/*
+SaveLongtermItems 整组保存条目（记忆页编辑器保存）：新增条目 id 为空时
+按 NextItemID 补号，updatedAt 为零值时按当前时间补齐。
+*/
+func (m *MemoryService) SaveLongtermItems(ctx context.Context, target string, items []hooks.MemoryItem) error {
+	var path, prefix string
+	switch target {
+	case "user":
+		path, prefix = hooks.UserJson, "u"
+	case "soul":
+		path, prefix = hooks.SoulJson, "s"
+	default:
+		return fmt.Errorf("target 需为 user 或 soul")
+	}
+	now := time.Now()
+	base := hooks.MaxItemNumber(items, prefix)
+	for i := range items {
+		items[i].Text = strings.TrimSpace(items[i].Text)
+		if items[i].ID == "" {
+			base++ // 多条新增依次递增，不复用
+			items[i].ID = fmt.Sprintf("%s%d", prefix, base)
+		}
+		if items[i].UpdatedAt.IsZero() {
+			items[i].UpdatedAt = now
+		}
+	}
+	return hooks.SaveItems(ctx, m.Hub.Fsys, path, items)
+}
+
+/* ProjectDetailView 是项目记忆详情（索引条目 + 全文）。 */
+type ProjectDetailView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+}
+
+/* GetProject 返回项目记忆详情。 */
+func (m *MemoryService) GetProject(ctx context.Context, id string) (*ProjectDetailView, error) {
+	projects, err := hooks.LoadProjects(ctx, m.Hub.Fsys)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(projects, func(p hooks.ProjectEntry) bool { return p.ID == id })
+	if i < 0 {
+		return nil, os.ErrNotExist
+	}
+	v := &ProjectDetailView{ID: projects[i].ID, Name: projects[i].Name, Description: projects[i].Description}
+	if data, rerr := m.Hub.Fsys.Read(ctx, hooks.ProjectContentPath(id)); rerr == nil {
+		v.Content = string(data)
+	}
+	return v, nil
+}
+
+/* SaveProject 新建/整体更新项目记忆（id 空时由 name 生成 slug），返回实际 id。 */
+func (m *MemoryService) SaveProject(ctx context.Context, id, name, description, content string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("name required")
+	}
+	if id = strings.TrimSpace(id); id == "" {
+		id = hooks.ProjectSlug(name)
+	}
+	if id == "" {
+		return "", fmt.Errorf("项目名无法生成有效 id")
+	}
+	projects, err := hooks.LoadProjects(ctx, m.Hub.Fsys)
+	if err != nil {
+		return "", err
+	}
+	if i := slices.IndexFunc(projects, func(p hooks.ProjectEntry) bool { return p.ID == id }); i >= 0 {
+		projects[i].Name = name
+		projects[i].Description = strings.TrimSpace(description)
+	} else {
+		projects = append(projects, hooks.ProjectEntry{ID: id, Name: name, Description: strings.TrimSpace(description)})
+	}
+	if err := hooks.SaveProjects(ctx, m.Hub.Fsys, projects); err != nil {
+		return "", err
+	}
+	if err := m.Hub.Fsys.Write(ctx, hooks.ProjectContentPath(id), []byte(strings.TrimSpace(content)+"\n")); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+/* DeleteProject 删除项目（索引 + 全文）。 */
+func (m *MemoryService) DeleteProject(ctx context.Context, id string) error {
+	projects, err := hooks.LoadProjects(ctx, m.Hub.Fsys)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(projects, func(p hooks.ProjectEntry) bool { return p.ID == id })
+	if i < 0 {
+		return os.ErrNotExist
+	}
+	projects = slices.Delete(projects, i, i+1)
+	if err := hooks.SaveProjects(ctx, m.Hub.Fsys, projects); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.FromSlash(hooks.ProjectContentPath(id))); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+/* ── 记忆待确认操作（memory 工具与 distill 落档，通知栏确认）── */
+
+/* MemoryPendingNotices 待确认操作 → 通知条目（跨重启持久）。 */
+func (m *MemoryService) MemoryPendingNotices(ctx context.Context) []domain.PendingNotice {
+	ops, err := hooks.LoadPendingOps(ctx, m.Hub.Fsys)
+	if err != nil {
+		return nil
+	}
+	out := make([]domain.PendingNotice, 0, len(ops))
+	for _, op := range ops {
+		args, _ := json.Marshal(map[string]string{"question": op.DescribeDetail()})
+		out = append(out, domain.PendingNotice{
+			CallID: op.ID,
+			Kind:   "memory",
+			Tool:   "记忆待确认",
+			Args:   string(args),
+			Ts:     op.CreatedAt.UnixMilli(),
+		})
+	}
+	return out
+}
+
+/* DecideMemoryPending 确认（应用）或取消（丢弃）一条待确认记忆操作。 */
+func (m *MemoryService) DecideMemoryPending(ctx context.Context, id string, accept bool) (string, error) {
+	return hooks.DecidePendingOp(ctx, m.Hub.Fsys, id, accept)
 }
 
 /* ── 技能管理：启停 / 删除 / zip 新建 ── */

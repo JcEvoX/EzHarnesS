@@ -118,12 +118,21 @@
      不落在未闭合代码围栏内），cut 不变头段不重算也不重建 DOM，尾段
      每 delta 重排（长度有界）。流结束一次性全文重排（权威渲染）。 */
   const STREAM_TAIL = 2400
+  /* cut 前进的迟滞余量：text 只在尾部追加（前缀不变），尾窗未超
+     STREAM_TAIL+CUT_HYST 前沿用旧 cut——避免每 delta 都重找边界导致
+     头段全文重 parse */
+  const CUT_HYST = 4096
+  let lastCut = -1
 
   function streamCut(src: string): number {
+    if (lastCut > 0 && src.length - lastCut <= STREAM_TAIL + CUT_HYST) return lastCut
     const max = src.length - STREAM_TAIL
     if (max <= 0) return 0
-    const cut = src.lastIndexOf('\n\n', max)
-    if (cut <= 0) return 0
+    /* 无空行长文（整段代码/JSON）回退单换行、再退硬切：始终返回正 cut，
+       否则尾段=全文，每 delta 全量 parse（O(n²)）会打满主线程 */
+    let cut = src.lastIndexOf('\n\n', max)
+    if (cut <= 0) cut = src.lastIndexOf('\n', max)
+    if (cut <= 0) cut = max
     let fences = 0
     let openFence = -1
     for (let i = 0; i < cut; ) {
@@ -135,7 +144,10 @@
       if (nl === -1 || nl >= cut) break
       i = nl + 1
     }
-    if (fences % 2 === 1 && openFence >= 0) return openFence
+    /* 未闭合围栏：切点退到围栏起点让围栏整体留在尾段；围栏起于文件头
+       （openFence=0）时退化成尾段=全文，退回硬切保尾段有界 */
+    if (fences % 2 === 1) cut = openFence > 0 ? openFence : max
+    lastCut = cut
     return cut
   }
 

@@ -234,7 +234,7 @@ export interface TopicEntry {
    通知栏轮询数据源；kind=info 是完成通知，非待处理） */
 export interface NotificationGroup {
   rootId: string
-  items: { callId: string; forkId?: string; kind: 'approve' | 'ask' | 'info'; tool: string; args?: string; ts: number }[]
+  items: { callId: string; forkId?: string; kind: 'approve' | 'ask' | 'info' | 'mcp_auth' | 'memory'; tool: string; args?: string; ts: number }[]
 }
 
 /* 分支面板条目（GET /api/topics 响应，含运行态合成） */
@@ -288,9 +288,28 @@ export interface MemorySkillEntry {
   builtin?: boolean
 }
 export interface MemoryConfig {
-  longterm: { dir: string; harnessMd: MemoryFileInfo | null; files: MemoryFileInfo[] }
   skills: { dir: string; items: MemorySkillEntry[] }
   topics: { dir: string }
+}
+
+/* 条目式长期记忆（user/soul 条目 + 项目索引） */
+export interface MemoryItem {
+  id: string
+  text: string
+  updatedAt: string
+}
+export interface MemoryProjectEntry {
+  id: string
+  name: string
+  description: string
+}
+export interface LongtermMemory {
+  user: MemoryItem[]
+  soul: MemoryItem[]
+  projects: MemoryProjectEntry[]
+}
+export interface MemoryProjectDetail extends MemoryProjectEntry {
+  content: string
 }
 
 /* 会话树节点（GET /api/memory/tree）：记忆页整树渲染 */
@@ -521,9 +540,24 @@ export const api = {
 
   saveSecurity: (rules: ToolRule[]) => post<{ ok: boolean }>('/api/security', { rules }),
 
-  getMemory: () => fetch('/api/memory').then(json<{ content: string }>),
+  /* 长期记忆（条目式，与 memory 工具同层）：全量 / 条目整组保存 / 项目详情与增删 */
+  getLongterm: () => fetch('/api/memory/longterm').then(json<LongtermMemory>),
 
-  saveMemory: (content: string) => post<{ ok: boolean }>('/api/memory', { content }),
+  saveLongtermItems: (target: 'user' | 'soul', items: MemoryItem[]) =>
+    post<{ ok: boolean; items: MemoryItem[] }>(`/api/memory/longterm/${target}`, { items }),
+
+  getMemoryProject: (id: string) =>
+    fetch(`/api/memory/project/${encodeURIComponent(id)}`).then(json<MemoryProjectDetail>),
+
+  saveMemoryProject: (p: { id?: string; name: string; description: string; content: string }) =>
+    post<{ ok: boolean; id: string }>('/api/memory/project', p),
+
+  deleteMemoryProject: (id: string) =>
+    fetch(`/api/memory/project/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
+
+  /* 待确认记忆操作：确认应用 / 取消丢弃（通知栏按钮） */
+  decideMemoryPending: (id: string, accept: boolean) =>
+    post<{ ok: boolean; result: string }>(`/api/memory/pending/${encodeURIComponent(id)}/decide`, { accept }),
 
   listTopics: () => fetch('/api/topics').then(json<BranchView[]>),
 

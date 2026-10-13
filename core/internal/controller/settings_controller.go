@@ -4,10 +4,12 @@ package controller
 import (
 	"encoding/base64"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
 	"ezharness/core/internal/domain"
+	"ezharness/core/internal/hooks"
 	"ezharness/core/internal/service"
 )
 
@@ -80,30 +82,104 @@ func (c *SettingsController) UpdateSecurity(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-/* GetMemoryConfig GET /api/memory/config（记忆页三文件夹数据）。 */
+/* GetMemoryConfig GET /api/memory/config（记忆页技能清单与会话目录）。 */
 func (c *SettingsController) GetMemoryConfig(g *gin.Context) {
 	g.JSON(http.StatusOK, c.Memory.Config(g.Request.Context()))
 }
 
-/* GetMemory GET /api/memory。 */
-func (c *SettingsController) GetMemory(g *gin.Context) {
-	g.JSON(http.StatusOK, gin.H{"content": c.Memory.GetMemory(g.Request.Context())})
+/* GetLongterm GET /api/memory/longterm（条目式长期记忆全量）。 */
+func (c *SettingsController) GetLongterm(g *gin.Context) {
+	v, err := c.Memory.Longterm(g.Request.Context())
+	if err != nil {
+		g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, v)
 }
 
-/* SaveMemory POST /api/memory。 */
-func (c *SettingsController) SaveMemory(g *gin.Context) {
+/* SaveLongtermItems POST /api/memory/longterm/:target（user|soul 整组保存）。
+   只收 id/text：id 空为新增（服务端补号），updatedAt 由服务端盖章。 */
+func (c *SettingsController) SaveLongtermItems(g *gin.Context) {
 	var body struct {
-		Content string `json:"content"`
+		Items []struct {
+			ID   string `json:"id"`
+			Text string `json:"text"`
+		} `json:"items"`
 	}
 	if err := g.ShouldBindJSON(&body); err != nil {
 		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := c.Memory.SaveMemory(g.Request.Context(), body.Content); err != nil {
-		g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	items := make([]hooks.MemoryItem, 0, len(body.Items))
+	for _, it := range body.Items {
+		items = append(items, hooks.MemoryItem{ID: it.ID, Text: it.Text})
+	}
+	if err := c.Memory.SaveLongtermItems(g.Request.Context(), g.Param("target"), items); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "items": items})
+}
+
+/* GetProject GET /api/memory/project/:id（项目记忆详情）。 */
+func (c *SettingsController) GetProject(g *gin.Context) {
+	v, err := c.Memory.GetProject(g.Request.Context(), g.Param("id"))
+	if err != nil {
+		g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, v)
+}
+
+/* SaveProject POST /api/memory/project（新建/更新项目记忆）。 */
+func (c *SettingsController) SaveProject(g *gin.Context) {
+	var body struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Content     string `json:"content"`
+	}
+	if err := g.ShouldBindJSON(&body); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	id, err := c.Memory.SaveProject(g.Request.Context(), body.ID, body.Name, body.Description, body.Content)
+	if err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "id": id})
+}
+
+/* DeleteProject DELETE /api/memory/project/:id。 */
+func (c *SettingsController) DeleteProject(g *gin.Context) {
+	if err := c.Memory.DeleteProject(g.Request.Context(), g.Param("id")); err != nil {
+		if os.IsNotExist(err) {
+			g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	g.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+/* DecideMemoryPending POST /api/memory/pending/:id/decide，body {accept}（确认应用/取消丢弃）。 */
+func (c *SettingsController) DecideMemoryPending(g *gin.Context) {
+	var body struct {
+		Accept bool `json:"accept"`
+	}
+	_ = g.ShouldBindJSON(&body) // 空体按取消处理
+	result, err := c.Memory.DecideMemoryPending(g.Request.Context(), g.Param("id"), body.Accept)
+	if err != nil {
+		if os.IsNotExist(err) {
+			g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "result": result})
 }
 
 /* CreateSkill POST /api/memory/skills（zip base64 新建技能，名称自动推导）。 */

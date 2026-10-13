@@ -509,7 +509,13 @@
       try {
         const img = new Image()
         img.src = url
-        await new Promise((r) => (img.onload = r))
+        /* 解码失败也要落回（onerror→false 早退）：只挂 onload 的 Promise
+           永不 resolve，init 挂起画板白屏 */
+        const ok = await new Promise<boolean>((r) => {
+          img.onload = () => r(true)
+          img.onerror = () => r(false)
+        })
+        if (!ok) return
         baseImg = img
         /* 画布取图片原始尺寸（等比 cap 3072），导出保分辨率 */
         const s = Math.min(3072 / img.width, 3072 / img.height, 1)

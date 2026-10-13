@@ -84,6 +84,14 @@
   $effect(() => {
     if (!popoutView && !petView && view === 'chat') void store.refreshStatus()
   })
+
+  // 通知跳页请求（本地记忆通知 → 打开记忆页）
+  $effect(() => {
+    if (store.jumpView) {
+      view = store.jumpView
+      store.jumpView = ''
+    }
+  })
 </script>
 
 {#if petView}

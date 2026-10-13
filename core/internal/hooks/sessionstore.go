@@ -36,9 +36,9 @@ type AppendFS interface {
 }
 
 /* resSnapV 是资源基线格式版本：V 不等的旧快照视为未建（静默重建，不报变更）。 */
-const resSnapV = 3
+const resSnapV = 4
 
-/* ResSnapshot 是 agent_status 的变更对比快照（skill/mcp/主模型 基线；技能启停分列）。 */
+/* ResSnapshot 是 agent_status 的变更对比快照（skill/mcp/主模型/长期记忆 基线；技能启停分列）。 */
 type ResSnapshot struct {
 	V         int      `json:"v,omitempty"`
 	Skills    []string `json:"skills,omitempty"`    // 启用中技能名
@@ -46,6 +46,8 @@ type ResSnapshot struct {
 	Mcps      []string `json:"mcps,omitempty"`
 	Models    []string `json:"models,omitempty"` // 可选模型名清单（新增/移除进 resource_change）
 	Model     string   `json:"model,omitempty"`  // 主模型摘要（名称+视觉；切换进 resource_change）
+	Memory    []string `json:"memory,omitempty"`   // user/soul 条目签名（"目标 id|text"，增删改进 resource_change）
+	Projects  []string `json:"projects,omitempty"` // 项目索引签名（"id|name"，增删/改名进 resource_change）
 }
 
 /* ForkOrigin 是 fork 线的展示元数据（时间线渲染"分叉自 X"，非结构依赖）。 */

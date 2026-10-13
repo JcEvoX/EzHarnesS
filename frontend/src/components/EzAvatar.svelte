@@ -25,6 +25,7 @@
     animate = true,
     random = false,
     period = 7000,
+    kind = 'main',
     children,
   }: {
     size?: number
@@ -32,6 +33,9 @@
     animate?: boolean
     random?: boolean
     period?: number
+    /* kind：main = 主会话轮播；task = 分身（待命固定 look，运行 spin）——
+       同一角色、靠神态区分子级，不加装饰 */
+    kind?: 'main' | 'task'
     children?: import('svelte').Snippet
   } = $props()
 
@@ -40,6 +44,7 @@
 
   const expr = $derived.by(() => {
     if (run) return 'spin'
+    if (kind === 'task') return 'look'
     const pool = random ? POOL : IDLE
     return pool[pick % pool.length]
   })
@@ -48,13 +53,14 @@
   /* 动画实例才预热 + 计时：静帧头像不产生网络与定时器开销 */
   $effect(() => {
     if (!animate || failed) return
-    for (const e of run ? ['spin'] : random ? POOL : IDLE) {
+    const pool = run ? ['spin'] : kind === 'task' ? ['look'] : random ? POOL : IDLE
+    for (const e of pool) {
       if (!warmed.has(e)) {
         warmed.add(e)
         new Image().src = `${BASE}${e}/anim.webp`
       }
     }
-    if (run) return
+    if (run || kind === 'task') return // 分身待命是固定表情，不轮换
     const t = setInterval(() => pick++, period)
     return () => clearInterval(t)
   })
