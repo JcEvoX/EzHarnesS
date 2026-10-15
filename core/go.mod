@@ -6,7 +6,7 @@ require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/websocket v1.8.14
 	github.com/gin-gonic/gin v1.12.0
-	github.com/xuanlv2002/ezloop v1.4.0
+	github.com/xuanlv2002/ezloop v1.4.1
 )
 
 require (
@@ -48,5 +48,3 @@ require (
 	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
-
-replace github.com/xuanlv2002/ezloop => C:/Users/guy/Desktop/ai/ezloop
