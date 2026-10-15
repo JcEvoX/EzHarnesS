@@ -246,8 +246,6 @@ class AppStore {
   /* 本轮资源变更条目（resource.change 事件更新，右上角 StatusCard 数据源；
      loop_start 清空——事件按需推送，不清会滞留上一轮的旧变更） */
   liveChanges = $state<string[]>([])
-  /* 会话审批模式（''=跟随安全配置 | off | strict；输入框切换器，实时生效） */
-  approveMode = $state('')
   /* main 槽模型清单（输入框模型切换器；打开时懒加载） */
   mainModels = $state<ModelEntry[]>([])
   private modelsFetched = false
@@ -396,7 +394,6 @@ class AppStore {
       // 切回运行中的分支：model_start/tool_start 等增量事件不重放，用 busy 兜底
       // 点亮活动指示（否则"思考中"整段消失、像没在执行）；后续事件到达自然接管
       this.modelActive = s.busy
-      this.approveMode = s.approveMode ?? ''
       this.prevCursor = s.id
       // fork 就是 fork：对话内容不标注来源（体内副本自包含）；
       // 来源信息只在记忆页的会话树上展示
@@ -810,16 +807,16 @@ class AppStore {
 
   /* ── 审批模式 / 模型切换（输入框工具条） ── */
 
-  /* 审批三档（会话级，实时生效；loadHistory 按会话恢复） */
+  /* 审批三档（全局；工具审批实时读取，即改即生效） */
   async setApproveMode(mode: '' | 'off' | 'strict') {
-    if (!this.activeId || mode === this.approveMode) return
-    const prev = this.approveMode
-    this.approveMode = mode
+    if (!this.settings || (this.settings.approveMode ?? '') === mode) return
+    const prev = this.settings.approveMode ?? ''
+    this.settings = { ...this.settings, approveMode: mode }
     try {
-      await api.setApproveMode(this.activeId, mode)
+      await api.setApproveMode(mode)
     } catch (e) {
-      this.approveMode = prev
-      this.lastStatus = `审批模式切换失败：${(e as Error).message}`
+      this.settings = { ...this.settings, approveMode: prev }
+      this.lastStatus = `审批档位切换失败：${(e as Error).message}`
     }
   }
 
@@ -944,7 +941,7 @@ class AppStore {
 
   async saveSettings(s: Settings) {
     await api.saveSettings(s)
-    this.settings = s
+    this.settings = { ...(this.settings ?? {}), ...s } // 设置页按需提交局部字段，合并而非替换（否则会抹掉思考/审批档）
     this.lastStatus = '设置已保存（模型与提示即时生效）'
     await this.refreshStatus()
   }
@@ -990,14 +987,15 @@ class AppStore {
     }
   }
 
-  /* closeTab：关后台标签仅摘除；关活动标签激活右邻（退化左邻，浏览器
-     惯例）；最后一个 → 空状态（退订 SSE、清视图——会话本身不受影响，
-     侧栏列表与通知轮询照常）。 */
+  /* closeTab：关标签即停会话（关掉的线在跑就取消当前轮，别让它悄悄在
+     列表里继续跑）；关活动标签激活右邻（退化左邻，浏览器惯例）；最后
+     一个 → 空状态（退订 SSE、清视图——会话本身留在列表，仅停轮）。 */
   async closeTab(rootId: string) {
     const i = this.tabs.findIndex((t) => t.rootId === rootId)
     if (i < 0) return
     this.tabs = this.tabs.filter((t) => t.rootId !== rootId)
     delete this.drafts[rootId]
+    void api.cancel(rootId).catch(() => {})
     if (rootId !== this.activeId) return
     const neighbor = this.tabs[i]?.rootId || this.tabs[i - 1]?.rootId || ''
     if (neighbor) {
@@ -1011,22 +1009,29 @@ class AppStore {
     this.resetView()
   }
 
-  /* closeOtherTabs：只保留指定标签，其余全关（活动标签被关则激活它）。 */
+  /* closeOtherTabs：只保留指定标签，其余全关（活动标签被关则激活它）；
+     被关的线一并停轮。 */
   async closeOtherTabs(rootId: string) {
-    this.tabs = this.tabs.filter((t) => t.rootId === rootId)
-    for (const id of Object.keys(this.drafts)) {
-      if (id !== rootId) delete this.drafts[id]
+    for (const t of this.tabs) {
+      if (t.rootId === rootId) continue
+      delete this.drafts[t.rootId]
+      void api.cancel(t.rootId).catch(() => {})
     }
+    this.tabs = this.tabs.filter((t) => t.rootId === rootId)
     if (this.activeId && this.activeId !== rootId) await this.switchBranch(rootId)
   }
 
-  /* closeRightTabs：关掉指定标签右侧的全部标签；活动标签在其中则激活该标签。 */
+  /* closeRightTabs：关掉指定标签右侧的全部标签（被关的线一并停轮）；
+     活动标签在其中则激活该标签。 */
   async closeRightTabs(rootId: string) {
     const i = this.tabs.findIndex((t) => t.rootId === rootId)
     if (i < 0) return
     const removed = this.tabs.slice(i + 1)
     this.tabs = this.tabs.slice(0, i + 1)
-    for (const t of removed) delete this.drafts[t.rootId]
+    for (const t of removed) {
+      delete this.drafts[t.rootId]
+      void api.cancel(t.rootId).catch(() => {})
+    }
     if (removed.some((t) => t.rootId === this.activeId)) await this.switchBranch(rootId)
   }
 

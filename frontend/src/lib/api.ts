@@ -166,9 +166,12 @@ export interface Settings {
   trimPercent?: number | null
   workDir?: string
   closeToTray?: boolean
+  petEnabled?: boolean // 桌面悬浮球（desktop 壳启动时读取；关=不建窗，右键/设置页可切换）
   maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 64，上限 128）
+  offloadThreshold?: number // 工具结果卸载阈值（字节，0 = 默认 4096；超过即卸载到文件只留摘要）
   debugMode?: boolean // 调试模式：模型完整输入写进日志（即改即生效）
   reasoningEffort?: ReasoningEffort // 思考档位（''=默认不控制；none=关闭；其余为强度分档）
+  approveMode?: '' | 'off' | 'strict' // 审批档位（''=跟随安全配置；off=全放行；strict=全审）
 }
 
 export interface ModelEntry {
@@ -367,7 +370,6 @@ export const api = {
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
-        approveMode?: '' | 'off' | 'strict'
       }>,
     ),
 
@@ -505,9 +507,9 @@ export const api = {
   activateModel: (name: string) =>
     post<{ ok: boolean; model: ModelEntry }>('/api/models/activate', { name }),
 
-  /* 会话审批三档（''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
-  setApproveMode: (id: string, mode: '' | 'off' | 'strict') =>
-    post<{ ok: boolean; mode: string }>(`/api/sessions/${id}/approve-mode`, { mode }),
+  /* 审批三档（全局；''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
+  setApproveMode: (mode: '' | 'off' | 'strict') =>
+    post<{ ok: boolean; mode: string }>('/api/settings/approve-mode', { mode }),
 
   /* 思考强度档位（全局；请求侧实时读取，即改即生效） */
   setReasoningEffort: (effort: ReasoningEffort) =>

@@ -176,6 +176,10 @@ function createMainWindow() {
     height: cfg.windowHeight || 800,
     minWidth: 840,
     frame: false,
+    /* 不可全屏：共享浏览器标签里的页面 requestFullscreen（双击视频/图片常见）
+       会把承载它的窗口整个拉成全屏——主窗本就无边框、独立窗全屏后框也没了，
+       用户拿不到关闭入口。禁掉窗口全屏后页面改在视图框内铺满，不接管整屏。 */
+    fullscreenable: false,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -211,6 +215,20 @@ async function saveCloseToTray(value) {
     /* core 不可达时保持现状 */
   }
 }
+async function savePetEnabled(value) {
+  try {
+    await coreFetch('/api/settings', { method: 'POST', body: JSON.stringify({ petEnabled: value }) })
+  } catch {
+    /* core 不可达时保持现状 */
+  }
+}
+
+/* 关闭悬浮球：hide 不销毁（保留用户拖放的位置，重开即原位）；持久化 false，
+   重启后不再建窗 */
+function hidePetBall() {
+  if (petWindow && !petWindow.isDestroyed()) petWindow.hide()
+  void savePetEnabled(false)
+}
 
 /* createPetWindow 桌面宠物：透明置顶 288 固定小窗，头像中心落在鼠标
    所在屏右下（距边 72）。默认整窗穿透，悬浮判定与穿透切换见 ez:pet-hover。 */
@@ -235,7 +253,10 @@ function createPetWindow() {
   })
   win.loadURL(pageUrl('/?desktop=1&pet=1'))
   guardWebContents(win.webContents)
-  attachInspectMenu(win.webContents) // 右键=检查元素/开发者工具（与主窗一致，不另造菜单）
+  /* 右键只弹「关闭悬浮球」（头像层放行 contextmenu，见 AssistantPet） */
+  win.webContents.on('context-menu', () => {
+    Menu.buildFromTemplate([{ label: '关闭悬浮球', click: () => hidePetBall() }]).popup()
+  })
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
     petWindow = null
@@ -374,6 +395,16 @@ function registerIpc() {
   })
   /* 桌面宠物：点小按钮 → 显示主窗口（拖动走渲染层 app-region，无 IPC） */
   ipcMain.on('ez:pet-open-main', () => showMain())
+  /* 设置页保存成功后通知：只切显隐，不落盘（设置页已直连 core 持久化，
+     双写会有竞态）。开=show（窗不在则建），关=hide（保位，不销毁） */
+  ipcMain.on('ez:pet-set-enabled', (_e, on) => {
+    if (on) {
+      if (!petWindow || petWindow.isDestroyed()) petWindow = createPetWindow()
+      else petWindow.show()
+    } else if (petWindow && !petWindow.isDestroyed()) {
+      petWindow.hide()
+    }
+  })
   /* 通知：铃铛球开独立通知窗；通知窗点条目 → 亮主窗 + 把跳转载荷转给主窗渲染层 */
   ipcMain.on('ez:notice-open', () => createNoticeWindow())
   ipcMain.on('ez:notice-jump', (_e, payload) => {
@@ -387,6 +418,8 @@ function registerIpc() {
     petHoverTimer = setInterval(() => {
       const win = petWindow
       if (!win || win.isDestroyed()) return
+      /* 隐藏期（悬浮球被关闭）停推坐标，show 后自动恢复 */
+      if (!win.isVisible()) return
       const pt = screen.getCursorScreenPoint()
       // 拖拽中：移窗改由 ez:pet-dragmove 事件驱动（指针频率，平滑）；
       // 也不再推 pet-move（穿透已关，渲染层收得到真实鼠标事件，省 IPC）
@@ -439,6 +472,7 @@ function registerIpc() {
       height: 760,
       title: POPOUT_TITLES[view],
       autoHideMenuBar: true,
+      fullscreenable: false, // 弹出窗里的浏览器页全屏只铺满视图框，不拉整窗（同主窗）
       webPreferences: {
         preload: path.join(__dirname, '../preload/index.js'),
       },
@@ -508,7 +542,9 @@ app.whenReady().then(async () => {
   createTray()
   registerIpc()
   startBrowserModule({ corePort, token: coreToken, getParentWindow: () => mainWindow, findBrowserOwner: () => findBrowserPopout() })
-  petWindow = createPetWindow()
+  /* 悬浮球默认开：读 petEnabled !== false（coreSettings 失败返回 {} 时也开） */
+  const settings = await coreSettings()
+  if (settings.petEnabled !== false) petWindow = createPetWindow()
 }).catch((err) => console.error('启动失败:', err))
 
 /* 托盘常驻：全部窗口关闭不退出（退出只走托盘菜单/关闭确认） */

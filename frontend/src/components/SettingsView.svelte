@@ -3,6 +3,8 @@
   import { api, type AppConfig } from '../lib/api'
   import { getToken } from '../lib/auth'
 
+  const ez = (window as any).ez
+
   /* 设置页 = 应用结构配置（服务端）+ 上下文管理 + 数据/配置文件路径。 */
   let cfg = $state<AppConfig | null>(null)
   let port = $state<number | ''>('')
@@ -30,6 +32,10 @@
   let closeToTray = $state(false)
   let savingTray = $state(false)
 
+  /* 桌面悬浮球（desktop 壳启动时读取；保存成功后 IPC 通知主进程切显隐，web 端自动跳过） */
+  let petEnabled = $state(true)
+  let savingPet = $state(false)
+
   /* 调试模式（模型完整输入进日志；后端实时开关，即改即生效） */
   let debugMode = $state(false)
   let savingDebug = $state(false)
@@ -43,6 +49,12 @@
   let origIters = $state<number | null>(null)
   let savingIters = $state(false)
   let itersMsg = $state('')
+
+  /* 工具结果卸载阈值（字节；超过即卸载到文件只留摘要头部，0 = 默认 4096，随 Reassemble 生效） */
+  let offload = $state<number | ''>('')
+  let origOffload = $state<number | null>(null)
+  let savingOffload = $state(false)
+  let offloadMsg = $state('')
 
   onMount(async () => {
     try {
@@ -62,9 +74,12 @@
       origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
       closeToTray = st.closeToTray ?? false
+      petEnabled = st.petEnabled ?? true
       debugMode = st.debugMode ?? false
       iters = st.maxIterations ?? 64
       origIters = st.maxIterations ?? 64
+      offload = st.offloadThreshold ?? 4096
+      origOffload = st.offloadThreshold ?? 4096
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
     }
@@ -92,6 +107,20 @@
       /* 保存失败回滚开关（下次加载以服务端为准） */
     } finally {
       savingTray = false
+    }
+  }
+
+  async function savePet(v: boolean) {
+    savingPet = true
+    try {
+      await api.saveSettings({ systemExtra: origExtra, petEnabled: v })
+      petEnabled = v
+      /* 保存成功才切窗口显隐（持久化走上面的直连 core，IPC 只管显示） */
+      ez?.pet?.setEnabled?.(v)
+    } catch {
+      /* 保存失败回滚开关（下次加载以服务端为准） */
+    } finally {
+      savingPet = false
     }
   }
 
@@ -146,6 +175,22 @@
       itersMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
     } finally {
       savingIters = false
+    }
+  }
+
+  async function saveOffload() {
+    savingOffload = true
+    offloadMsg = ''
+    try {
+      const v = Math.min(Math.max(Number(offload) || 0, 0), 1048576)
+      await api.saveSettings({ systemExtra: origExtra, offloadThreshold: v })
+      offload = v
+      origOffload = v
+      offloadMsg = '已保存（下一轮对话生效）'
+    } catch (e) {
+      offloadMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      savingOffload = false
     }
   }
 
@@ -255,6 +300,9 @@
     >
       {savingThreshold ? '保存中…' : '保存水位'}
     </button>
+    {#if thresholdMsg}
+      <p class="msg">{thresholdMsg}</p>
+    {/if}
     <label class="field">
       <span>单轮最大迭代次数（0 = 默认 64，上限 128）</span>
       <input type="number" bind:value={iters} min="0" max="128" />
@@ -266,11 +314,22 @@
     >
       {savingIters ? '保存中…' : '保存迭代次数'}
     </button>
-    {#if thresholdMsg}
-      <p class="msg">{thresholdMsg}</p>
-    {/if}
     {#if itersMsg}
       <p class="msg">{itersMsg}</p>
+    {/if}
+    <label class="field">
+      <span>工具结果卸载阈值/字节（超过即卸载到文件、上下文只留摘要；0 = 默认 4096，上限 1MB）</span>
+      <input type="number" bind:value={offload} min="0" max="1048576" />
+    </label>
+    <button
+      class="primary"
+      disabled={savingOffload || Number(offload) === origOffload}
+      onclick={saveOffload}
+    >
+      {savingOffload ? '保存中…' : '保存卸载阈值'}
+    </button>
+    {#if offloadMsg}
+      <p class="msg">{offloadMsg}</p>
     {/if}
   </section>
 
@@ -300,7 +359,7 @@
 
   <section>
     <h2>桌面窗口</h2>
-    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。</p>
+    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。悬浮球右键可关闭，关闭后在此重新开启。</p>
     <label class="switch-row">
       <span>关闭时最小化到托盘</span>
       <input
@@ -308,6 +367,15 @@
         checked={closeToTray}
         disabled={savingTray}
         onchange={(e) => saveTray((e.currentTarget as HTMLInputElement).checked)}
+      />
+    </label>
+    <label class="switch-row">
+      <span>桌面悬浮球</span>
+      <input
+        type="checkbox"
+        checked={petEnabled}
+        disabled={savingPet}
+        onchange={(e) => savePet((e.currentTarget as HTMLInputElement).checked)}
       />
     </label>
   </section>

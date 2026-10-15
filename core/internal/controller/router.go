@@ -58,28 +58,28 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/sessions/:id/notifications/dismiss", c.Chat.DismissNotification)
 		api.POST("/sessions/:id/messages", c.Chat.SendMessage)
 		api.POST("/sessions/:id/cancel", c.Chat.CancelTurn)
-		api.POST("/sessions/:id/approve-mode", c.Session.SetApproveMode) // 三档审批（实时生效）
 		api.POST("/sessions/:id/fork", c.Topics.ForkBranch) // :id=源会话，body{anchor}复制前缀开新线
 
 		api.GET("/settings", c.Settings.GetSettings)
 		api.POST("/settings", c.Settings.UpdateSettings)
-		api.POST("/settings/reasoning", c.Settings.SetReasoning) // 思考档位（输入框下拉，即改即生效）
-		api.POST("/model/call", c.Settings.CallModel)            // 直调大模型（快应用/脚本；与 /mcp/call 同级）
+		api.POST("/settings/reasoning", c.Settings.SetReasoning)      // 思考档位（输入框下拉，即改即生效）
+		api.POST("/settings/approve-mode", c.Settings.SetApproveMode) // 审批档位（输入框下拉，即改即生效）
+		api.POST("/model/call", c.Settings.CallModel)                 // 直调大模型（快应用/脚本；与 /mcp/call 同级）
 		api.GET("/models", c.Settings.GetModels)
 		api.POST("/models", c.Settings.UpdateModels)
 		api.POST("/models/activate", c.Settings.ActivateModel) // 主模型切换（输入框选择器；下一次输入生效）
 		api.GET("/security", c.Settings.GetSecurity)
 		api.POST("/security", c.Settings.UpdateSecurity)
 		api.GET("/memory/config", c.Settings.GetMemoryConfig)
-		api.GET("/memory/longterm", c.Settings.GetLongterm)                // 条目式长期记忆全量
-		api.POST("/memory/longterm/:target", c.Settings.SaveLongtermItems) // user|soul 整组保存（记忆页编辑器）
-		api.GET("/memory/project/:id", c.Settings.GetProject)              // 项目记忆详情
-		api.POST("/memory/project", c.Settings.SaveProject)                // 新建/更新项目记忆
-		api.DELETE("/memory/project/:id", c.Settings.DeleteProject)        // 删除项目
+		api.GET("/memory/longterm", c.Settings.GetLongterm)                    // 条目式长期记忆全量
+		api.POST("/memory/longterm/:target", c.Settings.SaveLongtermItems)     // user|soul 整组保存（记忆页编辑器）
+		api.GET("/memory/project/:id", c.Settings.GetProject)                  // 项目记忆详情
+		api.POST("/memory/project", c.Settings.SaveProject)                    // 新建/更新项目记忆
+		api.DELETE("/memory/project/:id", c.Settings.DeleteProject)            // 删除项目
 		api.POST("/memory/pending/:id/decide", c.Settings.DecideMemoryPending) // 待确认记忆操作：确认应用/取消丢弃
-		api.POST("/memory/skills", c.Settings.CreateSkill)             // zip base64 新建技能
-		api.DELETE("/memory/skills/:id", c.Settings.DeleteSkill)       // 删除技能目录
-		api.POST("/memory/skills/:id/enabled", c.Settings.ToggleSkill) // 启停技能
+		api.POST("/memory/skills", c.Settings.CreateSkill)                     // zip base64 新建技能
+		api.DELETE("/memory/skills/:id", c.Settings.DeleteSkill)               // 删除技能目录
+		api.POST("/memory/skills/:id/enabled", c.Settings.ToggleSkill)         // 启停技能
 
 		api.GET("/topics", c.Topics.List)
 		api.GET("/topics/:id", c.Topics.Get)

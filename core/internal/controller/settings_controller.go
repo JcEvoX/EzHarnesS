@@ -97,8 +97,11 @@ func (c *SettingsController) GetLongterm(g *gin.Context) {
 	g.JSON(http.StatusOK, v)
 }
 
-/* SaveLongtermItems POST /api/memory/longterm/:target（user|soul 整组保存）。
-   只收 id/text：id 空为新增（服务端补号），updatedAt 由服务端盖章。 */
+/*
+SaveLongtermItems POST /api/memory/longterm/:target（user|soul 整组保存）。
+
+	只收 id/text：id 空为新增（服务端补号），updatedAt 由服务端盖章。
+*/
 func (c *SettingsController) SaveLongtermItems(g *gin.Context) {
 	var body struct {
 		Items []struct {
@@ -259,6 +262,22 @@ func (c *SettingsController) SetReasoning(g *gin.Context) {
 		return
 	}
 	g.JSON(http.StatusOK, gin.H{"ok": true, "effort": req.Effort})
+}
+
+/* SetApproveMode POST /api/settings/approve-mode：工具审批档位（输入框下拉；工具审批实时读取，即改即生效）。 */
+func (c *SettingsController) SetApproveMode(g *gin.Context) {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := g.ShouldBindJSON(&req); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := c.Settings.SetApproveMode(g.Request.Context(), req.Mode); err != nil {
+		g.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, gin.H{"ok": true, "mode": req.Mode})
 }
 
 /*

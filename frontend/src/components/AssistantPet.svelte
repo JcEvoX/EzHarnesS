@@ -154,7 +154,6 @@
           dragging = false
           ez?.pet?.drag?.(false)
         }}
-        oncontextmenu={(e) => e.preventDefault()}
         aria-label="拖动小助手"></button>
       {#if pending > 0}
         <i class="ndot avatar-dot red"></i>
@@ -269,7 +268,7 @@
     transition: opacity 220ms var(--ease-out);
     /* 不用 app-region:drag——Windows 会把 drag 区当标题栏、右键弹系统菜单，
        拦不住也换不掉；改由 JS 上报拖拽（pointerdown→主进程随光标移窗），
-       右键于是能走正常 context-menu 弹「检查元素/开发者工具」 */
+       右键走主进程 context-menu 弹「关闭悬浮球」 */
   }
   .avatar-wrap.dim {
     opacity: 0.86;
@@ -277,7 +276,7 @@
   .avatar-wrap :global(img) {
     pointer-events: none;
   }
-  /* 拖拽把手：盖住头像的透明层，只承左键拖动；右键穿透到页面走检查菜单 */
+  /* 拖拽把手：盖住头像的透明层，只承左键拖动；右键放行给主进程弹「关闭悬浮球」 */
   .drag-handle {
     position: absolute;
     inset: 0;

@@ -50,8 +50,8 @@ import (
 	"ezharness/core/internal/osfs"
 	"ezharness/core/internal/tools"
 	"ezharness/core/internal/warp/modeldump"
-	"ezharness/core/internal/warp/reasoningeffort"
 	"ezharness/core/internal/warp/noempty"
+	"ezharness/core/internal/warp/reasoningeffort"
 	"ezharness/core/internal/warp/toolarg"
 	"ezharness/core/internal/warp/visionguard"
 )
@@ -206,9 +206,9 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	sys.SetIdentityFn(func() string { return hooks.SessionIdentityBlock(s.ID) }) // 会话身份：ID+存档路径（trim 折叠后的回忆入口）
 	s.Sess.BindSys(sys, main.Name)
 
-	// 审批三档（会话级，实时读取即改即生效）：off 全放行 / strict 全审 / '' 跟随安全配置
+	// 审批三档（全局，实时读取即改即生效）：off 全放行 / strict 全审 / '' 跟随安全配置
 	approver, approveCh := approve.New(func(c *types.ToolCall) bool {
-		switch s.ApproveMode() {
+		switch a.Hub.SettingsSnapshot().ApproveMode {
 		case "off":
 			return false
 		case "strict":
@@ -341,7 +341,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			asker,
 			task.New(task.WithModelFactory(modelFactoryOf(a.Hub))),
 			mcpHook,
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
+			offload.New(s.Fsys, offload.WithThreshold(st.OffloadThreshold), offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
 				offload.WithAbs(func(p string) string { // 提示给绝对路径：模型不知道 FS 挂载基准，按工作目录拼相对路径必错
 					if abs, err := filepath.Abs(p); err == nil {
 						return filepath.ToSlash(abs)

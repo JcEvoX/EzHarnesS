@@ -116,7 +116,7 @@
      重建是 O(n²)，长输出时主线程被打满——页面卡死无法滚动，积压的
      增量随后一次涌出。切段点取尾部窗口外的最后一个空行（块边界，且
      不落在未闭合代码围栏内），cut 不变头段不重算也不重建 DOM，尾段
-     每 delta 重排（长度有界）。流结束一次性全文重排（权威渲染）。 */
+     每 delta 重排（长度有界）。流结束定格切点，只重排尾段。 */
   const STREAM_TAIL = 2400
   /* cut 前进的迟滞余量：text 只在尾部追加（前缀不变），尾窗未超
      STREAM_TAIL+CUT_HYST 前沿用旧 cut——避免每 delta 都重找边界导致
@@ -153,8 +153,11 @@
 
   let headCache = { cut: -1, html: '' }
   const streamView = $derived.by(() => {
-    if (!streaming || !text) return null
-    const cut = streamCut(text)
+    if (!text) return null
+    /* 流式期切段前进；结束后定格在缓存切点——头段解析结果与 DOM 原样
+       复用，只重排尾段（收尾不全文重排，长输出结束不卡顿） */
+    const cut = streaming ? streamCut(text) : headCache.cut
+    if (cut < 0) return null // 无缓存（回放/历史重建的消息）：走 mdHtml 全文
     if (headCache.cut !== cut) {
       const head = cut > 0 ? DOMPurify.sanitize(marked.parse(text.slice(0, cut)) as string) : ''
       headCache = { cut, html: head }
@@ -162,7 +165,7 @@
     return { head: headCache.html, tail: DOMPurify.sanitize(marked.parse(text.slice(cut)) as string) }
   })
 
-  /* 模型输出渲染 markdown（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
+  /* 无流式头缓存的重建消息的全文渲染（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
   const mdHtml = $derived(text && !streaming ? DOMPurify.sanitize(marked.parse(text) as string) : '')
   const reasoningClipped = $derived(streaming && reasoning.length > 1200)
 
@@ -171,7 +174,9 @@
 
   /* mermaid 代码块 → svg：动态加载（包体大，不占首屏）；语法错误保留源码块 */
   $effect(() => {
-    if (streaming || !bodyEl || !mdHtml.includes('language-mermaid')) return
+    if (streaming || !bodyEl) return
+    const html = streamView ? streamView.head + streamView.tail : mdHtml
+    if (!html.includes('language-mermaid')) return
     void renderMermaids(bodyEl)
   })
 

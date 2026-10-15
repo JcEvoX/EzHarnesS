@@ -149,10 +149,11 @@
   ] as const
   const APPROVE_MODES = [
     { v: '', label: '跟随安全配置', title: '按安全页的工具规则决定是否审批' },
-    { v: 'off', label: '无审批', title: '本会话全部工具直接放行（谨慎）' },
-    { v: 'strict', label: '严格审批', title: '本会话每次工具调用都需批准' },
+    { v: 'off', label: '无审批', title: '全部工具直接放行（谨慎）' },
+    { v: 'strict', label: '严格审批', title: '每次工具调用都需批准' },
   ] as const
-  const approveLabel = $derived(APPROVE_MODES.find((m) => m.v === store.approveMode)?.label ?? '跟随安全配置')
+  const approveMode = $derived((store.settings?.approveMode ?? '') as '' | 'off' | 'strict')
+  const approveLabel = $derived(APPROVE_MODES.find((m) => m.v === approveMode)?.label ?? '跟随安全配置')
   const reasonEffort = $derived((store.settings?.reasoningEffort ?? '') as ReasoningEffort)
   const reasonLabel = $derived(REASON_MODES.find((m) => m.v === reasonEffort)?.label ?? '思考·默认')
 
@@ -324,7 +325,7 @@
     </div>
     <div class="approve-pick">
       <button class="model-btn" onclick={toggleApproveMenu} disabled={!store.activeId}
-        title="本会话的工具审批档位（实时生效）">
+        title="全局的工具审批档位（实时生效）">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
         </svg>
@@ -333,7 +334,7 @@
       {#if approveOpen}
         <div class="model-menu">
           {#each APPROVE_MODES as m (m.v || 'follow')}
-            <button class="model-item" class:on={store.approveMode === m.v} onclick={() => pickApprove(m.v)} title={m.title}>
+            <button class="model-item" class:on={approveMode === m.v} onclick={() => pickApprove(m.v)} title={m.title}>
               <span class="model-name">{m.label}</span>
             </button>
           {/each}

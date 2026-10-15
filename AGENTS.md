@@ -33,8 +33,8 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `core/embed.go` | `go:embed web/dist` + `distFS()` |
 | `core/internal/config/cfg.go` `logfile.go` | 应用根、端口、数据目录、chdir / 日志落盘：`logs/core-YYYYMMDD.log` 按天滚动保留 7 天，stderr 双写（dev 终端可见；打包版 GUI 无控制台，文件是唯一出口）。`OpenLogWriter` 在 main 接管 log/gin/modeldump 输出，换代 `FollowDataDir` 跟随数据目录 |
 | `core/internal/controller/router.go` | 全部路由表 + SPA 静态兜底（`/api` 之外回退 index.html） |
-| `core/internal/controller/*.go` | 表现层，只绑定/校验/响应：`app` `session` `chat` `topic` `settings` `mcp` `apps` `terminal` `browser` `workspace`。settings 另含 `/api/model/call`（直调大模型）与 `/api/settings/reasoning`（思考档位） |
-| `core/internal/service/agent_service.go` | **最重要的文件**：`Assemble` 装配一个 session 的 agent——hook 列表、warp 链、工具集、ToolNames、system 基础段全在这里；approve 的 needs 闭包按**会话审批三档**分派（`off` 全放行 / `strict` 全审 / 空=走 `needsApprove` 查 toolRules，实时读 `Session.ApproveMode` 即改即生效） |
+| `core/internal/controller/*.go` | 表现层，只绑定/校验/响应：`app` `session` `chat` `topic` `settings` `mcp` `apps` `terminal` `browser` `workspace`。settings 另含 `/api/model/call`（直调大模型）、`/api/settings/reasoning`（思考档位）与 `/api/settings/approve-mode`（审批档位） |
+| `core/internal/service/agent_service.go` | **最重要的文件**：`Assemble` 装配一个 session 的 agent——hook 列表、warp 链、工具集、ToolNames、system 基础段全在这里；approve 的 needs 闭包按**全局审批三档**分派（`off` 全放行 / `strict` 全审 / 空=走 `needsApprove` 查 toolRules，实时读 `Hub.SettingsSnapshot().ApproveMode` 即改即生效） |
 | `core/internal/service/chat_service.go` | 一轮运行的启停、SSE 推送、用量统计 |
 | `core/internal/service/session_service.go` | 历史读取、bootstrap、status/水位 |
 | `core/internal/service/topic_service.go` | 分支线（topics.json）、归档换代、分叉 |
@@ -63,8 +63,8 @@ tools / hooks 为领域扩展；osfs / config 为基础设施；warp 包模型�
 | `src/lib/store.svelte.ts` | 全局状态机：bootstrap、SSE 归约（`apply`）、历史重建（`buildBlocks`）、抽屉/弹窗/草稿/附件/通知。前端最核心的文件 |
 | `src/lib/term.ts` | 终端 WS 管理器：单连接多路复用（帧带 id 路由）+ 断线重连 + hello 快照 |
 | `src/lib/desktop.ts` `textfile.ts` `filePaneState.ts` | `?desktop=1` 判定 / 路径工具 / 资源页跨窗口状态胶囊 |
-| `src/components/ChatView.svelte` `Timeline.svelte` `MessageItem.svelte` `InputBar.svelte` `FindBar.svelte` | 对话主列：时间线按 block kind 分发、消息渲染、输入框与附件；InputBar 底部工具条（右对齐两个下拉）=审批档（跟随安全配置/无/严格，会话级 `POST /sessions/:id/approve-mode` 实时生效）+ 主模型切换（`POST /models/activate` 唯一启用+Reassemble，下一次输入生效；前端本地先推一条状态栏变更行作即时反馈，**正式记录走下轮 `<resource_change>`**——remind 轮首 diff 出「切换模型到 X」落盘+时间线卡）；FindBar=Ctrl+F 页面内查找（**纯 DOM 自绘高亮**：TreeWalker 遍历文本节点，匹配拆分包裹 `.ezfh` span，当前项 `.ezfh-cur` 居中滚动；跳过表单/可编辑/查找栏自身子树。**别改回 Electron findInPage**——它抢文档焦点、有会话竞态、导航按钮 click 被焦点护栏吞掉，连出三次事故后废弃） |
-| `src/components/TabBar.svelte` `ChatEmpty.svelte` | **会话标签条**：store.tabs 的开/关/激活（关标签≠停会话，后台轮照跑；`openTab`/`closeTab`/`newChatTab` 是入口，switchBranch 退为内部原语）。右键菜单：关闭 / 关闭其他（`closeOtherTabs`）/ 关闭右侧（`closeRightTabs`），fixed 定位、点外部/Escape 收起。最后一个标签关闭 → ChatEmpty 空状态（`activeId=''`：loadHistory/resubscribe 均判空短路，**不得**开 `/api/sessions//events`）。后台标签活性靠 3s 通知轮询顺带拉分支列表（`bgTabsBusy` 门控）。每标签输入草稿在 `store.drafts`（InputBar 以 activeId 为键存取，untrack 防环） |
+| `src/components/ChatView.svelte` `Timeline.svelte` `MessageItem.svelte` `InputBar.svelte` `FindBar.svelte` | 对话主列：时间线按 block kind 分发、消息渲染、输入框与附件；InputBar 底部工具条（右对齐三个下拉）=思考强度（`POST /settings/reasoning`，全局即改即生效）+审批档（跟随安全配置/无/严格，全局 `POST /settings/approve-mode` 实时生效）+ 主模型切换（`POST /models/activate` 唯一启用+Reassemble，下一次输入生效；前端本地先推一条状态栏变更行作即时反馈，**正式记录走下轮 `<resource_change>`**——remind 轮首 diff 出「切换模型到 X」落盘+时间线卡）；FindBar=Ctrl+F 页面内查找（**纯 DOM 自绘高亮**：TreeWalker 遍历文本节点，匹配拆分包裹 `.ezfh` span，当前项 `.ezfh-cur` 居中滚动；跳过表单/可编辑/查找栏自身子树。**别改回 Electron findInPage**——它抢文档焦点、有会话竞态、导航按钮 click 被焦点护栏吞掉，连出三次事故后废弃） |
+| `src/components/TabBar.svelte` `ChatEmpty.svelte` | **会话标签条**：store.tabs 的开/关/激活（关标签=停会话——关掉的线在跑就取消当前轮，会话留在列表仅停轮；`openTab`/`closeTab`/`newChatTab` 是入口，switchBranch 退为内部原语）。右键菜单：关闭 / 关闭其他（`closeOtherTabs`）/ 关闭右侧（`closeRightTabs`），fixed 定位、点外部/Escape 收起。最后一个标签关闭 → ChatEmpty 空状态（`activeId=''`：loadHistory/resubscribe 均判空短路，**不得**开 `/api/sessions//events`）。后台标签活性靠 3s 通知轮询顺带拉分支列表（`bgTabsBusy` 门控）。每标签输入草稿在 `store.drafts`（InputBar 以 activeId 为键存取，untrack 防环） |
 | `src/components/Timeline.svelte` 的行模型 | **紧凑回复组**：user 块独立成行（无头像），其余块并入其后回复组——一个用户输入只对应一个组头像（组内 assistant 用 `MessageItem bare` 无头像）；首 user 前的系统记录成 leader 组（无头像）。组 key 用前置 user 块 uid（中段增删不换 key）。`--proc-indent` 变量是过程卡缩进基准：组内 0（对齐正文）、未设处回落 40px（ForkPanel 保持旧缩进）；endtick/imgload 的缩进 = `calc(var(--proc-indent, 40px) + 8px)`。工具段 ≥2 即折叠（TOOL_GROUP_MIN=2）。左下角活动指示（`modelPhase`）：思考流式/首 token 前＝「模型思考中…」、工具参数构造＝「模型输出中…」、正文一流出即收；工具执行中由 `lastTool` 压过。 |
 | `src/components/EzAvatar.svelte` | **表情头像**：资产随前端打包（`frontend/public/ezavatar/expr/<表情>/`，透明底 `anim.webp` 动画 + `still.png` 静帧），不依赖应用数据目录。最新回复组＝动画（运行中 `spin` 转圈 / 平时 hello→wink→sleep→look 轮询），历史组＝静帧（不产生播放开销），空页面＝随机池轮播；加载失败回退 children（`ez` 徽章 / Logo）。新增/重做表情素材后需重新同步资产目录并重建 |
 | `src/components/ToolBlock.svelte` `ToolGroup.svelte` `StatusCard.svelte` `StatusTagCard.svelte` `ResChangeCard.svelte` `DecisionCard.svelte` `NoticePanel.svelte` `ForkCard.svelte` `ForkPanel.svelte` `BranchPanel.svelte` | 时间线卡片族与分支/分身面板 |
@@ -349,6 +349,8 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 **eval 的全局视觉变形（踩过的坑）**：AI 曾用 `eval: documentElement.style.zoom='0.55'` 把二维码"缩进"视口——内联 zoom 会持续偏移所有元素坐标、`selector` 截图截到空白，而且没有任何"看起来就不对"的信号。防线：`eval` 返回前检测 html/body 上的 `zoom`/`transform`/`filter`，有就当场在结果里警告；修复也用它自己（eval 就是那个万能逃生口），或 `navigate` 同 URL 重载。（内容在视口外是页面自身布局问题，正确解法是页内滚动或让用户拉宽抽屉/弹出窗口，不是缩页面。）
 
 **缩放**：浏览器标签**不预设缩放**——按原比例渲染（`BROWSER_ZOOM=1` 只是 Ctrl+0 的复位目标，建标签时不 setZoomFactor）。用户可用 Ctrl+滚轮 / Ctrl+± / Ctrl+0 自己调（preload 捕获 wheel 转发主进程 + `before-input-event`）。改 zoom 会连布局视口一起变（页面重排，破坏"截图=真实渲染"），所以**只有用户手动调**，工具侧不碰。
+
+**全屏只在视图框内**：页面 `requestFullscreen`（双击视频/图片常见）默认会把承载该视图的窗口整体拉成全屏——主窗本就无边框、独立窗全屏后框也没了，用户拿不到关闭入口被卡住。承载浏览器视图的窗口（主窗 `createMainWindow`、抽屉工具的 `createPopoutWindow`）一律 `fullscreenable: false`：Electron 不再拉窗口全屏，页面改在视图框内铺满——正是"全屏到浏览器这块框"的语义，窗口框/关闭入口都还在。别再改成拦 `fullscreen` 权限（用户要的是"只到框内"，不是"全屏整个失效"）。
 
 ### 5.7 keyed each 重复键崩整页（2026-10-12 事故）
 
