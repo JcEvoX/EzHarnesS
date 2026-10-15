@@ -987,14 +987,15 @@ class AppStore {
     }
   }
 
-  /* closeTab：关后台标签仅摘除；关活动标签激活右邻（退化左邻，浏览器
-     惯例）；最后一个 → 空状态（退订 SSE、清视图——会话本身不受影响，
-     侧栏列表与通知轮询照常）。 */
+  /* closeTab：关标签即停会话（关掉的线在跑就取消当前轮，别让它悄悄在
+     列表里继续跑）；关活动标签激活右邻（退化左邻，浏览器惯例）；最后
+     一个 → 空状态（退订 SSE、清视图——会话本身留在列表，仅停轮）。 */
   async closeTab(rootId: string) {
     const i = this.tabs.findIndex((t) => t.rootId === rootId)
     if (i < 0) return
     this.tabs = this.tabs.filter((t) => t.rootId !== rootId)
     delete this.drafts[rootId]
+    void api.cancel(rootId).catch(() => {})
     if (rootId !== this.activeId) return
     const neighbor = this.tabs[i]?.rootId || this.tabs[i - 1]?.rootId || ''
     if (neighbor) {
@@ -1008,22 +1009,29 @@ class AppStore {
     this.resetView()
   }
 
-  /* closeOtherTabs：只保留指定标签，其余全关（活动标签被关则激活它）。 */
+  /* closeOtherTabs：只保留指定标签，其余全关（活动标签被关则激活它）；
+     被关的线一并停轮。 */
   async closeOtherTabs(rootId: string) {
-    this.tabs = this.tabs.filter((t) => t.rootId === rootId)
-    for (const id of Object.keys(this.drafts)) {
-      if (id !== rootId) delete this.drafts[id]
+    for (const t of this.tabs) {
+      if (t.rootId === rootId) continue
+      delete this.drafts[t.rootId]
+      void api.cancel(t.rootId).catch(() => {})
     }
+    this.tabs = this.tabs.filter((t) => t.rootId === rootId)
     if (this.activeId && this.activeId !== rootId) await this.switchBranch(rootId)
   }
 
-  /* closeRightTabs：关掉指定标签右侧的全部标签；活动标签在其中则激活该标签。 */
+  /* closeRightTabs：关掉指定标签右侧的全部标签（被关的线一并停轮）；
+     活动标签在其中则激活该标签。 */
   async closeRightTabs(rootId: string) {
     const i = this.tabs.findIndex((t) => t.rootId === rootId)
     if (i < 0) return
     const removed = this.tabs.slice(i + 1)
     this.tabs = this.tabs.slice(0, i + 1)
-    for (const t of removed) delete this.drafts[t.rootId]
+    for (const t of removed) {
+      delete this.drafts[t.rootId]
+      void api.cancel(t.rootId).catch(() => {})
+    }
     if (removed.some((t) => t.rootId === this.activeId)) await this.switchBranch(rootId)
   }
 
