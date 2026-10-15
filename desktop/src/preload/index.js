@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('ez', {
     passthrough: (on) => ipcRenderer.send('ez:pet-passthrough', !!on),
     drag: (on) => ipcRenderer.send('ez:pet-drag', !!on),
     dragMove: (x, y) => ipcRenderer.send('ez:pet-dragmove', x, y),
+    /* 设置页保存成功后通知主进程切显隐（持久化由设置页直连 core 完成） */
+    setEnabled: (on) => ipcRenderer.send('ez:pet-set-enabled', !!on),
   },
   /* 通知：铃铛球开独立通知窗（open）；通知窗点条目 → 主进程亮主窗并把
      跳转载荷（{rootId,forkId,id,target}）转给主窗渲染层（jump / onJump） */

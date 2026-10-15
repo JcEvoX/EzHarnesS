@@ -3,6 +3,8 @@
   import { api, type AppConfig } from '../lib/api'
   import { getToken } from '../lib/auth'
 
+  const ez = (window as any).ez
+
   /* 设置页 = 应用结构配置（服务端）+ 上下文管理 + 数据/配置文件路径。 */
   let cfg = $state<AppConfig | null>(null)
   let port = $state<number | ''>('')
@@ -29,6 +31,10 @@
   /* 托盘常驻（桌面端点关闭 = 最小化到托盘；关窗时实时读取，即改即生效） */
   let closeToTray = $state(false)
   let savingTray = $state(false)
+
+  /* 桌面悬浮球（desktop 壳启动时读取；保存成功后 IPC 通知主进程切显隐，web 端自动跳过） */
+  let petEnabled = $state(true)
+  let savingPet = $state(false)
 
   /* 调试模式（模型完整输入进日志；后端实时开关，即改即生效） */
   let debugMode = $state(false)
@@ -62,6 +68,7 @@
       origWorkDir = st.workDir ?? ''
       origExtra = st.systemExtra ?? ''
       closeToTray = st.closeToTray ?? false
+      petEnabled = st.petEnabled ?? true
       debugMode = st.debugMode ?? false
       iters = st.maxIterations ?? 64
       origIters = st.maxIterations ?? 64
@@ -92,6 +99,20 @@
       /* 保存失败回滚开关（下次加载以服务端为准） */
     } finally {
       savingTray = false
+    }
+  }
+
+  async function savePet(v: boolean) {
+    savingPet = true
+    try {
+      await api.saveSettings({ systemExtra: origExtra, petEnabled: v })
+      petEnabled = v
+      /* 保存成功才切窗口显隐（持久化走上面的直连 core，IPC 只管显示） */
+      ez?.pet?.setEnabled?.(v)
+    } catch {
+      /* 保存失败回滚开关（下次加载以服务端为准） */
+    } finally {
+      savingPet = false
     }
   }
 
@@ -300,7 +321,7 @@
 
   <section>
     <h2>桌面窗口</h2>
-    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。</p>
+    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。悬浮球右键可关闭，关闭后在此重新开启。</p>
     <label class="switch-row">
       <span>关闭时最小化到托盘</span>
       <input
@@ -308,6 +329,15 @@
         checked={closeToTray}
         disabled={savingTray}
         onchange={(e) => saveTray((e.currentTarget as HTMLInputElement).checked)}
+      />
+    </label>
+    <label class="switch-row">
+      <span>桌面悬浮球</span>
+      <input
+        type="checkbox"
+        checked={petEnabled}
+        disabled={savingPet}
+        onchange={(e) => savePet((e.currentTarget as HTMLInputElement).checked)}
       />
     </label>
   </section>

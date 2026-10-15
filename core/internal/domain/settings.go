@@ -66,6 +66,7 @@ type Settings struct {
 	TrimPercent     int      `json:"trimPercent"`               // 上下文整理水位（模型窗口百分比，0=禁用自动整理）
 	WorkDir         string   `json:"workDir"`                   // 工作目录（terminal 默认目录；空=数据目录下 workspace/，相对=相对数据目录）
 	CloseToTray     bool     `json:"closeToTray"`               // 桌面端点关闭 = 最小化到托盘（关窗时实时读取，即改即生效）
+	PetEnabled      bool     `json:"petEnabled"`                // 桌面悬浮球开关（desktop 壳启动时读取；关=不建窗，设置页可重开）
 	DisabledSkills  []string `json:"disabledSkills"`            // 已禁用 skill 的目录名（load_skill/状态面板实时读取，system 清单下个 session 生效）
 	MaxIterations   int      `json:"maxIterations"`             // 单轮对话的最大模型迭代次数（0 = 默认 64，上限 128；随 Reassemble 生效）
 	DebugMode       bool     `json:"debugMode"`                 // 调试模式：把每次模型请求的全量输入写进日志（modeldump 实时读取，即改即生效）
@@ -84,5 +85,6 @@ func DefaultSettings() Settings {
 		SystemExtra: "",
 		TrimPercent: 75,
 		CloseToTray: false,
+		PetEnabled:  true,
 	}
 }

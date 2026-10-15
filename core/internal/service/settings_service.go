@@ -45,6 +45,7 @@ type SettingsView struct {
 	TrimPercent     *int    `json:"compactPercent,omitempty"`
 	WorkDir         *string `json:"workDir,omitempty"`
 	CloseToTray     *bool   `json:"closeToTray,omitempty"`
+	PetEnabled      *bool   `json:"petEnabled,omitempty"`
 	MaxIterations   *int    `json:"maxIterations,omitempty"`
 	DebugMode       *bool   `json:"debugMode,omitempty"`
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"` // 思考档位（''=默认 | none | low | high | max）
@@ -57,7 +58,7 @@ func (s *SettingsService) Get() SettingsView {
 	p := st.TrimPercent
 	w := st.WorkDir
 	return SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w,
-		CloseToTray: &st.CloseToTray, DebugMode: &st.DebugMode, ReasoningEffort: &st.ReasoningEffort,
+		CloseToTray: &st.CloseToTray, PetEnabled: &st.PetEnabled, DebugMode: &st.DebugMode, ReasoningEffort: &st.ReasoningEffort,
 		ApproveMode: &st.ApproveMode, MaxIterations: &st.MaxIterations} // 回读必须带——漏了它前端回落默认 64，表现为"切页后被重置"
 }
 
@@ -76,6 +77,9 @@ func (s *SettingsService) Update(ctx context.Context, v SettingsView) error {
 	}
 	if v.CloseToTray != nil {
 		st.CloseToTray = *v.CloseToTray
+	}
+	if v.PetEnabled != nil {
+		st.PetEnabled = *v.PetEnabled
 	}
 	if v.DebugMode != nil {
 		st.DebugMode = *v.DebugMode

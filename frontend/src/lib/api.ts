@@ -166,6 +166,7 @@ export interface Settings {
   trimPercent?: number | null
   workDir?: string
   closeToTray?: boolean
+  petEnabled?: boolean // 桌面悬浮球（desktop 壳启动时读取；关=不建窗，右键/设置页可切换）
   maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 64，上限 128）
   debugMode?: boolean // 调试模式：模型完整输入写进日志（即改即生效）
   reasoningEffort?: ReasoningEffort // 思考档位（''=默认不控制；none=关闭；其余为强度分档）

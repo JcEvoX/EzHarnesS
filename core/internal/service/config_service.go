@@ -82,6 +82,7 @@ func LoadSettings(ctx context.Context, fsys osfs.OS) domain.Settings {
 		TrimPercent     *int     `json:"trimPercent"` // 指针：区分未提交与显式 0（禁用）
 		WorkDir         string   `json:"workDir"`
 		CloseToTray     *bool    `json:"closeToTray"`
+		PetEnabled      *bool    `json:"petEnabled"`
 		DisabledSkills  []string `json:"disabledSkills"`
 		MaxIterations   *int     `json:"maxIterations"`
 		DebugMode       *bool    `json:"debugMode"`
@@ -96,6 +97,9 @@ func LoadSettings(ctx context.Context, fsys osfs.OS) domain.Settings {
 	out.WorkDir = s.WorkDir
 	if s.CloseToTray != nil {
 		out.CloseToTray = *s.CloseToTray
+	}
+	if s.PetEnabled != nil {
+		out.PetEnabled = *s.PetEnabled
 	}
 	if s.TrimPercent != nil {
 		out.TrimPercent = clamp(*s.TrimPercent, 0, 100)
