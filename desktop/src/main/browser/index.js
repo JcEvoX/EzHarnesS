@@ -46,6 +46,9 @@ function completeURL(raw) {
 /* 用户新建标签的默认起始页（AI 的 browser_tab open 不带 url 仍为空白） */
 const HOME_PAGE = 'https://cn.bing.com/'
 
+/* 共享浏览器的持久分区：标签 webContents 与权限策略共用这一个 session */
+const BROWSER_PARTITION = 'persist:ezbrowser'
+
 /* 浏览器标签的原生缩放（不预设缩放，就是真实渲染比例）；Ctrl+0 回到这里 */
 const BROWSER_ZOOM = 1
 
@@ -214,7 +217,7 @@ function createTab(name, desc, origin, startURL) {
   const url = completeURL(startURL)
   const view = new WebContentsView({
     webPreferences: {
-      session: session.fromPartition('persist:ezbrowser'),
+      session: session.fromPartition(BROWSER_PARTITION),
       preload: path.join(__dirname, '../../preload/browser.js'), // 只管 Ctrl+滚轮缩放
     },
   })
@@ -924,12 +927,28 @@ function registerIpc() {
   })
 }
 
+/*
+denyFullscreen 拒绝共享浏览器页的全屏请求。
+
+页面双击/按钮触发 requestFullscreen 时，Electron 会把承载该视图的窗口整个
+切进全屏——主窗本就无边框，独立窗口全屏后框也没了，用户拿不到关闭入口被卡住。
+浏览器页只是工作区里的一块内容，不该接管整屏；这里把 fullscreen（含 iframe 里的
+请求）一并拒掉。校验与请求两个 handler 都要设：多数 Web API 先做权限校验、被拒
+才发请求（见 Electron session 文档），只设一个挡不全。
+*/
+function denyFullscreen(ses) {
+  const deny = (permission) => permission !== 'fullscreen' && permission !== 'automatic-fullscreen'
+  ses.setPermissionCheckHandler((_wc, permission) => deny(permission))
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(deny(permission)))
+}
+
 /* startBrowserModule 壳装配入口。 */
 function startBrowserModule({ corePort: port, token, getParentWindow: parent, findBrowserOwner }) {
   corePort = port
   coreToken = token || ''
   getParentWindow = parent
   findOwner = findBrowserOwner || (() => null)
+  denyFullscreen(session.fromPartition(BROWSER_PARTITION))
   registerIpc()
   connectBridge()
 }
