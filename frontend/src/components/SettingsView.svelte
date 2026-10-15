@@ -50,6 +50,12 @@
   let savingIters = $state(false)
   let itersMsg = $state('')
 
+  /* 工具结果卸载阈值（字节；超过即卸载到文件只留摘要头部，0 = 默认 4096，随 Reassemble 生效） */
+  let offload = $state<number | ''>('')
+  let origOffload = $state<number | null>(null)
+  let savingOffload = $state(false)
+  let offloadMsg = $state('')
+
   onMount(async () => {
     try {
       cfg = await api.appConfig()
@@ -72,6 +78,8 @@
       debugMode = st.debugMode ?? false
       iters = st.maxIterations ?? 64
       origIters = st.maxIterations ?? 64
+      offload = st.offloadThreshold ?? 4096
+      origOffload = st.offloadThreshold ?? 4096
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
     }
@@ -167,6 +175,22 @@
       itersMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
     } finally {
       savingIters = false
+    }
+  }
+
+  async function saveOffload() {
+    savingOffload = true
+    offloadMsg = ''
+    try {
+      const v = Math.min(Math.max(Number(offload) || 0, 0), 1048576)
+      await api.saveSettings({ systemExtra: origExtra, offloadThreshold: v })
+      offload = v
+      origOffload = v
+      offloadMsg = '已保存（下一轮对话生效）'
+    } catch (e) {
+      offloadMsg = `保存失败：${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      savingOffload = false
     }
   }
 
@@ -276,6 +300,9 @@
     >
       {savingThreshold ? '保存中…' : '保存水位'}
     </button>
+    {#if thresholdMsg}
+      <p class="msg">{thresholdMsg}</p>
+    {/if}
     <label class="field">
       <span>单轮最大迭代次数（0 = 默认 64，上限 128）</span>
       <input type="number" bind:value={iters} min="0" max="128" />
@@ -287,11 +314,22 @@
     >
       {savingIters ? '保存中…' : '保存迭代次数'}
     </button>
-    {#if thresholdMsg}
-      <p class="msg">{thresholdMsg}</p>
-    {/if}
     {#if itersMsg}
       <p class="msg">{itersMsg}</p>
+    {/if}
+    <label class="field">
+      <span>工具结果卸载阈值/字节（超过即卸载到文件、上下文只留摘要；0 = 默认 4096，上限 1MB）</span>
+      <input type="number" bind:value={offload} min="0" max="1048576" />
+    </label>
+    <button
+      class="primary"
+      disabled={savingOffload || Number(offload) === origOffload}
+      onclick={saveOffload}
+    >
+      {savingOffload ? '保存中…' : '保存卸载阈值'}
+    </button>
+    {#if offloadMsg}
+      <p class="msg">{offloadMsg}</p>
     {/if}
   </section>
 

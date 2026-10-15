@@ -48,3 +48,5 @@ require (
 	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
+
+replace github.com/xuanlv2002/ezloop => C:/Users/guy/Desktop/ai/ezloop

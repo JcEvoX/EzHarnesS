@@ -50,6 +50,7 @@ type SettingsView struct {
 	DebugMode       *bool   `json:"debugMode,omitempty"`
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"` // 思考档位（''=默认 | none | low | high | max）
 	ApproveMode     *string `json:"approveMode,omitempty"`     // 审批档位（''=跟随安全配置 | off=全放行 | strict=全审）
+	OffloadThreshold *int   `json:"offloadThreshold,omitempty"` // 工具结果卸载阈值（字节，0=默认 4096）
 }
 
 /* Get 返回当前行为设置。 */
@@ -59,7 +60,7 @@ func (s *SettingsService) Get() SettingsView {
 	w := st.WorkDir
 	return SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w,
 		CloseToTray: &st.CloseToTray, PetEnabled: &st.PetEnabled, DebugMode: &st.DebugMode, ReasoningEffort: &st.ReasoningEffort,
-		ApproveMode: &st.ApproveMode, MaxIterations: &st.MaxIterations} // 回读必须带——漏了它前端回落默认 64，表现为"切页后被重置"
+		ApproveMode: &st.ApproveMode, MaxIterations: &st.MaxIterations, OffloadThreshold: &st.OffloadThreshold} // 回读必须带——漏了它前端回落默认 64，表现为"切页后被重置"
 }
 
 /* Update 保存行为设置并重建 agent（busy 时拒绝；水位随 Reassemble 生效）。 */
@@ -95,6 +96,12 @@ func (s *SettingsService) Update(ctx context.Context, v SettingsView) error {
 			return errors.New("思考档位取值非法（空/none/low/medium/high/xhigh/max）")
 		}
 		st.ReasoningEffort = *v.ReasoningEffort
+	}
+	if v.OffloadThreshold != nil {
+		if *v.OffloadThreshold < 0 || *v.OffloadThreshold > 1048576 {
+			return errors.New("工具卸载阈值需在 0-1048576 字节之间（0 = 默认 4096）")
+		}
+		st.OffloadThreshold = *v.OffloadThreshold
 	}
 	if st.WorkDir != "" {
 		if abs, err := filepath.Abs(st.WorkDir); err == nil {

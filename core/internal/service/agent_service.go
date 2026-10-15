@@ -341,7 +341,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			asker,
 			task.New(task.WithModelFactory(modelFactoryOf(a.Hub))),
 			mcpHook,
-			offload.New(s.Fsys, offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
+			offload.New(s.Fsys, offload.WithThreshold(st.OffloadThreshold), offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
 				offload.WithAbs(func(p string) string { // 提示给绝对路径：模型不知道 FS 挂载基准，按工作目录拼相对路径必错
 					if abs, err := filepath.Abs(p); err == nil {
 						return filepath.ToSlash(abs)

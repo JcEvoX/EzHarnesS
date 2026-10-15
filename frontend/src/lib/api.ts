@@ -168,6 +168,7 @@ export interface Settings {
   closeToTray?: boolean
   petEnabled?: boolean // 桌面悬浮球（desktop 壳启动时读取；关=不建窗，右键/设置页可切换）
   maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 64，上限 128）
+  offloadThreshold?: number // 工具结果卸载阈值（字节，0 = 默认 4096；超过即卸载到文件只留摘要）
   debugMode?: boolean // 调试模式：模型完整输入写进日志（即改即生效）
   reasoningEffort?: ReasoningEffort // 思考档位（''=默认不控制；none=关闭；其余为强度分档）
   approveMode?: '' | 'off' | 'strict' // 审批档位（''=跟随安全配置；off=全放行；strict=全审）
