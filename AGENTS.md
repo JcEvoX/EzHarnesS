@@ -350,7 +350,7 @@ warp 是 ezloop 的**纵向**装饰器（与横向的 hook 并列），包住单
 
 **缩放**：浏览器标签**不预设缩放**——按原比例渲染（`BROWSER_ZOOM=1` 只是 Ctrl+0 的复位目标，建标签时不 setZoomFactor）。用户可用 Ctrl+滚轮 / Ctrl+± / Ctrl+0 自己调（preload 捕获 wheel 转发主进程 + `before-input-event`）。改 zoom 会连布局视口一起变（页面重排，破坏"截图=真实渲染"），所以**只有用户手动调**，工具侧不碰。
 
-**全屏被拒**：页面 `requestFullscreen`（双击视频/图片常见）会让承载该视图的窗口整体切进全屏——主窗本就无边框、独立窗口全屏后框也没了，用户拿不到关闭入口被卡住。共享浏览器页只是工作区里的一块内容，不该接管整屏，故 `fullscreen` 权限在 `denyFullscreen`（browser/index.js）里整体拒掉；校验与请求两个 handler 都要设（Web API 先查后请），iframe 内的请求一并挡。想看得更大用 Ctrl+滚轮缩放或拉宽抽屉/弹出窗口。
+**全屏只在视图框内**：页面 `requestFullscreen`（双击视频/图片常见）默认会把承载该视图的窗口整体拉成全屏——主窗本就无边框、独立窗全屏后框也没了，用户拿不到关闭入口被卡住。承载浏览器视图的窗口（主窗 `createMainWindow`、抽屉工具的 `createPopoutWindow`）一律 `fullscreenable: false`：Electron 不再拉窗口全屏，页面改在视图框内铺满——正是"全屏到浏览器这块框"的语义，窗口框/关闭入口都还在。别再改成拦 `fullscreen` 权限（用户要的是"只到框内"，不是"全屏整个失效"）。
 
 ### 5.7 keyed each 重复键崩整页（2026-10-12 事故）
 

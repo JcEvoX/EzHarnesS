@@ -176,6 +176,10 @@ function createMainWindow() {
     height: cfg.windowHeight || 800,
     minWidth: 840,
     frame: false,
+    /* 不可全屏：共享浏览器标签里的页面 requestFullscreen（双击视频/图片常见）
+       会把承载它的窗口整个拉成全屏——主窗本就无边框、独立窗全屏后框也没了，
+       用户拿不到关闭入口。禁掉窗口全屏后页面改在视图框内铺满，不接管整屏。 */
+    fullscreenable: false,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -439,6 +443,7 @@ function registerIpc() {
       height: 760,
       title: POPOUT_TITLES[view],
       autoHideMenuBar: true,
+      fullscreenable: false, // 弹出窗里的浏览器页全屏只铺满视图框，不拉整窗（同主窗）
       webPreferences: {
         preload: path.join(__dirname, '../preload/index.js'),
       },
