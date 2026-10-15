@@ -253,11 +253,10 @@ function createPetWindow() {
   })
   win.loadURL(pageUrl('/?desktop=1&pet=1'))
   guardWebContents(win.webContents)
-  /* 右键=检查元素/开发者工具（与主窗一致，不另造菜单）+ 关闭悬浮球 */
-  attachInspectMenu(win.webContents, [
-    { type: 'separator' },
-    { label: '关闭悬浮球', click: () => hidePetBall() },
-  ])
+  /* 右键只弹「关闭悬浮球」（头像层放行 contextmenu，见 AssistantPet） */
+  win.webContents.on('context-menu', () => {
+    Menu.buildFromTemplate([{ label: '关闭悬浮球', click: () => hidePetBall() }]).popup()
+  })
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
     petWindow = null
