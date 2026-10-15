@@ -48,6 +48,7 @@ type SettingsView struct {
 	MaxIterations   *int    `json:"maxIterations,omitempty"`
 	DebugMode       *bool   `json:"debugMode,omitempty"`
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"` // 思考档位（''=默认 | none | low | high | max）
+	ApproveMode     *string `json:"approveMode,omitempty"`     // 审批档位（''=跟随安全配置 | off=全放行 | strict=全审）
 }
 
 /* Get 返回当前行为设置。 */
@@ -57,7 +58,7 @@ func (s *SettingsService) Get() SettingsView {
 	w := st.WorkDir
 	return SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w,
 		CloseToTray: &st.CloseToTray, DebugMode: &st.DebugMode, ReasoningEffort: &st.ReasoningEffort,
-		MaxIterations: &st.MaxIterations} // 回读必须带——漏了它前端回落默认 64，表现为"切页后被重置"
+		ApproveMode: &st.ApproveMode, MaxIterations: &st.MaxIterations} // 回读必须带——漏了它前端回落默认 64，表现为"切页后被重置"
 }
 
 /* Update 保存行为设置并重建 agent（busy 时拒绝；水位随 Reassemble 生效）。 */
@@ -156,6 +157,29 @@ func (s *SettingsService) SetReasoningEffort(ctx context.Context, effort string)
 	}
 	st := s.Hub.SettingsSnapshot()
 	st.ReasoningEffort = effort
+	if err := SaveSettings(ctx, s.Hub.Fsys, st); err != nil {
+		return err
+	}
+	s.Hub.ApplySettings(st)
+	return nil
+}
+
+/* validApproveMode 校验审批档位：''（跟随安全配置）/ off（全放行）/ strict（全审）。 */
+func validApproveMode(m string) bool {
+	switch m {
+	case "", "off", "strict":
+		return true
+	}
+	return false
+}
+
+/* SetApproveMode 设置审批档位并落盘（工具审批实时读全局快照，即改即生效，无需重建 agent）。 */
+func (s *SettingsService) SetApproveMode(ctx context.Context, mode string) error {
+	if !validApproveMode(mode) {
+		return errors.New("审批档位取值非法（空/off/strict）")
+	}
+	st := s.Hub.SettingsSnapshot()
+	st.ApproveMode = mode
 	if err := SaveSettings(ctx, s.Hub.Fsys, st); err != nil {
 		return err
 	}

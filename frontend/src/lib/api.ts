@@ -169,6 +169,7 @@ export interface Settings {
   maxIterations?: number // 单轮最大模型迭代次数（0/空 = 默认 64，上限 128）
   debugMode?: boolean // 调试模式：模型完整输入写进日志（即改即生效）
   reasoningEffort?: ReasoningEffort // 思考档位（''=默认不控制；none=关闭；其余为强度分档）
+  approveMode?: '' | 'off' | 'strict' // 审批档位（''=跟随安全配置；off=全放行；strict=全审）
 }
 
 export interface ModelEntry {
@@ -367,7 +368,6 @@ export const api = {
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
-        approveMode?: '' | 'off' | 'strict'
       }>,
     ),
 
@@ -505,9 +505,9 @@ export const api = {
   activateModel: (name: string) =>
     post<{ ok: boolean; model: ModelEntry }>('/api/models/activate', { name }),
 
-  /* 会话审批三档（''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
-  setApproveMode: (id: string, mode: '' | 'off' | 'strict') =>
-    post<{ ok: boolean; mode: string }>(`/api/sessions/${id}/approve-mode`, { mode }),
+  /* 审批三档（全局；''=跟随安全配置 | off=无审批 | strict=严格审批），实时生效 */
+  setApproveMode: (mode: '' | 'off' | 'strict') =>
+    post<{ ok: boolean; mode: string }>('/api/settings/approve-mode', { mode }),
 
   /* 思考强度档位（全局；请求侧实时读取，即改即生效） */
   setReasoningEffort: (effort: ReasoningEffort) =>

@@ -78,13 +78,16 @@ func LoadSettings(ctx context.Context, fsys osfs.OS) domain.Settings {
 		return out
 	}
 	var s struct {
-		SystemExtra    string   `json:"systemExtra"`
-		TrimPercent    *int     `json:"trimPercent"` // 指针：区分未提交与显式 0（禁用）
-		WorkDir        string   `json:"workDir"`
-		CloseToTray    *bool    `json:"closeToTray"`
-		DisabledSkills []string `json:"disabledSkills"`
-		MaxIterations  *int     `json:"maxIterations"`
-		DebugMode      *bool    `json:"debugMode"`
+		SystemExtra     string   `json:"systemExtra"`
+		TrimPercent     *int     `json:"trimPercent"` // 指针：区分未提交与显式 0（禁用）
+		WorkDir         string   `json:"workDir"`
+		CloseToTray     *bool    `json:"closeToTray"`
+		DisabledSkills  []string `json:"disabledSkills"`
+		MaxIterations   *int     `json:"maxIterations"`
+		DebugMode       *bool    `json:"debugMode"`
+		ReasoningEffort string   `json:"reasoningEffort"`
+		ApproveMode     string   `json:"approveMode"`
+		PinnedApps      []string `json:"pinnedApps"`
 	}
 	if json.Unmarshal(data, &s) != nil {
 		return out
@@ -104,6 +107,9 @@ func LoadSettings(ctx context.Context, fsys osfs.OS) domain.Settings {
 	if s.DebugMode != nil {
 		out.DebugMode = *s.DebugMode
 	}
+	out.ReasoningEffort = s.ReasoningEffort
+	out.ApproveMode = s.ApproveMode
+	out.PinnedApps = s.PinnedApps
 	return out
 }
 

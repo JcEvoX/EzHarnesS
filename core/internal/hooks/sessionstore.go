@@ -44,8 +44,8 @@ type ResSnapshot struct {
 	Skills    []string `json:"skills,omitempty"`    // 启用中技能名
 	SkillsOff []string `json:"skillsOff,omitempty"` // 已停用技能名（启停 diff 用）
 	Mcps      []string `json:"mcps,omitempty"`
-	Models    []string `json:"models,omitempty"` // 可选模型名清单（新增/移除进 resource_change）
-	Model     string   `json:"model,omitempty"`  // 主模型摘要（名称+视觉；切换进 resource_change）
+	Models    []string `json:"models,omitempty"`   // 可选模型名清单（新增/移除进 resource_change）
+	Model     string   `json:"model,omitempty"`    // 主模型摘要（名称+视觉；切换进 resource_change）
 	Memory    []string `json:"memory,omitempty"`   // user/soul 条目签名（"目标 id|text"，增删改进 resource_change）
 	Projects  []string `json:"projects,omitempty"` // 项目索引签名（"id|name"，增删/改名进 resource_change）
 }
@@ -92,8 +92,7 @@ type SessionSnap struct {
 	StopReason     string          `json:"stopReason"`
 	StartedAt      time.Time       `json:"startedAt"`
 	EndedAt        time.Time       `json:"endedAt"`
-	Archived       bool            `json:"archived"`                // compact 后上一世代封存，不作恢复候选
-	ApproveMode    string          `json:"approveMode,omitempty"`   // 审批模式（''=跟随安全配置 | off | strict）
+	Archived       bool            `json:"archived"` // compact 后上一世代封存，不作恢复候选
 }
 
 /* Store 实现 EndHook：轮末追加消息行并覆盖写状态。 */
@@ -113,20 +112,6 @@ type Store struct {
 	usage    types.Usage                 // 本会话累计用量（OnEnd 累计并随快照落盘）
 	runID    string                      // 本轮开始时的会话 ID（compact 轮内切库时拒绝把用量记入新库）
 	ctx      func() (tokens, window int) // 上下文水位与窗口（宿主注入，快照落盘用）
-	approve  string                      // 审批模式（''=跟随安全配置 | off | strict；宿主实时读写，随快照落盘）
-}
-
-/* SetApproveMode / ApproveMode 读写会话审批模式（白名单外回落跟随）。 */
-func (h *Store) SetApproveMode(m string) { h.mu.Lock(); h.approve = normalizeApproveMode(m); h.mu.Unlock() }
-func (h *Store) ApproveMode() string     { h.mu.Lock(); defer h.mu.Unlock(); return h.approve }
-
-/* normalizeApproveMode 归一化审批模式（非法/空值都视为跟随安全配置）。 */
-func normalizeApproveMode(m string) string {
-	switch m {
-	case "off", "strict":
-		return m
-	}
-	return ""
 }
 
 /* NewStore 创建存储 hook。id 为空自动生成。 */
@@ -355,7 +340,6 @@ func (h *Store) OnEnd(ctx context.Context, state *types.LoopState) error {
 		LastOutputAt: last,
 		Snapshot:     snap,
 		LineRoot:     lineRoot,
-		ApproveMode:  h.ApproveMode(),
 	}
 	if !fork && h.runID == id { // 主循环且本轮未切库：累计用量与水位（fork 只存增量；compact 切库轮的用量不计入新库）
 		h.mu.Lock()

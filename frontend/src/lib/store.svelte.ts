@@ -246,8 +246,6 @@ class AppStore {
   /* 本轮资源变更条目（resource.change 事件更新，右上角 StatusCard 数据源；
      loop_start 清空——事件按需推送，不清会滞留上一轮的旧变更） */
   liveChanges = $state<string[]>([])
-  /* 会话审批模式（''=跟随安全配置 | off | strict；输入框切换器，实时生效） */
-  approveMode = $state('')
   /* main 槽模型清单（输入框模型切换器；打开时懒加载） */
   mainModels = $state<ModelEntry[]>([])
   private modelsFetched = false
@@ -396,7 +394,6 @@ class AppStore {
       // 切回运行中的分支：model_start/tool_start 等增量事件不重放，用 busy 兜底
       // 点亮活动指示（否则"思考中"整段消失、像没在执行）；后续事件到达自然接管
       this.modelActive = s.busy
-      this.approveMode = s.approveMode ?? ''
       this.prevCursor = s.id
       // fork 就是 fork：对话内容不标注来源（体内副本自包含）；
       // 来源信息只在记忆页的会话树上展示
@@ -810,16 +807,16 @@ class AppStore {
 
   /* ── 审批模式 / 模型切换（输入框工具条） ── */
 
-  /* 审批三档（会话级，实时生效；loadHistory 按会话恢复） */
+  /* 审批三档（全局；工具审批实时读取，即改即生效） */
   async setApproveMode(mode: '' | 'off' | 'strict') {
-    if (!this.activeId || mode === this.approveMode) return
-    const prev = this.approveMode
-    this.approveMode = mode
+    if (!this.settings || (this.settings.approveMode ?? '') === mode) return
+    const prev = this.settings.approveMode ?? ''
+    this.settings = { ...this.settings, approveMode: mode }
     try {
-      await api.setApproveMode(this.activeId, mode)
+      await api.setApproveMode(mode)
     } catch (e) {
-      this.approveMode = prev
-      this.lastStatus = `审批模式切换失败：${(e as Error).message}`
+      this.settings = { ...this.settings, approveMode: prev }
+      this.lastStatus = `审批档位切换失败：${(e as Error).message}`
     }
   }
 
@@ -944,7 +941,7 @@ class AppStore {
 
   async saveSettings(s: Settings) {
     await api.saveSettings(s)
-    this.settings = s
+    this.settings = { ...(this.settings ?? {}), ...s } // 设置页按需提交局部字段，合并而非替换（否则会抹掉思考/审批档）
     this.lastStatus = '设置已保存（模型与提示即时生效）'
     await this.refreshStatus()
   }

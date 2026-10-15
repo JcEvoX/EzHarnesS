@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"slices"
 
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
@@ -39,10 +38,11 @@ func (s *SessionService) Bootstrap(ctx context.Context) BootstrapData {
 	userItems, _ := hooks.LoadItems(ctx, s.Hub.Fsys, hooks.UserJson)
 	soulItems, _ := hooks.LoadItems(ctx, s.Hub.Fsys, hooks.SoulJson)
 	return BootstrapData{
-		SessionID:    sess.RootID,
-		LeafID:       sess.ID,
-		Branches:     buildBranchViews(s.Hub),
-		Settings:     SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w},
+		SessionID: sess.RootID,
+		LeafID:    sess.ID,
+		Branches:  buildBranchViews(s.Hub),
+		Settings: SettingsView{SystemExtra: st.SystemExtra, TrimPercent: &p, WorkDir: &w,
+			ReasoningEffort: &st.ReasoningEffort, ApproveMode: &st.ApproveMode},
 		Status:       s.Snapshot(ctx),
 		MemoryExists: len(userItems) > 0 || len(soulItems) > 0,
 	}
@@ -61,7 +61,6 @@ type HistoryData struct {
 	PrevTitle  string                 `json:"prevTitle,omitempty"` // 上一话题标题（压缩标记用）
 	Decisions  []hooks.DecisionRecord `json:"decisions,omitempty"` // 人机决策记录（工具卡徽标用）
 	Forks      []hooks.ForkSummary    `json:"forks,omitempty"`     // fork 分身摘要（入口卡重建，详情懒加载）
-	ApproveMode string                `json:"approveMode"`         // 审批模式（''=跟随安全配置 | off | strict；输入框切换器数据源）
 }
 
 /* Status 是右栏状态卡数据（命中率与用量为本会话口径，切会话/重启清零）。 */
@@ -166,18 +165,7 @@ func (s *SessionService) History(ctx context.Context, rootID string) HistoryData
 	}
 	h.Decisions = hooks.LoadDecisions(ctx, sess.Fsys, h.ID)
 	h.Forks = hooks.ListForks(ctx, sess.Fsys, h.ID)
-	h.ApproveMode = sess.ApproveMode()
 	return h
-}
-
-/* SetApproveMode 设置会话审批模式（实时生效：needsApprove 每次调用现读）。 */
-func (s *SessionService) SetApproveMode(rootID, mode string) error {
-	sess := s.Hub.SessionOf(rootID)
-	if sess == nil {
-		return errors.New("session not found")
-	}
-	sess.SetApproveMode(mode)
-	return nil
 }
 
 /* canPrev 判定 id 上翻是否还有上一级（与 Prev 同规则：fork 换源后算）。 */
