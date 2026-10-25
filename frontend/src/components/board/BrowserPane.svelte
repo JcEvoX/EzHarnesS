@@ -13,7 +13,7 @@
 
   let { active = false, animating = false }: { active?: boolean; animating?: boolean } = $props()
 
-  type TabInfo = { id: string; name: string; desc?: string; origin: string; url: string; title: string; loading: boolean; active: boolean }
+  type TabInfo = { id: string; name: string; desc?: string; origin: string; url: string; title: string; loading: boolean; active: boolean; busy?: boolean }
 
   /* desktop 壳能力（preload 注入；web 端 undefined） */
   function ezBrowser(): any | undefined {
@@ -119,7 +119,7 @@
     <div class="strip">
       {#each tabs as t (t.id)}
         <button class="strip-item" class:active={current === t.id} onclick={() => pickTab(t.id)} title="{t.name}{t.desc ? ` · ${t.desc}` : ''} · 来源 {t.origin || '?'} · {t.url}">
-          <span class="dot" class:loading={t.loading}></span>
+          <span class="dot" class:loading={t.loading} class:busy={t.busy}></span>
           <span class="name">{t.title || t.name}</span>
           <span class="x" onclick={(e) => { e.stopPropagation(); ezBrowser().close(t.id) }} role="button" tabindex="-1" title="关闭">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
@@ -213,6 +213,11 @@
   .dot.loading {
     background: #f1c40f;
     animation: pulse 1s ease-in-out infinite;
+  }
+  /* Agent 正在操作该标签(操作锁持有中):蓝点脉冲 */
+  .dot.busy {
+    background: #58a6ff;
+    animation: pulse 0.9s ease-in-out infinite;
   }
   .x {
     display: grid;

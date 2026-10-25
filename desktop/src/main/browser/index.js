@@ -68,7 +68,7 @@ function zoomTab(wc, dir) {
 function tabList() {
   return [...tabs.entries()].map(([id, t]) => ({
     id, name: t.name, desc: t.desc || '', origin: t.origin, url: t.url, title: t.title,
-    loading: t.loading, active: id === activeTab,
+    loading: t.loading, active: id === activeTab, busy: !!t.busy,
   }))
 }
 
@@ -107,6 +107,36 @@ function tabState(id) {
     id, name: t.name, ...(t.desc ? { desc: t.desc } : {}), origin: t.origin,
     url: t.url, title: t.title || '(无标题)', loading: !!t.loading,
   }
+}
+
+/* withTabLock 把 Agent 对同一标签的操作串成一列（并行分身/同轮并行工具会
+   交叠在同一真实页面上,交错读写必产生幻觉）;同时做地址漂移检测:Agent
+   上次操作结束时的地址与本次进来时不一致 = 用户接管过该标签,结果附注
+   提醒模型先重新观察。busy 标记随标签清单广播,页面标签条显示占用态。 */
+function withTabLock(tab, fn) {
+  const run = async () => {
+    const driftFrom = tab.agentUrl && tab.agentUrl !== tab.url ? tab.agentUrl : ''
+    tab.busy = true
+    broadcastTabs()
+    try {
+      const out = await fn()
+      if (driftFrom && out && typeof out.result === 'string') {
+        try {
+          const obj = JSON.parse(out.result)
+          const warn = `⚠ 该标签自你上次操作后被改动过（${driftFrom} → ${tab.url}）,用户可能接管了它——先前的观察与断言可能已失效,先重新观察确认再行动`
+          obj.note = obj.note ? `${obj.note}\n${warn}` : warn
+          out.result = JSON.stringify(obj)
+        } catch { /* 非 JSON 结果原样返回 */ }
+      }
+      return out
+    } finally {
+      tab.agentUrl = tab.url
+      tab.busy = false
+      broadcastTabs()
+    }
+  }
+  tab.lock = (tab.lock || Promise.resolve()).then(run, run)
+  return tab.lock
 }
 
 /* ── 视图管理 ── */
@@ -589,10 +619,12 @@ async function frameReport(tab) {
 const executors = {
   async start({ name, desc, url, timeoutMs }) {
     const id = createTab(name, desc, 'AI', '')
+    const tab = tabs.get(id)
+    tab.agentUrl = tab.url
     const note = '已创建,后续操作用返回的 id;内嵌于工作区抽屉,用户实时共见可随时接管'
     if (!url) return { result: JSON.stringify({ ...tabState(id), note }) }
-    const tab = tabs.get(id)
     const title = await loadSettled(tab.view.webContents, completeURL(url), timeoutMs || 20000)
+    tab.agentUrl = tab.url
     const state = tabState(id)
     if (title) state.title = title
     return { result: JSON.stringify({ ...state, note: `${note};页面已加载` }) }
@@ -857,8 +889,12 @@ function connectBridge() {
     if (!exec) {
       reply = { id: req.id, ok: false, error: `未知浏览器指令 ${req.method}` }
     } else {
+      /* 带 tabId 的指令在目标标签的操作锁里执行（start/list 除外） */
+      const params = req.params || {}
+      const tab = params.tabId ? tabs.get(params.tabId) : null
+      const call = tab ? () => withTabLock(tab, () => exec(params)) : () => exec(params)
       try {
-        const out = await exec(req.params || {})
+        const out = await call()
         reply = { id: req.id, ok: true, result: out.result, images: out.images, note: out.note }
       } catch (err) {
         reply = { id: req.id, ok: false, error: String(err?.message || err) }
