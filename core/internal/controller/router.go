@@ -49,6 +49,7 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 
 		api.GET("/bootstrap", c.Session.Bootstrap)
 		api.GET("/status", c.Session.Status)
+		api.GET("/stats/daily", c.Session.DailyStats)
 
 		api.GET("/sessions/:id", c.Session.History)
 		api.GET("/sessions/:id/prev", c.Session.Prev)

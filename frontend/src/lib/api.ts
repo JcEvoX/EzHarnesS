@@ -196,6 +196,15 @@ export interface ModelsConfig {
   audio: ModelEntry[]
 }
 
+export interface DayStats {
+  date: string
+  turns: number
+  in: number
+  out: number
+  cache: number
+  models?: Record<string, { in: number; out: number; cache: number; turns: number }>
+}
+
 export interface Status {
   model: string
   modelVision: boolean
@@ -501,6 +510,9 @@ export const api = {
   oauthLogout: (name: string) => post<{ ok: boolean }>('/api/mcp/oauth/logout', { name }),
 
   getModels: () => fetch('/api/models').then(json<ModelsConfig>),
+
+  /* 按天用量序列（模型面板趋势图;近 120 天,升序） */
+  getDailyStats: () => fetch('/api/stats/daily').then(json<{ days: DayStats[] }>()).then((r) => r.days || []),
 
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
 

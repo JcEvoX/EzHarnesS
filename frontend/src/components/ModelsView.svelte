@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { api, type ModelEntry, type ModelsConfig } from '../lib/api'
+  import { api, type ModelEntry, type ModelsConfig, type DayStats } from '../lib/api'
   import { store } from '../lib/store.svelte'
 
   /*
@@ -49,8 +49,53 @@
     } catch {
       message = '模型数据加载失败（后端不可达）'
     }
+    daily = await api.getDailyStats().catch(() => [])
     loaded = true
   })
+
+  /* 用量趋势（近 30 天,每模型一条折线 + 全部总量线;点图例显隐） */
+  let daily = $state<DayStats[]>([])
+  let hiddenSeries = $state<string[]>([])
+  const PALETTE = ['#58a6ff', '#3fb950', '#d29a63', '#bc8cff', '#f85149', '#39c5cf', '#e3b341']
+  const trend = $derived.by(() => {
+    const days = daily.slice(-30)
+    if (days.length < 2) return null
+    const names = [...new Set(days.flatMap((d) => Object.keys(d.models ?? {})))]
+    const rows = [
+      { key: '__all__', name: '全部', color: 'var(--accent)', values: days.map((d) => d.in + d.out) },
+      ...names.map((n, i) => ({
+        key: n,
+        name: n,
+        color: PALETTE[(i + 1) % PALETTE.length],
+        values: days.map((d) => (d.models?.[n]?.in ?? 0) + (d.models?.[n]?.out ?? 0)),
+      })),
+    ].filter((r) => !hiddenSeries.includes(r.key))
+    const max = Math.max(1, ...rows.flatMap((r) => r.values))
+    const W = 640
+    const H = 150
+    const PL = 6
+    const PR = 6
+    const PT = 8
+    const PB = 20
+    const iw = W - PL - PR
+    const ih = H - PT - PB
+    const px = (i: number) => PL + (i / (days.length - 1)) * iw
+    const py = (v: number) => PT + ih - (v / max) * ih
+    return {
+      max,
+      firstDate: days[0].date.slice(5),
+      lastDate: days[days.length - 1].date.slice(5),
+      gridY: [0.25, 0.5, 0.75, 1].map((f) => PT + ih - f * ih),
+      lines: rows.map((r) => ({
+        ...r,
+        total: r.values.reduce((a, b) => a + b, 0),
+        path: r.values.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(''),
+      })),
+    }
+  })
+  const toggleSeries = (key: string) => {
+    hiddenSeries = hiddenSeries.includes(key) ? hiddenSeries.filter((k) => k !== key) : [...hiddenSeries, key]
+  }
 
   /* persist 自动保存（所有变更即时提交，busy 时 409 提示等待本轮结束）。 */
   async function persist() {
@@ -188,6 +233,32 @@
   </div>
   {#if message}
     <p class="msg">{message}</p>
+  {/if}
+
+  {#if trend}
+    <section>
+      <h2>用量趋势（近 30 天）</h2>
+      <p class="hint">每天输入+输出 tokens（输入含缓存命中）;点图例显隐。</p>
+      <svg class="trend" viewBox="0 0 640 150" preserveAspectRatio="none">
+        {#each trend.gridY as y}
+          <line x1="6" x2="634" y1={y} y2={y} class="grid" />
+        {/each}
+        {#each trend.lines as l}
+          <path d={l.path} stroke={l.color} />
+        {/each}
+        <text x="6" y="148" class="axis">{trend.firstDate}</text>
+        <text x="634" y="148" text-anchor="end" class="axis">{trend.lastDate}</text>
+        <text x="634" y="{trend.gridY[3] - 3}" text-anchor="end" class="axis">{fmtTokens(trend.max)}</text>
+      </svg>
+      <div class="legend">
+        {#each trend.lines as l (l.key)}
+          <button class="lg" onclick={() => toggleSeries(l.key)}>
+            <span class="sw" style:background={l.color}></span>
+            {l.name}<span class="lg-v">{fmtTokens(l.total)}</span>
+          </button>
+        {/each}
+      </div>
+    </section>
   {/if}
 
   {#if !loaded}
@@ -344,6 +415,57 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .trend {
+    width: 100%;
+    height: 150px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg-soft);
+  }
+  .trend .grid {
+    stroke: var(--line);
+    stroke-width: 0.5;
+  }
+  .trend path {
+    fill: none;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .trend .axis {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    fill: var(--faint);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .lg {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .lg:hover {
+    background: var(--bg-soft);
+  }
+  .lg .sw {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+  .lg .lg-v {
+    color: var(--faint);
   }
   h2 {
     font-size: 13px;

@@ -24,6 +24,11 @@ func (c *SessionController) Status(g *gin.Context) {
 	g.JSON(http.StatusOK, c.Svc.Snapshot(g.Request.Context()))
 }
 
+/* DailyStats GET /api/stats/daily（按天用量序列,模型面板趋势图）。 */
+func (c *SessionController) DailyStats(g *gin.Context) {
+	g.JSON(http.StatusOK, gin.H{"days": c.Svc.Hub.Stats.Daily()})
+}
+
 /* History GET /api/sessions/:id（:id=分支根 ID，返回该线当前叶历史）。 */
 func (c *SessionController) History(g *gin.Context) {
 	g.JSON(http.StatusOK, c.Svc.History(g.Request.Context(), g.Param("id")))
