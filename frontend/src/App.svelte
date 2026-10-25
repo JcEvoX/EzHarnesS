@@ -162,6 +162,8 @@
     display: flex;
     flex: 1;
     min-height: 0;
+    /* 内容区左上角的圆角要露出这层灰，而不是窗口白底 */
+    background: var(--bg-soft);
   }
   .app.expanded {
     --sidebar-w: 176px;
@@ -174,6 +176,9 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    background: var(--bg);
+    /* 与窗口左上圆角呼应，避免白色直角紧贴灰色顶栏/侧栏 */
+    border-top-left-radius: 10px;
   }
   .brand-foot {
     position: fixed;

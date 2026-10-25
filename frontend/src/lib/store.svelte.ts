@@ -518,11 +518,11 @@ class AppStore {
           const detail = endReasonText(m.content)
           if (detail) out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })
         } else if (m.content.includes('<context_trim')) {
-          out.push({ kind: 'note', uid: this.nuid(), text: `✂️ ${trimText(m.content)}` })
+          out.push({ kind: 'note', uid: this.nuid(), text: trimText(m.content) })
         } else if (m.content.includes('<loop_guard>')) {
           // 循环护栏提醒：小字条呈现（标签体是人话文本）
           const inner = m.content.replace(/^[\s\S]*?<loop_guard>|<\/loop_guard>[\s\S]*$/g, '').trim()
-          if (inner) out.push({ kind: 'note', uid: this.nuid(), text: `🛑 ${inner}` })
+          if (inner) out.push({ kind: 'note', uid: this.nuid(), text: inner })
         } else if (!m.content.trim() && !m.images?.length) {
           // 空输入（纯附件轮，引用已由上一块独立呈现）：不渲染
         } else {
@@ -1414,7 +1414,7 @@ class AppStore {
         const d = ev.data as { tool?: string; count?: number; note?: string } | undefined
         if (!ev.forkId) {
           const text = d?.note || `工具 ${d?.tool ?? ''} 重复调用 ${d?.count ?? '?'} 次，已提醒模型停止重复；无效可停止本轮`
-          this.blocks.push({ kind: 'note', uid: this.nuid(), text: `🛑 ${text}` })
+          this.blocks.push({ kind: 'note', uid: this.nuid(), text })
         }
         break
       }
@@ -1820,7 +1820,7 @@ class AppStore {
       case 'error': {
         const msg = typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data ?? '')
         const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
-        bs.push({ kind: 'assistant', uid: this.nuid(), text: `⚠️ ${msg}`, reasoning: '', streaming: false })
+        bs.push({ kind: 'assistant', uid: this.nuid(), text: msg, reasoning: '', streaming: false })
         break
       }
       case 'resource.change': {
@@ -1890,7 +1890,7 @@ class AppStore {
         this.blocks.push({
           kind: 'note',
           uid: this.nuid(),
-          text: `✂️ 上下文已整理：早期对话折叠为摘要（${ev.data?.folded ?? '?'} 条 → 保留最近 ${ev.data?.kept ?? '?'} 条）`,
+          text: `上下文已整理：早期对话折叠为摘要（${ev.data?.folded ?? '?'} 条 → 保留最近 ${ev.data?.kept ?? '?'} 条）`,
         })
         void this.refreshStatus()
         break

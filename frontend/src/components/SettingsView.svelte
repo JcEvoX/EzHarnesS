@@ -68,6 +68,17 @@
     requestAnimationFrame(() => el?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
   })
 
+  /* 输入框直接显示实际生效路径：空配置 = 数据目录下 workspace/，相对路径按
+     数据目录解析，与后端 ResolveWorkDir 一致 */
+  function resolveWorkDir(spec: string): string {
+    const raw = spec.trim()
+    if (/^(?:[a-zA-Z]:[\\/]|[\\/])/.test(raw)) return raw
+    const base = dataDir.replace(/[\\/]+$/, '')
+    if (!base) return raw
+    const sep = base.includes('\\') ? '\\' : '/'
+    return raw ? `${base}${sep}${raw.replace(/^[.][\\/]/, '')}` : `${base}${sep}workspace`
+  }
+
   onMount(async () => {
     try {
       cfg = await api.appConfig()
@@ -82,16 +93,20 @@
       const st = await api.getSettings()
       percent = st.trimPercent ?? 75
       origPercent = st.trimPercent ?? 75
-      workDir = st.workDir ?? ''
-      origWorkDir = st.workDir ?? ''
+      const effectiveWorkDir = resolveWorkDir(st.workDir ?? '')
+      workDir = effectiveWorkDir
+      origWorkDir = effectiveWorkDir
       origExtra = st.systemExtra ?? ''
       closeToTray = st.closeToTray ?? false
       petEnabled = st.petEnabled ?? true
       debugMode = st.debugMode ?? false
-      iters = st.maxIterations ?? 64
-      origIters = st.maxIterations ?? 64
-      offload = st.offloadThreshold ?? 4096
-      origOffload = st.offloadThreshold ?? 4096
+      /* 0 = 用默认值：直接显示生效值，别让输入框停在 0 */
+      const rawIters = st.maxIterations ?? 0
+      iters = rawIters > 0 ? rawIters : 64
+      origIters = iters
+      const rawOffload = st.offloadThreshold ?? 0
+      offload = rawOffload > 0 ? rawOffload : 4096
+      origOffload = offload
     } catch {
       /* 上下文配置加载失败不阻塞页面 */
     }

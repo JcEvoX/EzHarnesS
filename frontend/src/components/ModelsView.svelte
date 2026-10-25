@@ -413,7 +413,7 @@
               <button class="dot" class:on={m.enabled && !m.disabled} onclick={() => enable(k.key, i)} title={m.enabled && !m.disabled ? (k.key === 'main' ? '已启用（主模型必启用）' : '已启用（点击停用）') : '点击启用'}></button>
               <div class="info">
                 <span class="name">{m.name}</span>
-                <span class="meta">{m.disabled ? '已关闭 · ' : ''}{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
+                <span class="meta">{m.disabled ? '已关闭 · ' : ''}{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
               </div>
               <div class="usage">
                 <span class="tokens" title="累计用量（输入/输出/缓存命中）">↑{fmtTokens(m.inTokens || 0)} ↓{fmtTokens(m.outTokens || 0)}{m.cacheTokens ? ` ⚡${fmtTokens(m.cacheTokens)}` : ''}</span>

@@ -180,7 +180,8 @@
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--bg);
-    max-height: 100%;
+    /* 分支多时别一路撑到窗口底：与状态卡同档，超出列表内部滚动 */
+    max-height: min(100%, 60vh);
     overflow: hidden;
   }
   .head {
