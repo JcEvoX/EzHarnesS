@@ -2,11 +2,19 @@
   import { onMount } from 'svelte'
   import { isDesktop } from '../lib/desktop'
   import TopSearch from './TopSearch.svelte'
+  import TopRail from './TopRail.svelte'
 
   /* 顶部通栏：搜索框所有形态都渲染；三键/关闭流程仅桌面壳
      （?desktop=1）渲染，走 preload IPC（window.ez）。拖拽由 app-region 处理 */
   const desktop = isDesktop
-  let { onNavigate }: { onNavigate: (v: string) => void } = $props()
+  let {
+    onNavigate,
+    sidebarWidth = 0,
+  }: {
+    onNavigate: (v: string) => void
+    /* 侧栏当前宽度：搜索框在侧栏右侧的内容区里居中，而不是整窗居中 */
+    sidebarWidth?: number
+  } = $props()
 
   /* desktop 壳能力（web 端为 undefined，防御性判空） */
   function ezWindow(): any | undefined {
@@ -62,12 +70,14 @@
   }))
 </script>
 
-<div class="titlebar">
+<div class="titlebar" style="padding-left:{sidebarWidth}px">
   <div class="search">
     <TopSearch {onNavigate} />
   </div>
-  {#if desktop}
-    <div class="btns">
+  <div class="right">
+    <TopRail />
+    {#if desktop}
+      <div class="btns">
       <button class="tbtn" onclick={() => ezWindow()?.minimize()} title="最小化">
         <svg viewBox="0 0 12 12"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
@@ -86,8 +96,9 @@
       <button class="tbtn close" onclick={() => void onClose()} title="关闭">
         <svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
-    </div>
-  {/if}
+      </div>
+    {/if}
+  </div>
 </div>
 
 {#if desktop}
@@ -110,23 +121,28 @@
 
 <style>
   .titlebar {
-    position: relative;
-    display: flex;
+    /* 三栏网格：左右 1fr 等宽，中间搜索框严格居中，不受右侧按钮组宽度影响 */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     height: 34px;
     flex: none;
     background: var(--bg-soft);
     user-select: none;
     app-region: drag;
+    transition: padding-left var(--dur-in) var(--ease-out);
   }
-  /* 居中用 left 偏移而非 transform：transform 会建层叠上下文，
-     面板无法盖到下层内容之上 */
   .search {
-    position: absolute;
-    left: calc(50% - 160px);
+    grid-column: 2;
+  }
+  .right {
+    grid-column: 3;
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    height: 100%;
   }
   .btns {
-    margin-left: auto;
     display: flex;
     height: 100%;
     app-region: no-drag;

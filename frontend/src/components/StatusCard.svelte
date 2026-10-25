@@ -7,23 +7,8 @@
     return String(n)
   }
 
-  /* 收起为小方块（显示上下文占用），localStorage 记忆收起态 */
-  const collapsedKey = 'ezh.statusCard.collapsed'
-  let collapsed = $state((() => {
-    try {
-      return localStorage.getItem(collapsedKey) === '1'
-    } catch {
-      return false
-    }
-  })())
-  function fold(v: boolean) {
-    collapsed = v
-    try {
-      localStorage.setItem(collapsedKey, v ? '1' : '0')
-    } catch {
-      /* 存储不可用时仅本次生效 */
-    }
-  }
+  /* onClose：浮层里用——头部显示关闭按钮 */
+  let { onClose }: { onClose?: () => void } = $props()
 
   const s = $derived(store.status)
   const live = $derived(store.live)
@@ -47,22 +32,19 @@
   const skills = $derived(s?.skills ?? [])
 </script>
 
-{#if collapsed}
-  <button class="mini" onclick={() => fold(false)} title="状态 · 点击展开">
-    <span class="mini-pct" class:hot>{win > 0 ? `${pct.toFixed(0)}%` : '—'}</span>
-  </button>
-{:else}
   <aside class="card">
     <div class="head">
       <h2>状态</h2>
       {#if store.liveChanges.length}
         <span class="changes" title={store.liveChanges.join('\n')}>{store.liveChanges.join(' · ')}</span>
       {/if}
-      <button class="fold" onclick={() => fold(true)} title="收起">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-          <path d="M5 12h14" />
-        </svg>
-      </button>
+      {#if onClose}
+        <button class="close" onclick={onClose} title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      {/if}
     </div>
   <div class="ctxrow">
     <div class="row">
@@ -105,13 +87,12 @@
     {:else}<span class="none">-</span>{/if}
   </div>
   </aside>
-{/if}
 
 <style>
   .card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
     max-height: 100%;
     overflow-y: auto;
@@ -122,33 +103,6 @@
     border-radius: 12px;
     box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
   }
-  /* 收起态小方块：上下文占用一目了然，点击展开；靠右贴边（.side 列的末端对齐） */
-  .mini {
-    flex: none;
-    align-self: flex-end;
-    display: grid;
-    place-items: center;
-    width: 38px;
-    height: 38px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--glass);
-    backdrop-filter: var(--glass-blur);
-    cursor: pointer;
-    padding: 0;
-  }
-  .mini:hover {
-    border-color: var(--line-strong);
-  }
-  .mini-pct {
-    font-family: var(--font-mono);
-    font-size: var(--font-size-small);
-    color: var(--muted);
-  }
-  .mini-pct.hot {
-    color: #d29922;
-    font-weight: 600;
-  }
   .head {
     display: flex;
     align-items: center;
@@ -156,9 +110,9 @@
     margin-bottom: 2px;
   }
   h2 {
-    font-size: var(--font-size-ui);
+    font-size: var(--font-size-section);
     font-weight: 600;
-    color: var(--muted);
+    color: var(--fg);
   }
   .changes {
     flex: 1;
@@ -169,31 +123,26 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .fold {
+  .close {
     flex: none;
     margin-left: auto;
     display: grid;
     place-items: center;
-    width: 20px;
-    height: 20px;
-    border: none;
-    border-radius: 5px;
-    background: transparent;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
     color: var(--faint);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity var(--dur-fast) var(--ease-out);
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
   }
-  .card:hover .fold {
-    opacity: 1;
-  }
-  .fold:hover {
+  .close:hover {
     background: var(--bg-soft);
     color: var(--fg);
   }
-  .fold svg {
-    width: 11px;
-    height: 11px;
+  .close svg {
+    width: 12px;
+    height: 12px;
   }
   .ctxrow {
     display: flex;
@@ -270,9 +219,9 @@
     font-style: normal;
     font-size: var(--font-size-small);
     color: var(--muted);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 1px 5px;
+    background: var(--bg-soft);
+    border-radius: 5px;
+    padding: 1.5px 6px;
     white-space: nowrap;
   }
 </style>

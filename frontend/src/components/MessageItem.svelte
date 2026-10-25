@@ -190,6 +190,18 @@
   })
   const reasoningClipped = $derived(streaming && reasoning.length > 1200)
 
+  /* 用户气泡：超过高度折叠，按内容实际高度判断（与字号/换行无关） */
+  const USER_BUBBLE_MAX_HEIGHT = 280
+  let userBubbleEl = $state<HTMLDivElement>()
+  let userExpanded = $state(false)
+  let userClipped = $state(false)
+  $effect(() => {
+    text
+    const bubbleEl = userBubbleEl
+    if (!bubbleEl || userExpanded) return
+    userClipped = bubbleEl.scrollHeight > USER_BUBBLE_MAX_HEIGHT + 1
+  })
+
   let bodyEl: HTMLDivElement | undefined = $state()
   let mmdSeq = 0
 
@@ -241,7 +253,9 @@
 
 {#if role === 'user'}
   <div class="user enter-rise">
-    <span class="avph"></span>
+    {#if onFork}
+      <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
+    {/if}
     <div class="ucontent">
       {#if files?.length}
         <div class="fchips">
@@ -283,12 +297,18 @@
         </div>
       {/if}
       {#if text}
-        <div class="bubble">{text}</div>
+        <div
+          class="bubble"
+          class:clipped={userClipped && !userExpanded}
+          class:unfolded={userExpanded}
+          bind:this={userBubbleEl}>{text}</div>
+        {#if userClipped}
+          <button class="more" onclick={() => (userExpanded = !userExpanded)}>
+            {userExpanded ? '收起' : '展开全文'}
+          </button>
+        {/if}
       {/if}
     </div>
-    {#if onFork}
-      <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
-    {/if}
   </div>
 {:else}
   <div class="assistant" class:bare>
@@ -343,6 +363,11 @@
     gap: 14px;
     align-items: flex-start;
   }
+  /* 用户消息右对齐：自己的话靠右，与助手内容左右分列 */
+  .user {
+    position: relative;
+    justify-content: flex-end;
+  }
   /* 分叉按钮：与复制按钮同款弱化样式，hover 显形 */
   .forkbtn {
     flex: none;
@@ -355,7 +380,7 @@
       opacity var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out);
   }
-  /* 用户行分叉钮贴消息底缘（助手卡 foot 行内与复制同走 align-items: center） */
+  /* 用户行分叉钮：排在气泡左侧、随气泡走（右对齐时紧贴气泡），贴行底 */
   .user > .forkbtn {
     align-self: flex-end;
   }
@@ -387,12 +412,6 @@
     color: var(--accent);
     background: var(--bg-soft);
   }
-  /* 用户行头像占位：宽度与所在上下文的助手头像列一致（--av-size
-     由容器设，回复组 48px、分身面板回落 36px），气泡与助手正文对齐 */
-  .avph {
-    flex: none;
-    width: var(--av-size, 36px);
-  }
   /* 非组内助手（分身面板）的「ez」徽章 */
   .tag {
     flex: none;
@@ -408,19 +427,32 @@
     background: var(--bg);
     color: var(--fg);
   }
-  /* 黑底气泡保留；全局 ::selection 是黑底，在黑气泡上选中态隐形——
-     气泡内覆盖为白色半透明，复制范围清晰可见 */
+  /* 用户气泡：带蓝调的浅色卡片（比灰底更轻），高度超过阈值折叠 */
   .bubble {
-    background: var(--bg-invert);
-    color: var(--fg-invert);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+    color: var(--fg);
     padding: 10px 14px;
-    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+    border-radius: 14px;
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 280px;
+    overflow: hidden;
   }
-  .bubble::selection {
-    background: rgb(255 255 255 / 32%);
-    color: var(--fg-invert);
+  .bubble.unfolded {
+    max-height: none;
+  }
+  /* 折叠态底部渐隐，提示还有内容 */
+  .bubble.clipped {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+  }
+  .more {
+    font-size: var(--font-size-small);
+    color: var(--accent);
+    padding: 2px 4px;
+  }
+  .more:hover {
+    text-decoration: underline;
   }
   /* 多模态图片：缩略网格（点击原生放大交给浏览器，保持零依赖）。
      宽度上限挂这里（参照 .user 的确定宽度）——bubble 的百分比若参照
@@ -431,7 +463,8 @@
     align-items: flex-start;
     gap: 6px;
     min-width: 0;
-    max-width: 86%;
+    /* 与助手输出同宽：气泡最大占满内容列 */
+    max-width: 100%;
   }
   .imgs {
     display: flex;

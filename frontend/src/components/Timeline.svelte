@@ -389,7 +389,8 @@
   .inner {
     max-width: 780px;
     margin: 0 auto;
-    padding: 40px 48px 24px;
+    /* 左右 58：48 给头像、10 是头像与正文的间隙 */
+    padding: 40px 58px 24px;
     display: flex;
     flex-direction: column;
     gap: 20px;

@@ -142,46 +142,74 @@
   function buildOption(t: NonNullable<typeof trend>) {
     const line = cssVar('--line', '#e8eaf1')
     const faint = cssVar('--faint', '#a6acba')
+    const muted = cssVar('--muted', '#626a78')
     const fg = cssVar('--fg', '#26272d')
+    const font = cssVar('--font-ui', 'system-ui, sans-serif')
     return {
       animationDuration: 200,
-      grid: { left: 46, right: 14, top: 16, bottom: 34 },
+      grid: { left: 52, right: 18, top: 36, bottom: 26 },
+      /* 图例放右上：圆形色点 + 名称（数值用浅色富文本），与坐标轴标签分开 */
       legend: {
         type: 'scroll',
-        bottom: 0,
-        icon: 'roundRect',
-        itemWidth: 8,
-        itemHeight: 8,
-        itemGap: 12,
-        textStyle: { color: faint, fontSize: 10.5, fontFamily: 'ui-monospace, monospace' },
-        formatter: (name: string) => `${name} ${fmtTokens(t.totals[name] ?? 0)}`,
+        top: 2,
+        right: 4,
+        icon: 'circle',
+        itemWidth: 7,
+        itemHeight: 7,
+        itemGap: 16,
+        textStyle: {
+          color: muted,
+          fontSize: 11,
+          fontFamily: font,
+          rich: { sum: { color: faint, fontSize: 10.5, padding: [0, 0, 0, 3] } },
+        },
+        formatter: (name: string) => `${name} {sum|${fmtTokens(t.totals[name] ?? 0)}}`,
       },
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'line', lineStyle: { color: cssVar('--line-strong', '#43474f') } },
+        axisPointer: {
+          type: 'line',
+          lineStyle: { color: cssVar('--line-strong', '#43474f'), type: [4, 4] },
+        },
         backgroundColor: cssVar('--bg', '#fbfcfe'),
         borderColor: line,
-        textStyle: { color: fg, fontSize: 11, fontFamily: 'ui-monospace, monospace' },
+        borderWidth: 1,
+        padding: 0,
+        extraCssText: 'border-radius:10px;box-shadow:0 10px 28px rgb(0 0 0 / 12%);overflow:hidden;',
+        textStyle: { color: fg, fontSize: 11.5, fontFamily: font },
         formatter: (params: unknown) => {
-          const list = (Array.isArray(params) ? params : [params]) as { value?: [number, number]; marker?: string; seriesName?: string }[]
+          const list = (Array.isArray(params) ? params : [params]) as {
+            value?: [number, number]
+            color?: string
+            seriesName?: string
+          }[]
           if (!list.length) return ''
           const d = new Date(list[0].value?.[0] ?? 0)
           const head = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
-          const rows = list.map((p) => `${p.marker ?? ''}${escapeHtml(p.seriesName ?? '')} <b>${fmtTokens(p.value?.[1] ?? 0)}</b>`)
-          return [head, ...rows].join('<br/>')
+          const rows = list
+            .map(
+              (p) => `<div style="display:flex;align-items:center;gap:6px;padding:3px 10px">
+                <span style="flex:none;width:6px;height:6px;border-radius:50%;background:${p.color ?? muted}"></span>
+                <span style="flex:1;color:${muted}">${escapeHtml(p.seriesName ?? '')}</span>
+                <b style="color:${fg};font-weight:600">${fmtTokens(p.value?.[1] ?? 0)}</b>
+              </div>`,
+            )
+            .join('')
+          return `<div style="padding:7px 0 8px;min-width:170px">
+            <div style="padding:0 10px 5px;color:${faint};font-size:10.5px">${head}</div>${rows}</div>`
         },
       },
       xAxis: {
         type: 'time',
         axisLine: { lineStyle: { color: line } },
         axisTick: { show: false },
-        axisLabel: { color: faint, fontSize: 10, hideOverlap: true },
+        axisLabel: { color: faint, fontSize: 10.5, fontFamily: font, hideOverlap: true },
         splitLine: { show: false },
       },
       yAxis: {
         type: 'value',
         splitNumber: 4,
-        axisLabel: { color: faint, fontSize: 10, formatter: (v: number) => fmtTokens(v) },
+        axisLabel: { color: faint, fontSize: 10.5, fontFamily: font, formatter: (v: number) => fmtTokens(v) },
         splitLine: { lineStyle: { color: line } },
       },
       series: t.rows.map((r) => ({

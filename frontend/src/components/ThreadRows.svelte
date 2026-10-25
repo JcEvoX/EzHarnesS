@@ -181,14 +181,15 @@
     align-items: flex-start;
   }
   /* 主时间线：头像挂在内容列左侧的留白里，不占内容宽度——内容左缘因此
-     与输入框对齐；头像正好占满内容区左内边距（48px），窄窗也不越界 */
+     与输入框对齐；头像与文字留 10px 间隙，连同 48px 头像正好占满左侧
+     内边距（58px），窄窗也不越界 */
   .grp.avatar-out {
     position: relative;
   }
   .grp.avatar-out > .tag {
     position: absolute;
     top: 1px;
-    right: 100%;
+    right: calc(100% + 10px);
     margin-top: 0;
   }
   .grp .tag {

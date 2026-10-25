@@ -11,15 +11,14 @@
     onResolve,
     onJump,
     onDismiss,
-    standalone = false,
+    onClose,
   }: {
     notices?: NoticeData[]
     onResolve?: (id: string, action: string, input?: string) => void
     onJump?: (n: NoticeData) => void
     onDismiss?: (id: string) => void
-    /* standalone：独立通知窗里用——常驻展开、不写 localStorage（同源会污染
-       主窗的折叠记忆），也不显示收起按钮 */
-    standalone?: boolean
+    /* onClose：浮层里用——头部显示关闭按钮 */
+    onClose?: () => void
   } = $props()
 
   const kindMeta: Record<NoticeData['kind'], { label: string; icon: string }> = {
@@ -44,55 +43,19 @@
 
   let answers = $state<Record<string, string>>({})
 
-  /* 收起为小方块：有待处理通知时右上角红点提示，localStorage 记忆收起态 */
-  const collapsedKey = 'ezh.noticePanel.collapsed'
-  let collapsed = $state(standalone
-    ? false
-    : (() => {
-        try {
-          return localStorage.getItem(collapsedKey) !== '0' // 无记录默认折叠
-        } catch {
-          return true
-        }
-      })())
-  function fold(v: boolean) {
-    collapsed = v
-    try {
-      localStorage.setItem(collapsedKey, v ? '1' : '0')
-    } catch {
-      /* 存储不可用时仅本次生效 */
-    }
-  }
   const pendingCount = $derived(notices.filter((n) => n.status === 'pending').length)
-  /* 完成通知（info）：非待处理，但也要挂上小点（收起态的铃铛） */
-  const infoCount = $derived(notices.filter((n) => n.kind === 'info').length)
 </script>
 
-{#if collapsed}
-  <button
-    class="mini"
-    onclick={() => fold(false)}
-    title={`通知 · 点击展开${pendingCount > 0 ? `（${pendingCount} 条待处理）` : ''}`}
-  >
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-    </svg>
-    {#if pendingCount + infoCount > 0}
-      <i class="dot"></i>
-    {/if}
-  </button>
-{:else}
   <div class="panel">
     <div class="head">
       <h2>通知</h2>
       {#if pendingCount > 0}
         <span class="badge">{pendingCount} 待处理</span>
       {/if}
-      {#if !standalone}
-        <button class="fold" onclick={() => fold(true)} title="收起">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-            <path d="M5 12h14" />
+      {#if onClose}
+        <button class="close" onclick={onClose} title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       {/if}
@@ -189,13 +152,12 @@
     </div>
   {/if}
   </div>
-{/if}
 
 <style>
   .panel {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     min-width: 0;
     width: 100%;
     max-height: 100%;
@@ -212,9 +174,9 @@
     gap: 8px;
   }
   h2 {
-    font-size: var(--font-size-ui);
+    font-size: var(--font-size-section);
     font-weight: 600;
-    color: var(--muted);
+    color: var(--fg);
   }
   .badge {
     font-size: var(--font-size-small);
@@ -223,70 +185,33 @@
     border-radius: 5px;
     padding: 1px 7px;
   }
-  /* 收起态小方块：铃铛图标，待处理通知时右上角红点；靠右贴边（.side 列的末端对齐） */
-  .mini {
-    position: relative;
-    flex: none;
-    align-self: flex-end;
-    display: grid;
-    place-items: center;
-    width: 38px;
-    height: 38px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--bg);
-    color: var(--muted);
-    cursor: pointer;
-    padding: 0;
-  }
-  .mini:hover {
-    border-color: var(--line-strong);
-    color: var(--fg);
-  }
-  .mini svg {
-    width: 16px;
-    height: 16px;
-  }
-  .dot {
-    position: absolute;
-    top: -3px;
-    right: -3px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: #f85149;
-    border: 2px solid var(--bg);
-  }
-  .fold {
+  .close {
     flex: none;
     margin-left: auto;
     display: grid;
     place-items: center;
-    width: 20px;
-    height: 20px;
-    border: none;
-    border-radius: 5px;
-    background: transparent;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
     color: var(--faint);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity var(--dur-fast) var(--ease-out);
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
   }
-  .panel:hover .fold {
-    opacity: 1;
-  }
-  .fold:hover {
+  .close:hover {
     background: var(--bg-soft);
     color: var(--fg);
   }
-  .fold svg {
-    width: 11px;
-    height: 11px;
+  .close svg {
+    width: 12px;
+    height: 12px;
   }
   .empty {
     font-size: var(--font-size-small);
     color: var(--faint);
-    padding: 4px 0 6px;
+    text-align: center;
+    line-height: 1.6;
+    padding: 18px 12px 14px;
   }
   .list {
     display: flex;
@@ -308,6 +233,10 @@
     gap: 7px;
     padding: 8px 6px;
     border-radius: 8px;
+    transition: background var(--dur-fast) var(--ease-out);
+  }
+  .notice:not(.pending):hover {
+    background: var(--bg-soft);
   }
   .notice + .notice {
     border-top: 1px solid var(--line);

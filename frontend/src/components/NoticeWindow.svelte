@@ -29,7 +29,6 @@
 
 <div class="wrap">
   <NoticePanel
-    standalone
     notices={store.notices}
     onResolve={resolve}
     onJump={jump}

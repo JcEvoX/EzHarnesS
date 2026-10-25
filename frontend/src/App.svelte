@@ -110,7 +110,7 @@
   </div>
 {:else}
 <div class="shell">
-  <TitleBar onNavigate={(v) => (view = v as typeof view)} />
+  <TitleBar onNavigate={(v) => (view = v as typeof view)} sidebarWidth={expanded ? 176 : 64} />
   <div class="app" class:expanded>
     <Sidebar view={view} expanded={expanded} onNavigate={(v) => (view = v)} onToggle={() => (expanded = !expanded)} />
     <main>
