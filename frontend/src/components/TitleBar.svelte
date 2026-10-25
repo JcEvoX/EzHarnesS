@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { isDesktop } from '../lib/desktop'
+  import TopSearch from './TopSearch.svelte'
 
-  /* 桌面壳标题栏：?desktop 参数时渲染（桌面窗口 URL 带 ?desktop=1）。
-     三键/关闭流程走 desktop 壳的 preload IPC（window.ez），拖拽由
-     app-region 处理，浏览器访问不渲染 */
+  /* 顶部通栏：搜索框所有形态都渲染；三键/关闭流程仅桌面壳
+     （?desktop=1）渲染，走 preload IPC（window.ez）。拖拽由 app-region 处理 */
   const desktop = isDesktop
+  let { onNavigate }: { onNavigate: (v: string) => void } = $props()
 
   /* desktop 壳能力（web 端为 undefined，防御性判空） */
   function ezWindow(): any | undefined {
@@ -61,9 +62,11 @@
   }))
 </script>
 
-{#if desktop}
-  <div class="titlebar">
-    <span class="name">ezharness</span>
+<div class="titlebar">
+  <div class="search">
+    <TopSearch {onNavigate} />
+  </div>
+  {#if desktop}
     <div class="btns">
       <button class="tbtn" onclick={() => ezWindow()?.minimize()} title="最小化">
         <svg viewBox="0 0 12 12"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2" /></svg>
@@ -84,8 +87,10 @@
         <svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
     </div>
-  </div>
+  {/if}
+</div>
 
+{#if desktop}
   {#if closePrompt}
     <div class="close-mask" role="presentation" onclick={() => cancelClose()}>
       <div class="close-dialog" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
@@ -105,20 +110,20 @@
 
 <style>
   .titlebar {
+    position: relative;
     display: flex;
     align-items: center;
     height: 34px;
     flex: none;
-    background: var(--bg);
+    background: var(--bg-soft);
     user-select: none;
     app-region: drag;
   }
-  .name {
-    margin-left: 14px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--faint);
-    pointer-events: none;
+  /* 居中用 left 偏移而非 transform：transform 会建层叠上下文，
+     面板无法盖到下层内容之上 */
+  .search {
+    position: absolute;
+    left: calc(50% - 160px);
   }
   .btns {
     margin-left: auto;
@@ -140,7 +145,7 @@
     height: 12px;
   }
   .tbtn:hover {
-    background: var(--bg-soft);
+    background: var(--bg);
     color: var(--fg);
   }
   .tbtn.close:hover {

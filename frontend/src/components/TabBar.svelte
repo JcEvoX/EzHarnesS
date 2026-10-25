@@ -107,10 +107,10 @@
     gap: 6px;
     flex: 0 1 auto;
     min-width: 72px; /* 名字至少留约 3 字，收不到只剩点+叉的残骸 */
-    border: 1px solid var(--line);
-    background: var(--bg);
+    border: none;
+    background: transparent;
     border-radius: 8px;
-    padding: 3px 5px 3px 9px;
+    padding: 4px 5px 4px 9px;
     font-size: 11.5px;
     color: var(--muted);
     max-width: 190px;
@@ -119,11 +119,10 @@
       color var(--dur-fast) var(--ease-out);
   }
   .tab:hover {
-    background: var(--bg-soft);
+    background: color-mix(in srgb, var(--bg-soft) 60%, transparent);
     color: var(--fg);
   }
   .tab.active {
-    border-color: var(--line-strong);
     background: var(--bg-soft);
     color: var(--fg);
     font-weight: 600;
@@ -173,8 +172,8 @@
     place-items: center;
     width: 22px;
     height: 22px;
-    border: 1px solid var(--line);
-    background: var(--bg);
+    border: none;
+    background: transparent;
     border-radius: 7px;
     color: var(--muted);
     font-size: 13px;

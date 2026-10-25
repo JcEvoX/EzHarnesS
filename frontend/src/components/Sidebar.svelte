@@ -125,7 +125,6 @@
     gap: 6px;
     padding: 14px 10px;
     background: var(--bg-soft);
-    border-right: 1px solid var(--line);
     overflow: hidden;
     transition: width var(--dur-in) var(--ease-out);
   }

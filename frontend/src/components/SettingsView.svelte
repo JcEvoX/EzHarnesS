@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, type AppConfig } from '../lib/api'
   import { getToken } from '../lib/auth'
+  import { store } from '../lib/store.svelte'
 
   const ez = (window as any).ez
 
@@ -55,6 +56,17 @@
   let origOffload = $state<number | null>(null)
   let savingOffload = $state(false)
   let offloadMsg = $state('')
+
+  /* 顶栏搜索跳转：滚动到对应分区（消费后清空锚点） */
+  $effect(() => {
+    const anchor = store.jumpAnchor
+    if (!anchor.startsWith('settings:')) return
+    store.jumpAnchor = ''
+    const target = anchor.slice('settings:'.length)
+    if (target === 'paths') showPaths = true
+    const el = document.getElementById(`set-${target}`)
+    requestAnimationFrame(() => el?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  })
 
   onMount(async () => {
     try {
@@ -247,7 +259,7 @@
 <div class="page">
   <h1>设置</h1>
 
-  <section>
+  <section id="set-server">
     <h2>服务端配置</h2>
     <p class="hint">监听、端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。监听 127.0.0.1 = 仅本机访问（默认，无防火墙弹窗），0.0.0.0 = 局域网可达（会触发防火墙授权）。</p>
     <div class="grid2">
@@ -281,7 +293,7 @@
     </label>
   </section>
 
-  <section>
+  <section id="set-context">
     <h2>上下文管理</h2>
     <p class="hint">
       上下文整理水位 = 模型上下文窗口 × 百分比：模型调用的 prompt tokens
@@ -333,7 +345,7 @@
     {/if}
   </section>
 
-  <section>
+  <section id="set-workdir">
     <h2>工作目录</h2>
     <p class="hint">
       terminal 命令默认执行目录，模型草稿与命令产物落这里；空 =
@@ -357,7 +369,7 @@
     {/if}
   </section>
 
-  <section>
+  <section id="set-window">
     <h2>桌面窗口</h2>
     <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。悬浮球右键可关闭，关闭后在此重新开启。</p>
     <label class="switch-row">
@@ -380,7 +392,7 @@
     </label>
   </section>
 
-  <section>
+  <section id="set-debug">
     <h2>调试</h2>
     <p class="hint">调试模式：把每次发给模型的完整输入（消息 + 工具清单）写进 data/logs/core-日期.log，排查上下文问题用；关闭时日志不记模型输入。dev.bat 启动时默认开启。</p>
     <label class="switch-row">
@@ -394,7 +406,7 @@
     </label>
   </section>
 
-  <section>
+  <section id="set-paths">
     <button class="fold" onclick={() => (showPaths = !showPaths)}>
       数据文件位置
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class:open={showPaths}>
@@ -454,6 +466,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    scroll-margin-top: 28px;
   }
   h2 {
     font-size: 13px;

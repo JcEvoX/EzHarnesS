@@ -50,6 +50,15 @@
     }
   }
 
+  /* 顶栏搜索跳转：滚动到能力记忆分区（消费后清空锚点） */
+  $effect(() => {
+    const anchor = store.jumpAnchor
+    if (!anchor.startsWith('memory:')) return
+    store.jumpAnchor = ''
+    const el = document.getElementById(`mem-${anchor.slice('memory:'.length)}`)
+    requestAnimationFrame(() => el?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  })
+
   /* 三段数据互不依赖：并发拉取（串行时长期记忆要等会话树，进页面空等） */
   onMount(() => {
     void loadConfig()
@@ -740,7 +749,7 @@
   </section>
 
   <!-- ── 能力记忆 ── -->
-  <section>
+  <section id="mem-skills">
     <header>
       <div>
         <h2>能力记忆</h2>
@@ -1172,6 +1181,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    scroll-margin-top: 28px;
   }
   header {
     display: flex;

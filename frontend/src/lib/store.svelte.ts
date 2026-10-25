@@ -204,6 +204,7 @@ class AppStore {
      本地记录结果给卡片落定状态（后端返回后待确认项即消失） */
   memoryDecisions = $state<Record<string, 'accept' | 'cancel'>>({})
   jumpView = $state<'' | 'memory'>('') // 通知跳页请求（App 消费后清空）
+  jumpAnchor = $state('') // 顶栏搜索跳转目标（view:anchor，目标视图消费后清空）
   lastTool = $state('')
   busy = $state(false)
   archivingRootId = $state('') // 归档进行中的分支（线根 ID，空=无）：锁该分支输入与按钮

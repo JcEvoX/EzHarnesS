@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { api, McpAuthError, type McpServerView, type McpToolView } from '../lib/api'
   import { openExternal } from '../lib/desktop'
+  import { store } from '../lib/store.svelte'
 
   /* MCP = 外部工具服务器（mcp.json 热加载）。页面侧可手动建立 MCP 会话
   （与 agent 的连接相互独立）：点连接查看工具清单、填参试调用。
@@ -39,6 +40,15 @@
     }
   }
   onDestroy(stopAuthPoll)
+
+  /* 顶栏搜索跳转：直达指定 server 详情（消费后清空锚点） */
+  $effect(() => {
+    const anchor = store.jumpAnchor
+    if (!anchor.startsWith('mcp:') || !loaded) return
+    store.jumpAnchor = ''
+    const s = servers.find((x) => x.name === anchor.slice('mcp:'.length))
+    if (s) selected = s
+  })
 
   /* 进详情时滚动归零——滚动容器在视图切换间被复用，否则停留在网格页的滚动偏移。 */
   $effect(() => {
