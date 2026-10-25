@@ -167,6 +167,27 @@
 
   /* 无流式头缓存的重建消息的全文渲染（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
   const mdHtml = $derived(text && !streaming ? DOMPurify.sanitize(marked.parse(text) as string) : '')
+
+  /* 超长全文一次性 parse+innerHTML 会长时间占死主线程（历史重建时全部
+     消息同帧全量渲染,表现为卡死后突然全部涌出）——超过阈值只渲染
+     头尾两段+折叠提示,点击才展开全文(用户自选承担这次开销) */
+  const FULL_LIMIT = 48 * 1024
+  const HEAD_KEEP = 24 * 1024
+  const TAIL_KEEP = 12 * 1024
+  let expanded = $state(false)
+  const clipped = $derived(!streaming && !streamView && !expanded && text.length > FULL_LIMIT)
+  const clipHtml = $derived.by(() => {
+    if (!clipped) return null
+    let cut = text.lastIndexOf('\n\n', HEAD_KEEP)
+    if (cut <= 0) cut = HEAD_KEEP
+    let tailStart = text.indexOf('\n\n', text.length - TAIL_KEEP)
+    if (tailStart < cut) tailStart = text.length
+    return {
+      hidden: tailStart - cut,
+      head: DOMPurify.sanitize(marked.parse(text.slice(0, cut)) as string),
+      tail: DOMPurify.sanitize(marked.parse(text.slice(tailStart)) as string),
+    }
+  })
   const reasoningClipped = $derived(streaming && reasoning.length > 1200)
 
   let bodyEl: HTMLDivElement | undefined = $state()
@@ -281,10 +302,16 @@
         </details>
       {/if}
       {#if text}
-        <div class="md" bind:this={bodyEl} onclick={onBodyClick}>
+        <div class="md" class:live={streaming} bind:this={bodyEl} onclick={onBodyClick}>
           {#if streamView}
             <!-- 头/尾分节点：cut 不变时头段 DOM 不重建，delta 只重排尾段 -->
             {#if streamView.head}{@html streamView.head}{/if}{@html streamView.tail}
+          {:else if clipHtml}
+            {@html clipHtml.head}
+            <button class="clipbtn" onclick={() => (expanded = true)}>
+              …中间 {Math.max(1, Math.round(clipHtml.hidden / 1000))}k 字已折叠，点击展开全文（共 {Math.round(text.length / 1000)}k 字）
+            </button>
+            {@html clipHtml.tail}
           {:else}
             {@html mdHtml}
           {/if}
@@ -551,6 +578,28 @@
     /* 长路径/长串（行内 code、URL）就地断行，不撑宽消息列（pre 代码块
     white-space: pre 不受影响，横向滚动由其自身 overflow-x 承担） */
     overflow-wrap: anywhere;
+  }
+  /* 屏外消息跳过布局与绘制：历史重建时成百条长消息不再同帧全量渲染。
+     流式中的消息除外（高度连续变化,虚拟化会让吸底/滚动跳动） */
+  .md:not(.live) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
+  .md .clipbtn {
+    display: block;
+    width: 100%;
+    margin: 6px 0;
+    border: 1px dashed var(--line-strong);
+    border-radius: 8px;
+    background: transparent;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .md .clipbtn:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
   }
   .md :global(p) {
     margin: 6px 0;
