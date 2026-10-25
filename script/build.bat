@@ -14,8 +14,7 @@ for /f "tokens=2 delims=: " %%v in ('findstr /b /c:"version:" script\version.yam
 if not defined VERSION exit /b 1
 
 rem sync version: frontend gets v-prefixed string (footer: ezharness-v<version>), desktop gets bare semver
-set SRCVER=%VERSION%
-powershell -NoProfile -Command "$v = $env:SRCVER; $f = 'frontend\package.json'; $j = Get-Content $f -Raw -Encoding UTF8; $j = $j -replace '\"version\": \"[^\"]*\"', ('\"version\": \"v' + $v + '\"'); [IO.File]::WriteAllText($f, $j); $d = 'desktop\package.json'; $j = Get-Content $d -Raw -Encoding UTF8; $j = $j -replace '\"version\": \"[^\"]*\"', ('\"version\": \"' + $v + '\"'); [IO.File]::WriteAllText($d, $j)"
+node script\sync-version.js
 if errorlevel 1 exit /b 1
 
 echo [build] building frontend...

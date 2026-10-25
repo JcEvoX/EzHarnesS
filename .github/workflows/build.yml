@@ -38,8 +38,7 @@ jobs:
         run: echo "version=$(sed -n 's/^version:[[:space:]]*//p' script/version.yaml)" >> "$GITHUB_OUTPUT"
 
       - name: Sync version into package.jsons
-        run: |
-          node -e "const fs=require('fs');const v='${{ steps.ver.outputs.version }}';for(const [f,p] of [['frontend/package.json','v'],['desktop/package.json','']]){const j=JSON.parse(fs.readFileSync(f));j.version=p+v;fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')}"
+        run: node script/sync-version.js
 
       - name: Build frontend
         run: cd frontend && npm ci && npm run build

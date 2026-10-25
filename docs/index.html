@@ -3,583 +3,686 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ezharness · 文档 Documentation</title>
+<title>ezharness · 可持续进化的工作台</title>
 <style>
   :root {
-    --bg: #05070d;
-    --bg-soft: #0a101d;
-    --panel: #0b1322;
-    --text: #e8edf6;
-    --muted: #8b98b0;
-    --accent: #7dd3fc;
-    --accent-deep: #38bdf8;
-    --border: #16213a;
-    --border-soft: #1c2942;
-    --white: #ffffff;
+    --bg: #fbfcfe;
+    --bg-soft: #f3f5f9;
+    --bg-invert: #2e3138;
+    --fg: #26272d;
+    --fg-invert: #f7f8fa;
+    --muted: #626a78;
+    --faint: #98a1b0;
+    --line: #e8eaf1;
+    --line-strong: #43474f;
+    --accent: #2563eb;
+    --accent-deep: #1d4ed8;
+    --accent-soft: #dbeafe;
+    --font-ui: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Microsoft YaHei UI', ui-monospace, monospace;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --shadow-sm: 0 2px 8px rgb(22 34 51 / 4%);
+    --shadow-md: 0 10px 30px rgb(22 34 51 / 7%);
+    --shadow-lg: 0 22px 60px rgb(22 34 51 / 12%);
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body {
-    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    color: var(--text); background: var(--bg); line-height: 1.75;
+    font-family: var(--font-ui);
+    font-size: 14px; line-height: 1.7;
+    color: var(--fg); background: var(--bg);
   }
   a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  ::selection { background: rgba(56,189,248,.3); }
-
-  /* ── 语言切换：body.en 隐藏 .zh、body.zh 隐藏 .en ── */
-  body.en .zh { display: none; }
-  body.zh .en { display: none; }
-
-  /* ── 顶栏 ── */
-  header {
-    position: sticky; top: 0; z-index: 50;
-    display: flex; align-items: center; gap: 14px;
-    padding: 12px 28px; border-bottom: 1px solid var(--border);
-    background: rgba(5,7,13,.88); backdrop-filter: blur(12px);
+  code {
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--fg); background: var(--bg-soft);
+    padding: 1px 4px; border-radius: 4px;
   }
-  header .name { color: var(--white); font-size: 18px; letter-spacing: 1px; font-weight: 300; }
-  header .name b { font-weight: 700; }
-  header .sub { font-size: 12.5px; color: var(--muted); }
-  header .spacer { flex: 1; }
-  .lang-switch {
-    display: flex; border: 1px solid var(--border-soft); border-radius: 999px; overflow: hidden;
-    font-size: 12.5px;
-  }
-  .lang-switch button {
-    border: 0; background: transparent; color: var(--muted); padding: 5px 14px;
-    cursor: pointer; font-family: inherit;
-  }
-  .lang-switch button.on { background: rgba(56,189,248,.14); color: var(--accent); }
-  header .gh { font-size: 13px; color: #94a3b8; }
+  [hidden] { display: none !important; }
+  .wrap { width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 32px; }
 
-  /* ── HERO ── */
+  /* 顶栏 */
+  .site-head {
+    position: sticky; top: 0; z-index: 30;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: blur(18px) saturate(1.4);
+    border-bottom: 1px solid var(--line);
+  }
+  .site-head .wrap { display: flex; align-items: center; gap: 26px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 9px; color: var(--fg); }
+  .brand img { width: 28px; height: 28px; border-radius: 8px; }
+  .brand b { font-size: 14px; font-weight: 700; letter-spacing: .2px; }
+  .site-nav { display: flex; gap: 20px; font-size: 13px; }
+  .site-nav a { color: var(--muted); }
+  .site-nav a:hover { color: var(--fg); }
+  .site-nav a.on { color: var(--fg); font-weight: 600; }
+  .site-head .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .site-head .gh { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .site-head .gh svg { width: 15px; height: 15px; }
+  .site-head .gh:hover { color: var(--fg); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 36px; padding: 0 18px; border-radius: 9px;
+    font-size: 13px; font-weight: 500; color: var(--fg);
+    border: 1px solid var(--line); background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: border-color 160ms var(--ease-out), background 160ms var(--ease-out), transform 160ms var(--ease-out);
+  }
+  .btn:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+  .btn.small { height: 32px; padding: 0 14px; font-size: 12.5px; }
+
+  /* Hero */
   .hero {
-    text-align: center; padding: 84px 26px 60px; overflow: hidden;
-    background: radial-gradient(ellipse 900px 480px at 50% 25%, rgba(14,42,66,.55), transparent 70%);
-    border-bottom: 1px solid var(--border);
+    padding: 88px 0 72px;
+    background:
+      radial-gradient(720px 360px at 78% 12%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+      radial-gradient(600px 300px at 12% 0%, color-mix(in srgb, #7dd3fc 6%, transparent), transparent 70%);
   }
-  .hero img { width: 120px; filter: drop-shadow(0 0 26px rgba(56,189,248,.35)); }
-  .hero .slogan { font-size: 13px; letter-spacing: 5px; color: #bfe7f8; margin: 16px 0 2px; text-indent: 5px; }
-  .hero h1 { font-size: 42px; letter-spacing: 2px; color: var(--white); font-weight: 300; }
-  .hero h1 b { font-weight: 750; }
-  .hero .tag { font-size: 15.5px; color: #a9b7cc; margin-top: 10px; max-width: 640px; margin-left: auto; margin-right: auto; }
-  .hero .cta { display: flex; gap: 12px; justify-content: center; margin-top: 30px; flex-wrap: wrap; }
-  .hero .cta a {
-    padding: 9px 22px; border-radius: 10px; font-size: 14px;
-    border: 1px solid var(--border-soft); color: #c4cede;
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr); gap: 64px; align-items: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 11.5px; letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--accent);
   }
-  .hero .cta a.primary { background: rgba(56,189,248,.13); border-color: rgba(56,189,248,.45); color: var(--accent); font-weight: 600; }
-  .hero .cta a:hover { text-decoration: none; border-color: var(--accent); }
+  .eyebrow::before { content: ""; width: 18px; height: 1px; background: currentColor; opacity: .6; }
+  .hero h1 {
+    margin-top: 16px;
+    font-size: 42px; line-height: 1.32; font-weight: 650; letter-spacing: -.6px;
+    color: var(--fg); text-wrap: balance;
+  }
+  .hero .lede { margin-top: 18px; font-size: 15.5px; line-height: 1.8; color: var(--muted); max-width: 480px; }
+  .cta { display: flex; gap: 10px; margin-top: 30px; flex-wrap: wrap; }
+  .cta .btn { height: 40px; padding: 0 22px; font-size: 13.5px; }
+  .facts { margin-top: 22px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--faint); }
+  .facts span { display: inline-flex; align-items: center; gap: 8px; }
+  .facts span + span::before { content: "·"; color: var(--line-strong); opacity: .35; }
 
-  /* ── 阅读路径条 ── */
-  .path {
-    max-width: 960px; margin: 40px auto 0; padding: 0 26px;
-    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
-    font-size: 12.5px; color: var(--muted);
+  /* 伪窗口 */
+  .window {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow-lg); overflow: hidden;
+    transform: perspective(1200px) rotateY(-3deg) rotateX(2deg);
+    transform-origin: right center;
   }
-  .path span { border: 1px solid var(--border-soft); border-radius: 999px; padding: 4px 14px; }
-  .path i { color: #4b5a75; font-style: normal; align-self: center; }
+  .winbar {
+    display: flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 12px;
+    background: var(--bg-soft); border-bottom: 1px solid var(--line);
+  }
+  .winbar i { width: 8px; height: 8px; border-radius: 50%; background: #d9dee8; }
+  .winbar span { margin-left: 10px; font-size: 11.5px; color: var(--faint); }
+  .window .media { aspect-ratio: 16 / 10.5; border: 0; border-radius: 0; background: var(--bg); position: relative; overflow: hidden; }
 
-  /* ── 主体 ── */
-  main { max-width: 960px; margin: 0 auto; padding: 30px 26px 90px; }
-  section { margin-top: 64px; scroll-margin-top: 70px; }
-  .layer-head { display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-  .layer-head .no {
-    color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 2px;
+  .media {
+    display: grid; place-items: center; text-align: center;
+    border: 1px dashed #d7dbe6; border-radius: 10px;
+    background: var(--bg-soft);
+    color: var(--faint); font-size: 12px; line-height: 1.8;
   }
-  .layer-head h2 { font-size: 24px; color: var(--white); font-weight: 650; }
-  .layer-head .en-title { font-size: 13px; color: #4b5a75; letter-spacing: 1px; }
-  .layer-desc { font-size: 14px; color: var(--muted); margin: 12px 0 20px; }
+  .media img { width: 100%; height: 100%; object-fit: cover; }
 
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .card {
-    border: 1px solid var(--border-soft); border-radius: 14px; padding: 18px 16px 15px;
-    background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.008));
-    transition: all .2s; display: block; color: inherit;
+  /* 通用区块 */
+  .section { padding: 76px 0; }
+  .section + .section { border-top: 1px solid var(--line); }
+  .section-head { max-width: 700px; }
+  .kicker { font-size: 11.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--accent); }
+  .section-head h2 {
+    margin-top: 10px;
+    font-size: 28px; line-height: 1.4; font-weight: 650; letter-spacing: -.4px;
+    text-wrap: balance;
   }
-  .card:hover { border-color: rgba(56,189,248,.4); transform: translateY(-3px); text-decoration: none; }
-  .card.wide { grid-column: span 2; }
-  .card .t { font-weight: 600; font-size: 15px; color: var(--white); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .card .t .tagchip {
-    font-size: 10.5px; font-weight: 700; letter-spacing: 1px; padding: 1.5px 8px;
-    border-radius: 999px; background: rgba(56,189,248,.13); color: var(--accent);
-  }
-  .card .d { font-size: 13px; color: var(--muted); line-height: 1.65; margin-top: 6px; }
-  .card .go { font-size: 12.5px; color: var(--accent); margin-top: 10px; display: inline-block; }
+  .section-head p { margin-top: 12px; font-size: 14.5px; color: var(--muted); max-width: 620px; }
 
-  .gif-slot {
-    margin-top: 26px; border: 1px dashed #2a3a5c; border-radius: 14px;
-    padding: 34px 16px; text-align: center; color: #4b5a75; font-size: 13px;
-    background: rgba(255,255,255,.015);
-  }
-  .gif-slot img { max-width: 100%; border-radius: 10px; display: block; margin: 0 auto; }
-  .gif-slot .slot-note { color: #3d4c66; font-size: 12px; margin-top: 6px; }
+  .demo { margin-top: 34px; }
+  .demo .media { aspect-ratio: 16 / 8.6; box-shadow: var(--shadow-md); }
 
-  .tip {
-    border-left: 4px solid var(--accent-deep);
-    background: rgba(56,189,248,.07); border-radius: 0 10px 10px 0;
-    padding: 12px 18px; margin: 20px 0 0; font-size: 13.5px; color: #c8dced;
+  .feature-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    margin-top: 22px;
   }
-  .tip b { color: var(--accent); }
+  .feature {
+    padding: 18px; border: 1px solid var(--line); border-radius: 12px;
+    background: #fff; box-shadow: var(--shadow-sm);
+    transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out), border-color 180ms var(--ease-out);
+  }
+  .feature:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+  }
+  .feature .ico {
+    display: grid; place-items: center;
+    width: 32px; height: 32px; border-radius: 9px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .feature .ico svg { width: 16px; height: 16px; }
+  .feature h3 { margin-top: 13px; font-size: 13.5px; font-weight: 600; }
+  .feature p { margin-top: 5px; font-size: 12.5px; color: var(--muted); line-height: 1.65; }
 
-  footer {
-    border-top: 1px solid var(--border); text-align: center;
-    padding: 26px 20px; color: var(--muted); font-size: 13px;
+  /* 交替图文 */
+  .split {
+    display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+    gap: 56px; align-items: center;
   }
+  .split.flip { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); }
+  .split.flip .copy { order: 2; }
+  .split.flip .shot { order: 1; }
+  .split .copy h3 { font-size: 23px; line-height: 1.45; font-weight: 650; letter-spacing: -.3px; text-wrap: balance; }
+  .split .copy p { margin-top: 12px; font-size: 14px; color: var(--muted); max-width: 430px; }
+  .split .copy ul { margin: 16px 0 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+  .split .copy li { position: relative; padding-left: 16px; font-size: 13px; color: var(--muted); }
+  .split .copy li::before {
+    content: ""; position: absolute; left: 2px; top: .72em;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--faint);
+  }
+  .split .copy li b { color: var(--fg); font-weight: 600; }
+  .split .copy .more { display: inline-flex; margin-top: 18px; font-size: 13px; }
+  .split .copy .more::after { content: "→"; margin-left: 4px; }
+  .split .shot .media { aspect-ratio: 16 / 10.5; box-shadow: var(--shadow-md); }
+  .split + .split { margin-top: 68px; }
 
-  /* ── md 就地阅读器 ── */
-  #reader {
-    position: fixed; inset: 0; z-index: 100; overflow-y: auto;
-    background: var(--bg);
+  .numbers {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 30px;
+    padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: #fff;
   }
-  #reader .bar {
-    position: sticky; top: 0; z-index: 2;
-    display: flex; align-items: center; gap: 14px;
-    padding: 12px 28px; border-bottom: 1px solid var(--border);
-    background: rgba(5,7,13,.88); backdrop-filter: blur(12px);
-  }
-  #reader .bar .back {
-    border: 1px solid var(--border-soft); border-radius: 8px; padding: 5px 14px;
-    color: #c4cede; font-size: 13px; cursor: pointer; background: transparent;
-    font-family: inherit;
-  }
-  #reader .bar .back:hover { border-color: var(--accent); color: var(--accent); }
-  #reader .bar .mdfile {
-    font-family: Consolas, monospace; font-size: 12.5px; color: var(--muted);
-    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  #reader .bar .src { font-size: 12.5px; }
-  .md-body { max-width: 860px; margin: 0 auto; padding: 40px 26px 100px; }
-  .md-body h1, .md-body h2, .md-body h3, .md-body h4 { color: var(--white); line-height: 1.35; margin: 1.4em 0 .5em; }
-  .md-body h1 { font-size: 26px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-  .md-body h2 { font-size: 21px; }
-  .md-body h3 { font-size: 17px; }
-  .md-body p, .md-body li { color: #c4cede; font-size: 14.5px; }
-  .md-body ul, .md-body ol { padding-left: 24px; margin: 10px 0; }
-  .md-body li { margin: 4px 0; }
-  .md-body li::marker { color: var(--accent); }
-  .md-body code {
-    background: rgba(56,189,248,.12); color: var(--accent); border-radius: 5px;
-    padding: 1px 6px; font-family: Consolas, monospace; font-size: 87%;
-  }
-  .md-body pre {
-    background: #070d1a; border: 1px solid var(--border-soft); border-radius: 10px;
-    padding: 14px 18px; overflow-x: auto; margin: 14px 0; line-height: 1.7;
-  }
-  .md-body pre code { background: none; color: #dbe4f0; padding: 0; }
-  .md-body blockquote {
-    border-left: 4px solid var(--accent-deep); background: rgba(56,189,248,.07);
-    border-radius: 0 10px 10px 0; padding: 10px 18px; margin: 14px 0; color: #c8dced;
-  }
-  .md-body table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
-  .md-body th { text-align: left; padding: 9px 13px; background: rgba(255,255,255,.035); border-bottom: 1px solid var(--border-soft); color: #9fb0c8; }
-  .md-body td { padding: 8px 13px; border-bottom: 1px solid var(--border); color: #c4cede; vertical-align: top; }
-  .md-body img { max-width: 100%; }
-  .md-body hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+  .numbers .n { font-size: 24px; font-weight: 650; letter-spacing: -.4px; }
+  .numbers .l { margin-top: 2px; font-size: 12px; color: var(--faint); }
 
-  @media (max-width: 860px) {
-    .cards { grid-template-columns: 1fr; }
-    .card.wide { grid-column: span 1; }
-    .hero h1 { font-size: 32px; }
-    header .sub { display: none; }
+  /* 文档入口 */
+  .doc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 30px; }
+  .doc-card {
+    display: flex; gap: 12px; align-items: baseline;
+    padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px;
+    background: #fff; color: var(--fg); box-shadow: var(--shadow-sm);
+    transition: border-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+  }
+  .doc-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); transform: translateY(-1px); }
+  .doc-card .n { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); }
+  .doc-card .t { font-size: 13px; font-weight: 600; }
+  .doc-card .d { font-size: 11.5px; color: var(--faint); margin-top: 1px; }
+  .doc-card .body { min-width: 0; }
+
+  /* 页脚 */
+  .site-foot { border-top: 1px solid var(--line); padding: 34px 0 46px; }
+  .site-foot .wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--faint); }
+  .site-foot .right { margin-left: auto; display: flex; gap: 20px; }
+  .site-foot a { color: var(--muted); }
+  .site-foot a:hover { color: var(--fg); }
+
+  /* 文档阅读 */
+  .doc-wrap { max-width: 880px; margin: 0 auto; padding: 36px 32px 96px; }
+  .doc-tabs {
+    display: flex; gap: 6px; overflow-x: auto; padding-bottom: 14px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .doc-tabs a {
+    flex: none; padding: 5px 11px; border-radius: 7px;
+    font-size: 12px; color: var(--muted);
+    border: 1px solid transparent;
+  }
+  .doc-tabs a:hover { background: var(--bg-soft); color: var(--fg); }
+  .doc-tabs a.on { background: var(--accent-soft); color: var(--accent-deep); border-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+  .dochead { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+  .back { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); padding: 5px 10px; border-radius: 7px; }
+  .back:hover { background: var(--bg-soft); color: var(--fg); }
+  .dochead .meta { display: flex; align-items: baseline; gap: 9px; margin-left: auto; }
+  .dochead .num { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; }
+  .dochead .name { font-size: 13px; font-weight: 600; }
+  .doc-loading { color: var(--faint); font-size: 13px; padding: 30px 0; }
+
+  #docview { max-width: 820px; margin: 0 auto; }
+  .markdown { font-size: 14.5px; line-height: 1.85; color: #3a3d44; }
+  .philosophy { max-width: 820px; margin-top: 6px; }
+  .markdown > :first-child { margin-top: 0; }
+  .markdown h1 { font-size: 26px; line-height: 1.4; font-weight: 650; letter-spacing: -.3px; color: var(--fg); margin: 0 0 18px; }
+  .markdown h2 {
+    font-size: 18px; font-weight: 650; color: var(--fg);
+    margin: 38px 0 12px; padding-top: 18px; border-top: 1px solid var(--line);
+    letter-spacing: -.1px;
+  }
+  .markdown h3 { font-size: 15.5px; font-weight: 600; color: var(--fg); margin: 26px 0 8px; }
+  .markdown p { margin: 11px 0; }
+  .markdown ul, .markdown ol { margin: 10px 0; padding-left: 22px; }
+  .markdown li { margin: 5px 0; }
+  .markdown li::marker { color: var(--faint); }
+  .markdown strong { color: var(--fg); font-weight: 600; }
+  .markdown a { border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+  .markdown a:hover { border-bottom-color: var(--accent); }
+  .markdown hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+  .markdown blockquote {
+    margin: 16px 0; padding: 11px 16px;
+    border-left: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+    border-radius: 0 8px 8px 0; color: var(--muted);
+  }
+  .markdown blockquote p { margin: 5px 0; }
+  .markdown pre {
+    margin: 16px 0; padding: 15px 17px;
+    background: #f6f7fa; border: 1px solid var(--line); border-radius: 10px;
+    overflow-x: auto; line-height: 1.65;
+  }
+  .markdown pre code { background: none; padding: 0; font-size: 12.5px; color: var(--fg); }
+  .markdown .table-wrap { margin: 16px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .markdown table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .markdown th, .markdown td { padding: 9px 13px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+  .markdown th { background: var(--bg-soft); color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .markdown td:first-child { white-space: nowrap; }
+  .markdown tr:last-child td { border-bottom: 0; }
+  .markdown img { max-width: 100%; border-radius: 10px; }
+  .markdown figure { margin: 18px 0; }
+  .markdown figure + p { margin-top: 0; }
+  .markdown figure img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  .markdown figure.narrow img { width: 380px; margin: 0 auto; }
+  .markdown figure.tiny img { width: 260px; margin: 0 auto; }
+  .markdown figcaption {
+    margin-top: 8px; text-align: center;
+    font-size: 11.5px; color: var(--faint);
+  }
+  .markdown .shot {
+    margin: 18px 0; padding: 26px 16px;
+    display: grid; gap: 5px; place-items: center; text-align: center;
+    border: 1px dashed #d7dbe6; border-radius: 10px;
+    background: var(--bg-soft); color: var(--faint); font-size: 12px;
+  }
+  .markdown .shot code { font-size: 10.5px; color: var(--muted); }
+
+  @media (max-width: 940px) {
+    .wrap { padding: 0 22px; }
+    .hero { padding: 60px 0 52px; }
+    .hero .wrap { grid-template-columns: 1fr; gap: 40px; }
+    .hero h1 { font-size: 33px; }
+    .window { transform: none; }
+    .feature-grid { grid-template-columns: 1fr 1fr; }
+    .split, .split.flip { grid-template-columns: 1fr; gap: 26px; }
+    .split.flip .copy, .split.flip .shot { order: 0; }
+    .numbers { grid-template-columns: 1fr 1fr; }
+    .doc-grid { grid-template-columns: 1fr 1fr; }
+    .site-nav { display: none; }
+  }
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 28px; }
+    .section { padding: 54px 0; }
+    .section-head h2 { font-size: 23px; }
+    .feature-grid, .doc-grid, .numbers { grid-template-columns: 1fr; }
+    .doc-wrap { padding: 24px 18px 70px; }
+    .site-head .gh { display: none; }
   }
 </style>
 </head>
-<body class="zh">
+<body>
 
-<header>
-  <img src="avatar.png" width="30" height="30" alt="ezharness">
-  <span class="name"><b>ez</b>harness</span>
-  <span class="sub zh">文档库 · 由浅入深</span>
-  <span class="sub en">Docs · shallow to deep</span>
-  <span class="spacer"></span>
-  <div class="lang-switch" role="group" aria-label="language">
-    <button id="btn-zh" class="on" onclick="setLang('zh')">中文</button>
-    <button id="btn-en" onclick="setLang('en')">EN</button>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="#overview"><img src="assets/avatar.webp" alt=""><b>ezharness</b></a>
+    <nav class="site-nav">
+      <a href="#overview" data-nav="home" class="on">主页</a>
+      <a href="#doc=模型配置" data-nav="docs">设计文档</a>
+    </nav>
+    <div class="right">
+      <a class="gh" href="https://github.com/xuanlv2002/ezharness">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a class="btn primary small" href="https://github.com/xuanlv2002/ezharness/releases">下载</a>
+    </div>
   </div>
-  <a class="gh" href="https://github.com/xuanlv2002/ezharness" target="_blank">GitHub ↗</a>
 </header>
 
-<div class="hero">
-  <img src="avatar.webp" alt="ezharness">
-  <div class="slogan">简 单 ，交 给 用 户 。</div>
-  <h1><b>ez</b>harness 文档</h1>
-  <p class="tag zh">一个 exe · 三重角色 · 零配置的桌面智能体 harness。<br>从这里出发，按你需要的深度阅读：上手 → 指南 → 概念 → 深读 → 参考。</p>
-  <p class="tag en">One exe · three roles · zero config — a desktop agent harness.<br>Start here and read as deep as you need: start → guide → concepts → deep dives → reference.</p>
-  <div class="cta">
-    <a class="primary" href="start.md"><span class="zh">快速开始</span><span class="en">Get started</span></a>
-    <a href="architecture.html"><span class="zh">深入设计</span><span class="en">Deep dives</span></a>
-    <a href="https://github.com/xuanlv2002/ezharness/releases" target="_blank"><span class="zh">下载</span><span class="en">Download</span></a>
-  </div>
-  <div class="path">
-    <span class="zh">01 快速上手</span><i>→</i><span class="zh">02 用户指南</span><i>→</i><span class="zh">03 核心概念</span><i>→</i><span class="zh">04 深入设计</span><i>→</i><span class="zh">05 参考</span>
-    <span class="en">01 Start</span><i>→</i><span class="en">02 Guide</span><i>→</i><span class="en">03 Concepts</span><i>→</i><span class="en">04 Deep dives</span><i>→</i><span class="en">05 Reference</span>
-  </div>
-</div>
+<main id="home">
 
-<main>
-
-  <!-- ═══ 01 快速上手 ═══ -->
-  <section id="start">
-    <div class="layer-head">
-      <span class="no">01</span>
-      <h2 class="zh">快速上手</h2><h2 class="en">Getting Started</h2>
-      <span class="en-title">START</span>
-    </div>
-    <p class="layer-desc zh">三步跑起来。原则只有一条：exe 在哪运行，配置与数据就在哪生成——零配置可用。</p>
-    <p class="layer-desc en">Three steps to run it. One rule: wherever the exe runs, config and data live next to it — zero config required.</p>
-    <div class="cards">
-      <a class="card" href="start.md#安装">
-        <div class="t"><span class="zh">① 安装</span><span class="en">① Install</span></div>
-        <div class="d zh">Releases 下载绿色版或安装包；绿色版放任意文件夹加入 PATH 即可。也支持纯 server 形态（浏览器访问）。</div>
-        <div class="d en">Grab the portable exe or installer from Releases; the portable build just needs a folder on PATH. A plain-server mode (browser access) is also available.</div>
-        <span class="go">README · 安装 →</span>
-      </a>
-      <a class="card" href="start.md#配置模型">
-        <div class="t"><span class="zh">② 配置模型</span><span class="en">② Pick a model</span></div>
-        <div class="d zh">「模型」页填 apiKey：main / image / audio 三槽单选，各自带用量统计。</div>
-        <div class="d en">Enter your apiKey on the Models page: three single-choice slots (main / image / audio), each with usage stats.</div>
-        <span class="go">README · 30 秒上手 →</span>
-      </a>
-      <a class="card" href="start.md#第一轮对话">
-        <div class="t"><span class="zh">③ 第一轮对话</span><span class="en">③ First chat</span></div>
-        <div class="d zh">把任务直接交给它；需要你的时候，审批与提问会以决策卡出现在时间线与右上角通知栏。</div>
-        <div class="d en">Hand over a task; approvals and questions arrive as decision cards in the timeline and the notification corner.</div>
-        <span class="go">README · 30 秒上手 →</span>
-      </a>
-    </div>
-    <div class="gif-slot">
-      <img src="gif/first-chat.gif" alt="first chat demo" onerror="this.style.display='none'">
-      <div class="slot-note">docs/gif/first-chat.gif</div>
+  <section class="hero" id="overview">
+    <div class="wrap">
+      <div>
+        <div class="eyebrow">Desktop agent harness</div>
+        <h1>不是聊天框，是一张可持续进化的工作台。</h1>
+        <p class="lede">对话只是入口。文件、终端、浏览器在同一张台面上，每一步都摊开给你看；每次交付的成果沉成快应用——能打开、能复用，也能被下一次对话里的 agent 自己找回来。</p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/xuanlv2002/ezharness/releases">下载 ezharness</a>
+          <a class="btn" href="#feature">看看它能做什么</a>
+        </div>
+        <div class="facts">
+          <span>一个 exe</span>
+          <span>本机运行</span>
+          <span>Windows · macOS · Linux</span>
+          <span>Apache-2.0</span>
+        </div>
+      </div>
+      <div class="window">
+        <div class="winbar"><i></i><i></i><i></i><span>ezharness</span></div>
+        <div class="media">
+          <img src="assets/overview.png" alt="ezharness 主界面">
+        </div>
+      </div>
     </div>
   </section>
 
-  <!-- ═══ 02 用户指南 ═══ -->
-  <section id="guide">
-    <div class="layer-head">
-      <span class="no">02</span>
-      <h2 class="zh">用户指南</h2><h2 class="en">User Guide</h2>
-      <span class="en-title">GUIDE</span>
-    </div>
-    <p class="layer-desc zh">每个功能面一张卡——对话之外的通道，是 ezharness 的产品主张。</p>
-    <p class="layer-desc en">One card per feature surface — channels beyond the chat are the product thesis of ezharness.</p>
-    <div class="cards">
-      <a class="card" href="interaction.md">
-        <div class="t"><span class="zh">对话与决策</span><span class="en">Chat & decisions</span></div>
-        <div class="d zh">SSE 流式时间线；四档审批（每次审批/黑名单/白名单/全免审）即时生效；决策卡断线可重放。</div>
-        <div class="d en">Streaming timeline over SSE; four approval levels applied instantly; decision cards replayable after reconnect.</div>
-        <span class="go">interaction.md →</span>
-      </a>
-      <a class="card" href="md/session.md">
-        <div class="t"><span class="zh">树状会话</span><span class="en">Session tree</span></div>
-        <div class="d zh">多线并行；任意消息处分叉（fork）；归档换代（compact）沉淀记忆；切线不打断后台运行。</div>
-        <div class="d en">Parallel branches; fork from any message; compact into long-term memory; branch switching never kills background runs.</div>
-        <span class="go">md/session.md →</span>
-      </a>
-      <a class="card" href="interaction.md">
-        <div class="t"><span class="zh">共享终端</span><span class="en">Shared terminal</span></div>
-        <div class="d zh">人机共用同一个真实 shell（ConPTY）：agent 干活你随时接管，你敲的命令它知道。</div>
-        <div class="d en">One real shell shared by human and agent: take over anytime; your keystrokes feed the agent's context.</div>
-        <span class="go">interaction.md →</span>
-      </a>
-      <a class="card" href="interaction.md">
-        <div class="t"><span class="zh">共享浏览器</span><span class="en">Shared browser</span></div>
-        <div class="d zh">桌面端内嵌真实 Chromium：AI 经工具操作、你在同一页面原生接管；AI 操作时窗口自动弹出共见。</div>
-        <div class="d en">Real embedded Chromium on desktop: the AI operates via tools, you take over natively; the window pops up for co-viewing.</div>
-        <span class="go">interaction.md →</span>
-      </a>
-      <a class="card" href="https://github.com/xuanlv2002/ezharness#核心玩法" target="_blank">
-        <div class="t"><span class="zh">魔法画板</span><span class="en">Magic whiteboard</span></div>
-        <div class="d zh">对象模型白板：标注截图、白板创作，所见即所得回填为对话附件。</div>
-        <div class="d en">Object-model canvas: annotate screenshots or draw, and hand it back to the chat as an attachment.</div>
-        <span class="go">README · 核心玩法 ↗</span>
-      </a>
-      <a class="card" href="https://github.com/xuanlv2002/ezharness#核心玩法" target="_blank">
-        <div class="t"><span class="zh">快应用</span><span class="en">Quick apps</span></div>
-        <div class="d zh">agent 生成的小工具一键启动为子窗口；同源页面直调 MCP（/api/mcp/call）无需令牌。</div>
-        <div class="d en">Agent-generated mini tools launch as child windows; same-origin pages call MCP directly, token-free.</div>
-        <span class="go">README · 核心玩法 ↗</span>
-      </a>
-      <a class="card" href="https://github.com/xuanlv2002/ezharness#核心玩法" target="_blank">
-        <div class="t"><span class="zh">MCP</span></div>
-        <div class="d zh">外部工具服务器（http/stdio）：探活、启停、热加载；mcp_router 工具统一入口。</div>
-        <div class="d en">External tool servers (http/stdio): health checks, start/stop, hot reload; unified via the mcp_router tool.</div>
-        <span class="go">README · 核心玩法 ↗</span>
-      </a>
-      <a class="card" href="architecture.html#arch-data">
-        <div class="t"><span class="zh">技能与记忆</span><span class="en">Skills & memory</span></div>
-        <div class="d zh">技能库 SKILL.md 即存即用；长期记忆 harness.md 索引进上下文 + user/soul/project 记忆文件。</div>
-        <div class="d en">A skill library of SKILL.md files; long-term memory with harness.md index in context plus user/soul/project memory files.</div>
-        <span class="go">architecture.html · 数据目录 →</span>
-      </a>
-      <a class="card" href="architecture.html#ch-interaction">
-        <div class="t"><span class="zh">安全与鉴权</span><span class="en">Security & auth</span></div>
-        <div class="d zh">全 API 令牌鉴权（设置页可复制）+ 同源放行；终端命令包含匹配拦截，宁误拦不漏拦。</div>
-        <div class="d en">Token auth on every API (copyable in settings) + same-origin pass; terminal commands blocked by substring match.</div>
-        <span class="go">architecture.html · 人机交互 →</span>
-      </a>
-    </div>
-    <div class="gif-slot">
-      <img src="gif/terminal.gif" alt="shared terminal demo" onerror="this.style.display='none'">
-      <div class="slot-note">docs/gif/terminal.gif</div>
+  <section class="section" id="feature">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">功能</div>
+        <h2>真正的工作，发生在对话之外</h2>
+        <p>文件系统、终端、浏览器都是真的：你和 AI 共用同一套环境。每次交付的成果也留在台面上，而不是散在聊天记录里。</p>
+      </div>
+      <div class="demo">
+        <div class="media"><img src="assets/demo.gif" alt="ezharness 功能演示" loading="lazy"></div>
+      </div>
+      <div class="feature-grid">
+        <div class="feature">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><path d="M18 9a3 3 0 1 0-6 0v6a3 3 0 1 0 6 0"/></svg></div>
+          <h3>树状会话</h3>
+          <p>任意消息分叉，长对话归档沉淀。并行探索，切线不打断后台任务。</p>
+        </div>
+        <div class="feature">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l4 4-4 4"/><path d="M12 16.5h7"/></svg></div>
+          <h3>共享终端</h3>
+          <p>人和 agent 写同一个真实 shell，命令互相可见，随时接管。</p>
+        </div>
+        <div class="feature">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg></div>
+          <h3>共享浏览器</h3>
+          <p>内嵌真实 Chromium，AI 操作的就是你眼前这个页面。</p>
+        </div>
+        <div class="feature">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13h6L11 22l8.5-11h-6L13 2z"/></svg></div>
+          <h3>快应用</h3>
+          <p>AI 交付的不是代码块，是能被打开、复用、再次调用的应用。</p>
+        </div>
+      </div>
     </div>
   </section>
 
-  <!-- ═══ 03 核心概念 ═══ -->
-  <section id="concepts">
-    <div class="layer-head">
-      <span class="no">03</span>
-      <h2 class="zh">核心概念</h2><h2 class="en">Core Concepts</h2>
-      <span class="en-title">CONCEPTS</span>
-    </div>
-    <p class="layer-desc zh">ezharness 的设计语言：三支柱与两个关键模型。</p>
-    <p class="layer-desc en">The design language of ezharness: three pillars and two key models.</p>
-    <div class="cards">
-      <a class="card" href="md/context.md">
-        <div class="t"><span class="zh">上下文工程</span><span class="en">Context engineering</span></div>
-        <div class="d zh">system 两段式组装、trim 双触发（水位自动 + 模型主动）、agent_status 轮首快照、guard 窗口余量兜底。</div>
-        <div class="d en">Two-part system prompt, dual-trigger trim (watermark + model-initiated), per-turn agent_status snapshots, guard fallback by window headroom.</div>
-        <span class="go">md/context.md →</span>
-      </a>
-      <a class="card" href="md/compaction.md">
-        <div class="t"><span class="zh">trim 与 compact</span><span class="en">trim vs compact</span></div>
-        <div class="d zh">trim 是模型侧整理（就地折叠不换库）；compact 是用户侧沉淀（记忆合并 + 换代封存）——一对互补机制。</div>
-        <div class="d en">trim is the model-side cleanup (fold in place, same store); compact is the user-side distillation (merge memory, seal the generation).</div>
-        <span class="go">md/compaction.md →</span>
-      </a>
-      <a class="card" href="interaction.md">
-        <div class="t"><span class="zh">人机协同交互</span><span class="en">Human-agent interaction</span></div>
-        <div class="d zh">对话不是唯一通道：决策、观察、操作各有专门产品面；通知全局可达，数据不绑视图。</div>
-        <div class="d en">Chat is not the only channel: deciding, watching and operating each get a dedicated surface; notifications are globally reachable.</div>
-        <span class="go">interaction.md →</span>
-      </a>
-      <a class="card wide" href="md/session.md">
-        <div class="t"><span class="zh">树状会话模型</span><span class="en">The session tree</span><span class="tagchip">key model</span></div>
-        <div class="d zh">节点是 session（一次换代内的完整对话库），线是用户视角的「会话」。树对用户只露两个操作：fork 分叉（copy 语义）与 compact 换代（沉淀式归档）；上翻沿 compress 链懒加载旧世代全文。状态即消息：全部状态是可落盘的消息库与 system，重启即恢复，折叠不丢档。</div>
-        <div class="d en">Nodes are sessions (a full message store within one generation); lines are what the user calls a "conversation". The tree exposes exactly two operations: fork (copy semantics) and compact (distilling archive); older generations lazy-load along the compress chain. State is messages: everything persists as a message store plus system — restart restores, folding never loses data.</div>
-        <span class="go">md/session.md →</span>
-      </a>
-      <a class="card" href="md/hooks.md">
-        <div class="t"><span class="zh">hook 与 warp</span><span class="en">Hooks & warps</span></div>
-        <div class="d zh">16 个 hook 塑造上下文、2 条 warp 链包装模型与工具调用——ezharness 与 ezloop 的扩展点分界。</div>
-        <div class="d en">16 hooks shape the context and two warp chains wrap model/tool calls — the extension-point boundary between ezharness and ezloop.</div>
-        <span class="go">md/hooks.md →</span>
-      </a>
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="split">
+        <div class="copy">
+          <div class="kicker">会话</div>
+          <h3>对话是一棵树，不是一条时间线</h3>
+          <p>线性聊天记录是机器日志，不是人思考的形状。任何一条消息都能分叉出新的可能，长对话归档为记忆后换代，一条都不丢。</p>
+          <ul>
+            <li><b>分叉</b>：复制完整前缀，新线独立运行。</li>
+            <li><b>归档</b>：沉淀记忆，生成交接摘要，旧世代可回读。</li>
+            <li><b>并行</b>：切换分支不影响后台正在跑的任务。</li>
+          </ul>
+          <a class="more" href="#doc=session设计">读 session 设计</a>
+        </div>
+        <div class="shot"><div class="media"><img src="assets/session-tree1.png" alt="会话树与分支面板" style="object-fit:contain;background:#fff" loading="lazy"></div></div>
+      </div>
+
+      <div class="split flip">
+        <div class="copy">
+          <div class="kicker">协同</div>
+          <h3>你和 AI 共用同一个终端、同一个浏览器</h3>
+          <p>不是「AI 做完再给你看」。终端里它敲的命令你随时能接；浏览器里你直接点页面就是接管，不需要先让它停手。</p>
+          <ul>
+            <li><b>可见</b>：每一步操作都在时间线里。</li>
+            <li><b>可接管</b>：原生页面、同一个 PTY，没有模拟层。</li>
+            <li><b>可追责</b>：四档审批，决定权留在人手里。</li>
+          </ul>
+          <a class="more" href="#doc=协同设计">读协同设计</a>
+        </div>
+        <div class="shot"><div class="media"><img src="assets/workspace-browser.png" alt="共享终端与浏览器" loading="lazy"></div></div>
+      </div>
+
+      <div class="split">
+        <div class="copy">
+          <div class="kicker">交付</div>
+          <h3>快应用：AI 产出一个能再次调用的应用</h3>
+          <p>一个目录、一份 <code>app.quick</code>、一份调用文档，就是一个软件单元。协议只约定它如何被发现、启动和描述自己，不绑技术栈，不写死调用方式。</p>
+          <ul>
+            <li><b>目录即身份</b>，未识别字段忽略，协议向前兼容。</li>
+            <li><b>能否被调用</b>，只看 <code>APP.md</code> 有没有「Agent 调用」一节。</li>
+            <li><b>同源运行</b>，可直接使用 MCP 与模型能力。</li>
+            <li><b>固化流程</b>，把反复出现的 MCP 调用写成代码，执行不再经过 agent 循环。</li>
+          </ul>
+          <a class="more" href="#doc=快应用">读快应用协议</a>
+        </div>
+        <div class="shot"><div class="media"><img src="assets/quick-app1.png" alt="快应用卡片与运行窗口" loading="lazy"></div></div>
+      </div>
+
+      <div class="numbers">
+        <div><div class="n">3</div><div class="l">三层结构，业务全在一个 Go sidecar</div></div>
+        <div><div class="n">19</div><div class="l">内置工具，边界与审批一目了然</div></div>
+        <div><div class="n">4</div><div class="l">审批档位，从每次审批到全免审</div></div>
+        <div><div class="n">1</div><div class="l">个 exe，配置与数据跟着它走</div></div>
+      </div>
     </div>
   </section>
 
-  <!-- ═══ 04 深入设计 ═══ -->
-  <section id="deep">
-    <div class="layer-head">
-      <span class="no">04</span>
-      <h2 class="zh">深入设计</h2><h2 class="en">Deep Dives</h2>
-      <span class="en-title">DEEP</span>
-    </div>
-    <p class="layer-desc zh">给读代码与做二次开发的人：全景页 + 各主题底稿，改代码前先扫对应篇。</p>
-    <p class="layer-desc en">For readers of the code and fellow builders: a panorama page plus per-topic source notes — scan the matching one before changing code.</p>
-    <div class="cards">
-      <a class="card wide" href="architecture.html">
-        <div class="t"><span class="zh">架构全景（深读主页）</span><span class="en">Architecture panorama</span><span class="tagchip">html</span></div>
-        <div class="d zh">四章：系统整体架构（分层/三通道/数据目录/生命周期）· session 树 · 上下文全动作（16 hook 详解 + 消息全表 + 场景演练）· 产品视角。</div>
-        <div class="d en">Four chapters: overall architecture (layering / channels / data dir / lifecycle) · the session tree · context in action (16 hooks, message tables, walkthroughs) · product view.</div>
-        <span class="go">architecture.html →</span>
-      </a>
-      <a class="card" href="md/architecture.md">
-        <div class="t">architecture.md</div>
-        <div class="d zh">系统架构底稿</div><div class="d en">Architecture source notes</div>
-        <span class="go">md/ →</span>
-      </a>
-      <a class="card" href="md/runtime.md">
-        <div class="t">runtime.md</div>
-        <div class="d zh">一轮 chat 全流程与 hook 组成</div><div class="d en">A chat turn end-to-end</div>
-        <span class="go">md/ →</span>
-      </a>
-      <a class="card" href="md/frontend.md">
-        <div class="t">frontend.md</div>
-        <div class="d zh">SSE 事件全集、历史重建、tag 契约</div><div class="d en">SSE events, history rebuild, tag contracts</div>
-        <span class="go">md/ →</span>
-      </a>
-      <a class="card" href="md/session.md">
-        <div class="t">session.md</div>
-        <div class="d zh">SessionSnap、三种演进、恢复与不变量</div><div class="d en">SessionSnap, three evolutions, invariants</div>
-        <span class="go">md/ →</span>
-      </a>
-      <a class="card" href="md/context.md">
-        <div class="t">context.md</div>
-        <div class="d zh">system 组装与 trim 双触发</div><div class="d en">System assembly and dual-trigger trim</div>
-        <span class="go">md/ →</span>
-      </a>
-      <a class="card" href="md/compaction.md">
-        <div class="t">compaction.md</div>
-        <div class="d zh">trim 与 compact 分工方案</div><div class="d en">trim vs compact design</div>
-        <span class="go">md/ →</span>
-      </a>
-      <a class="card" href="md/hooks.md">
-        <div class="t">hooks.md</div>
-        <div class="d zh">封装范式与仓库分界判据</div><div class="d en">Wrapping patterns and repo boundary</div>
-        <span class="go">md/ →</span>
-      </a>
+  <section class="section" id="philosophy">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">设计理念</div>
+        <h2>把世界交给它，也把你留在旁边</h2>
+        <p>从隔阂的两面说起：为什么做成一张工作台，而不是又一个聊天框。</p>
+      </div>
+      <article class="markdown philosophy" id="philosophyBody">
+        <p class="doc-loading">加载中…</p>
+      </article>
     </div>
   </section>
 
-  <!-- ═══ 05 参考 ═══ -->
-  <section id="reference">
-    <div class="layer-head">
-      <span class="no">05</span>
-      <h2 class="zh">参考</h2><h2 class="en">Reference</h2>
-      <span class="en-title">REF</span>
-    </div>
-    <p class="layer-desc zh">构建、开发备忘与速查。</p>
-    <p class="layer-desc en">Build, dev memo and quick reference.</p>
-    <div class="cards">
-      <a class="card" href="build.md">
-        <div class="t">build.md</div>
-        <div class="d zh">构建方案与发布链</div><div class="d en">Build and release pipeline</div>
-        <span class="go">build.md →</span>
-      </a>
-      <a class="card" href="https://github.com/xuanlv2002/ezharness/blob/main/AGENTS.md" target="_blank">
-        <div class="t">AGENTS.md</div>
-        <div class="d zh">开发备忘：变更连带检查清单与易踩的坑</div><div class="d en">Dev memo: change-ripple checklists and pitfalls</div>
-        <span class="go">AGENTS.md →</span>
-      </a>
-      <a class="card" href="https://github.com/xuanlv2002/ezloop" target="_blank">
-        <div class="t">ezloop <span class="tagchip">sister repo</span></div>
-        <div class="d zh">agent loop 引擎：hook / warp / fork / provider</div><div class="d en">The agent loop engine: hooks / warps / forks / providers</div>
-        <span class="go">GitHub ↗</span>
-      </a>
-    </div>
-    <div class="tip">
-      <b><span class="zh">API 速查：</span><span class="en">API quick reference:</span></b>
-      <span class="zh">全部 <code>/api/*</code> 需鉴权——<code>X-EZ-Token</code> 头或 <code>?token=</code>（设置页可复制）；同源页面（前端与快应用）免令牌。对话事件流 <code>GET /api/sessions/:id/events</code>（SSE）；共享终端 <code>GET /api/terminal/ws</code>；浏览器桥 <code>GET /api/browser/bridge</code>（desktop 连入）；MCP 直调 <code>POST /api/mcp/call</code>。</span>
-      <span class="en">Every <code>/api/*</code> route is authenticated — via the <code>X-EZ-Token</code> header or <code>?token=</code> (copyable in settings); same-origin pages are exempt. Event stream: <code>GET /api/sessions/:id/events</code> (SSE); shared terminal: <code>GET /api/terminal/ws</code>; browser bridge: <code>GET /api/browser/bridge</code> (desktop connects); direct MCP: <code>POST /api/mcp/call</code>.</span>
+  <section class="section" id="docs">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">设计文档</div>
+        <h2>每个机制的取舍与边界</h2>
+        <p>八篇文档按主题拆开，需要时再深入。</p>
+      </div>
+      <div class="doc-grid">
+        <a class="doc-card" href="#doc=模型配置"><span class="n">02</span><span class="body"><div class="t">模型配置</div><div class="d">三槽、三协议、生效时机与用量</div></span></a>
+        <a class="doc-card" href="#doc=session设计"><span class="n">03</span><span class="body"><div class="t">session 管理</div><div class="d">节点与线、分叉、归档与不丢档</div></span></a>
+        <a class="doc-card" href="#doc=上下文设计"><span class="n">04</span><span class="body"><div class="t">上下文管理</div><div class="d">修剪、摘要、卸载与记忆分层</div></span></a>
+        <a class="doc-card" href="#doc=skill设计"><span class="n">05</span><span class="body"><div class="t">skill 设计</div><div class="d">目录即身份，正文按需加载</div></span></a>
+        <a class="doc-card" href="#doc=mcp设计"><span class="n">06</span><span class="body"><div class="t">MCP 设计</div><div class="d">传输、连接池与对外 API</div></span></a>
+        <a class="doc-card" href="#doc=协同设计"><span class="n">07</span><span class="body"><div class="t">协同工具</div><div class="d">终端、浏览器、资源与抽屉</div></span></a>
+        <a class="doc-card" href="#doc=快应用"><span class="n">08</span><span class="body"><div class="t">快应用</div><div class="d">协议契约、调用文档与生命周期</div></span></a>
+        <a class="doc-card" href="#doc=external"><span class="n">09</span><span class="body"><div class="t">工具快查</div><div class="d">19 个工具的边界与默认审批</div></span></a>
+      </div>
     </div>
   </section>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <span><b>ezharness</b> · 自己用着顺手，就分享给你。</span>
+      <span class="right">
+        <a href="https://github.com/xuanlv2002/ezharness">GitHub</a>
+        <a href="https://github.com/xuanlv2002/ezharness/releases">下载</a>
+        <a href="#overview">回到顶部</a>
+      </span>
+    </div>
+  </footer>
 
 </main>
 
-<footer>
-  ezharness — <span class="zh">简单，交给用户</span><span class="en">simplicity, delivered to the user</span> ·
-  <a href="https://github.com/xuanlv2002/ezharness" target="_blank">GitHub</a> ·
-  <a href="https://github.com/xuanlv2002/ezloop" target="_blank">ezloop</a>
-</footer>
-
-<!-- md 就地阅读器 -->
-<div id="reader" hidden>
-  <div class="bar">
-    <button class="back" onclick="closeMd()"><span class="zh">← 返回</span><span class="en">← Back</span></button>
-    <span class="mdfile" id="readerPath"></span>
-    <a class="src" id="readerSrc" href="#" target="_blank"><span class="zh">源文件 ↗</span><span class="en">Source ↗</span></a>
+<section id="docview" hidden>
+  <div class="doc-wrap">
+    <nav class="doc-tabs" id="docTabs">
+      <a href="#doc=模型配置" data-doc="模型配置">模型配置</a>
+      <a href="#doc=session设计" data-doc="session设计">session 管理</a>
+      <a href="#doc=上下文设计" data-doc="上下文设计">上下文管理</a>
+      <a href="#doc=skill设计" data-doc="skill设计">skill 设计</a>
+      <a href="#doc=mcp设计" data-doc="mcp设计">MCP 设计</a>
+      <a href="#doc=协同设计" data-doc="协同设计">协同工具</a>
+      <a href="#doc=快应用" data-doc="快应用">快应用</a>
+      <a href="#doc=external" data-doc="external">工具快查</a>
+    </nav>
+    <div class="dochead">
+      <a class="back" href="#overview">← 返回主页</a>
+      <div class="meta">
+        <span class="num" id="docnum"></span>
+        <span class="name" id="doctitle"></span>
+      </div>
+    </div>
+    <article class="markdown" id="docbody"></article>
   </div>
-  <div class="md-body" id="readerBody"></div>
-</div>
+</section>
 
-<script src="https://cdn.jsdelivr.net/npm/marked@11/marked.min.js"></script>
+<script src="assets/marked.umd.js"></script>
 <script>
-  function setLang(lang) {
-    document.body.classList.toggle('zh', lang === 'zh')
-    document.body.classList.toggle('en', lang === 'en')
-    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
-    document.getElementById('btn-zh').classList.toggle('on', lang === 'zh')
-    document.getElementById('btn-en').classList.toggle('on', lang === 'en')
-    try { localStorage.setItem('ez-docs-lang', lang) } catch (e) { /* file:// 下可能被禁 */ }
-  }
-  var saved = 'zh'
-  try { saved = localStorage.getItem('ez-docs-lang') || 'zh' } catch (e) { }
-  if (saved !== 'zh') setLang(saved)
+  const DOCS = {
+    模型配置: { n: '02', title: '模型配置' },
+    session设计: { n: '03', title: 'session 管理' },
+    上下文设计: { n: '04', title: '上下文管理' },
+    skill设计: { n: '05', title: 'skill 设计' },
+    mcp设计: { n: '06', title: 'MCP 设计' },
+    协同设计: { n: '07', title: '协同工具' },
+    快应用: { n: '08', title: '快应用' },
+    external: { n: '09', title: '工具快查' },
+  };
 
-  /* ── md 就地阅读：http 环境下 fetch+marked 渲染；file:// 或加载失败退回直接打开 ── */
-  var reader = document.getElementById('reader')
-  var readerBody = document.getElementById('readerBody')
-  var readerPath = document.getElementById('readerPath')
-  var readerSrc = document.getElementById('readerSrc')
-  var currentMd = ''
+  const homeEl = document.getElementById('home');
+  const docviewEl = document.getElementById('docview');
+  const docbodyEl = document.getElementById('docbody');
+  const docnumEl = document.getElementById('docnum');
+  const doctitleEl = document.getElementById('doctitle');
+  const tabLinks = [...document.querySelectorAll('#docTabs a')];
+  const navLinks = [...document.querySelectorAll('.site-nav a')];
+  const philosophyEl = document.getElementById('philosophyBody');
+  const cache = new Map();
 
-  /* docs/ 内的 .md 链接接入阅读器（外链与越出 docs/ 的保持直接跳转；
-     href 一律保留作兜底与中键新开） */
-  document.querySelectorAll('main a[href*=".md"]').forEach(function (a) {
-    var href = a.getAttribute('href')
-    if (href.indexOf('http') === 0 || href.indexOf('../') === 0) return
-    a.setAttribute('data-md', href)
-  })
+  marked.setOptions({ gfm: true, breaks: false });
 
-  function openMd(spec) {
-    var hash = ''
-    var cut = spec.indexOf('#')
-    if (cut >= 0) { hash = decodeURIComponent(spec.slice(cut + 1)); spec = spec.slice(0, cut) }
-    if (!window.marked || location.protocol === 'file:') { location.href = spec + (hash ? '#' + hash : ''); return }
-    fetch(spec).then(function (r) {
-      if (!r.ok) throw new Error(r.status)
-      return r.text()
-    }).then(function (text) {
-      currentMd = spec
-      readerPath.textContent = spec
-      readerSrc.href = sourceUrl(spec)
-      readerBody.innerHTML = window.marked.parse(text)
-      reader.hidden = false
-      reader.scrollTop = 0
-      if (hash) scrollToHeading(hash)
-      renderMermaid()
-    }).catch(function () { location.href = spec })
+  const escapeHtml = (s) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  function placeholder(desc, src) {
+    const line = desc.split('。')[0].replace(/^截图占位[：:]\s*/, '');
+    const path = src.replace(/^\.\.\//, '');
+    return `\n<figure class="shot"><figcaption>截图占位 · ${escapeHtml(line)}</figcaption><code>${escapeHtml(path)}</code></figure>\n`;
   }
 
-  /* md 锚点：marked 不给标题加 id，按标题文本匹配定位（#安装 → 「## 安装」） */
-  function scrollToHeading(text) {
-    var heads = readerBody.querySelectorAll('h1, h2, h3, h4')
-    for (var i = 0; i < heads.length; i++) {
-      if (heads[i].textContent.trim() === text) { heads[i].scrollIntoView(); return }
+  /* HTML 内联脚本直接写注释定界符会被编辑器按 HTML 注释误解析，用码点转义 */
+  const C_OPEN = '\\u003C!--';
+  const C_CLOSE = '--\\u003E';
+
+  function renderMarkdown(text) {
+    text = text.replace(
+      new RegExp(
+        `${C_OPEN}\\s*截图占位[：:]([\\s\\S]*?)${C_CLOSE}\\s*${C_OPEN}\\s*!\\[[^\\]]*\\]\\(([^)]+)\\)\\s*${C_CLOSE}`,
+        'g',
+      ),
+      (_, desc, src) => placeholder(desc, src),
+    );
+    text = text.replace(new RegExp(`${C_OPEN}[\\s\\S]*?${C_CLOSE}`, 'g'), '');
+    return marked.parse(text);
+  }
+
+  function decorateInto(root, html) {
+    root.innerHTML = html;
+    root.querySelectorAll('img').forEach((img) => {
+      const src = img.getAttribute('src') || '';
+      if (src.startsWith('../assets/')) img.setAttribute('src', src.slice(3));
+      img.addEventListener('error', () => {
+        const ph = document.createElement('div');
+        ph.className = 'shot';
+        ph.innerHTML = `<figcaption>图片未放置 · ${escapeHtml(img.getAttribute('src') || '')}</figcaption>`;
+        img.replaceWith(ph);
+      });
+    });
+    root.querySelectorAll('a[href]').forEach((a) => {
+      const href = a.getAttribute('href');
+      if (/\.md$/i.test(href)) {
+        const name = decodeURIComponent(href.split('/').pop().replace(/\.md$/i, ''));
+        a.setAttribute('href', '#doc=' + encodeURIComponent(name));
+      } else if (/^https?:/.test(href)) {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noreferrer');
+      }
+    });
+    root.querySelectorAll('table').forEach((table) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      table.parentNode.insertBefore(wrap, table);
+      wrap.appendChild(table);
+    });
+  }
+
+  function decorate(html) {
+    decorateInto(docbodyEl, html);
+  }
+
+  function setTab(name) {
+    tabLinks.forEach((a) => a.classList.toggle('on', a.dataset.doc === name));
+  }
+
+  function setNav(which) {
+    navLinks.forEach((a) => a.classList.toggle('on', a.dataset.nav === which));
+  }
+
+  /* 设计理念直接呈现在主页：去掉文档标题与底部上下篇导航后复用同一套渲染 */
+  async function loadPhilosophy() {
+    try {
+      const res = await fetch('md/' + encodeURIComponent('设计理念') + '.md', { cache: 'no-cache' });
+      if (!res.ok) throw new Error(String(res.status));
+      const text = (await res.text())
+        .replace(/^#\s.*\n+/, '')
+        .replace(/\n---\n+下一篇：[\s\S]*$/, '\n');
+      decorateInto(philosophyEl, renderMarkdown(text));
+    } catch (err) {
+      philosophyEl.innerHTML = '<p class="doc-loading">设计理念加载失败</p>';
     }
   }
 
-  /* md 路径 → 仓库源文件地址（../ 前缀的越出 docs/） */
-  function sourceUrl(path) {
-    var norm = path.replace(/^\.\//, '')
-    var base = 'https://github.com/xuanlv2002/ezharness/blob/main/'
-    return norm.indexOf('../') === 0 ? base + norm.slice(3) : base + 'docs/' + norm
-  }
-
-  /* md 里的 mermaid 代码块：换成 .mermaid 节点后统一渲染（失败保持代码块原样） */
-  function renderMermaid() {
-    var blocks = readerBody.querySelectorAll('pre code.language-mermaid, pre code.lang-mermaid')
-    if (!blocks.length) return
-    blocks.forEach(function (code) {
-      var box = document.createElement('div')
-      box.className = 'mermaid'
-      box.textContent = code.textContent
-      code.parentNode.replaceWith(box)
-    })
-    import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(function (m) {
-      m.default.initialize({ startOnLoad: false, theme: 'dark' })
-      m.default.run()
-    }).catch(function () { /* 离线则原样显示 */ })
-  }
-
-  function closeMd() {
-    reader.hidden = true
-    readerBody.innerHTML = ''
-    currentMd = ''
-  }
-
-  document.addEventListener('click', function (e) {
-    var a = e.target.closest('a[data-md]')
-    if (a && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      e.preventDefault()
-      openMd(a.getAttribute('data-md'))
-      return
-    }
-    /* 阅读器内部的 .md 相对链接继续接续阅读 */
-    if (currentMd && !reader.hidden) {
-      var inner = e.target.closest('#readerBody a')
-      if (inner && /\.md(#|$)/.test(inner.getAttribute('href') || '')) {
-        e.preventDefault()
-        var dir = currentMd.replace(/[^/]*$/, '')
-        openMd(dir + inner.getAttribute('href').replace(/^\.\//, ''))
+  function showHome(hash) {
+    docviewEl.hidden = true;
+    homeEl.hidden = false;
+    setNav('home');
+    document.title = 'ezharness · 可持续进化的工作台';
+    if (hash && hash.length > 1 && hash !== '#overview') {
+      const el = document.querySelector(hash);
+      if (el) {
+        requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        return;
       }
     }
-  })
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !reader.hidden) closeMd()
-  })
+    window.scrollTo({ top: 0 });
+  }
+
+  async function openDoc(name) {
+    const meta = DOCS[name];
+    /* 旧书签：设计理念已并入主页，跳到对应小节 */
+    if (!meta) return showHome(name === '设计理念' ? '#philosophy' : '#overview');
+    homeEl.hidden = true;
+    docviewEl.hidden = false;
+    docnumEl.textContent = meta.n;
+    doctitleEl.textContent = meta.title;
+    setTab(name);
+    setNav('docs');
+    document.title = meta.title + ' · ezharness 文档';
+    window.scrollTo({ top: 0 });
+
+    if (cache.has(name)) {
+      docbodyEl.innerHTML = cache.get(name);
+      return;
+    }
+
+    docbodyEl.innerHTML = '<p class="doc-loading">加载中…</p>';
+    try {
+      const res = await fetch('md/' + encodeURIComponent(name) + '.md', { cache: 'no-cache' });
+      if (!res.ok) throw new Error(String(res.status));
+      const text = await res.text();
+      decorate(renderMarkdown(text));
+      cache.set(name, docbodyEl.innerHTML);
+    } catch (err) {
+      docbodyEl.innerHTML = '<p class="doc-loading">文档加载失败：' + escapeHtml(name) + '.md</p>';
+    }
+  }
+
+  function route() {
+    const match = location.hash.match(/^#doc=(.+)$/);
+    if (match) openDoc(decodeURIComponent(match[1]));
+    else showHome(location.hash);
+  }
+
+  window.addEventListener('hashchange', route);
+  void loadPhilosophy();
+  route();
 </script>
+
 </body>
 </html>

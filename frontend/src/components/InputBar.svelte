@@ -52,6 +52,21 @@
     if (lastTabId) store.drafts[lastTabId] = text
   })
 
+  /* 快速开始示例：填入输入框并聚焦（可改后再发），高度按内容重算 */
+  $effect(() => {
+    const p = store.pendingPrompt
+    if (!p) return
+    store.pendingPrompt = null
+    text = p
+    void tick().then(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(p.length, p.length)
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    })
+  })
+
   /* 附件缩略：真身路径走文件服务源（与聊天记录同源，带版本参数——
   画板写回后强制刷新）；path 空 = 拖入暂存中占位 */
   const thumbnails = $derived(
@@ -344,7 +359,8 @@
           <path d="M9 18h6M10 22h4" />
           <path d="M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z" />
         </svg>
-        <span class="model-name">{reasonLabel}</span>
+        <span class="model-name full">{reasonLabel}</span>
+        <span class="model-name short">思考</span>
       </button>
       {#if reasonOpen}
         <div class="model-menu">
@@ -362,7 +378,8 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
         </svg>
-        <span class="model-name">{approveLabel}</span>
+        <span class="model-name full">{approveLabel}</span>
+        <span class="model-name short">审批</span>
       </button>
       {#if approveOpen}
         <div class="model-menu">
@@ -726,11 +743,16 @@
     /* 容器查询：窄列下压缩设置按钮（见下） */
     container-type: inline-size;
   }
-  /* 窄列：思考/审批只留图标（悬停仍有说明），保证工具行单行不折行 */
+  /* 窄列：思考/审批收成短标签，保证工具行单行且仍可辨认 */
+  .model-name.short { display: none; }
   @container (max-width: 500px) {
-    .reason-pick .model-name,
-    .approve-pick .model-name {
+    .reason-pick .model-btn .model-name.full,
+    .approve-pick .model-btn .model-name.full {
       display: none;
+    }
+    .reason-pick .model-btn .model-name.short,
+    .approve-pick .model-btn .model-name.short {
+      display: inline;
     }
   }
   /* 工具入口靠左、设置类按钮靠右 */

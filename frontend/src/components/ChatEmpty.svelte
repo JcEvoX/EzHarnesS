@@ -1,17 +1,18 @@
 <script lang="ts">
   /*
-  空状态引导：最后一个标签也被关掉时呈现（会话不受影响，只是没有打开的
-  聊天）。主按钮新建会话，弱提示从分支列表打开。
+  空状态引导：最后一个标签也被关掉时呈现（会话本身留在列表，关标签会
+  停掉其中正在跑的一轮）。主按钮新建会话，弱提示从分支列表打开。
   */
   import { store } from '../lib/store.svelte'
   import Logo from './Logo.svelte'
   import EzAvatar from './EzAvatar.svelte'
+  import QuickStart from './QuickStart.svelte'
 </script>
 
 <div class="chatempty">
   <div class="logo"><EzAvatar size={44} random><Logo size={44} /></EzAvatar></div>
   <h2>没有打开的会话</h2>
-  <p>会话都在，只是没开标签——关掉标签不会结束任何会话。</p>
+  <p>关掉的标签会停掉其中正在跑的一轮；会话本身还在左侧列表，随时可以再打开。</p>
   <button class="cta" onclick={() => store.newChatTab()}>
     新建会话
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -19,6 +20,7 @@
     </svg>
   </button>
   <p class="hint">或在左侧分支列表点击会话打开</p>
+  <QuickStart />
 </div>
 
 <style>
