@@ -149,6 +149,43 @@
     void saveItems(target, [...itemsOf(target), { id: '', text, updatedAt: '' }])
   }
 
+  /* 条目正文默认收三行：超长记忆不再撑高面板，也不在行内出现滚动条。
+     展开态按条目 key 记忆；overflow 只在折叠态测量，展开时沿用上次结果 */
+  let expandedMem = $state<Set<string>>(new Set())
+  let overflowMem = $state<Record<string, boolean>>({})
+
+  function memKey(target: 'user' | 'soul', it: MemoryItem, i: number): string {
+    return `${target}:${it.id || `#${i}`}`
+  }
+
+  function toggleMem(key: string) {
+    const next = new Set(expandedMem)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    expandedMem = next
+  }
+
+  function trackOverflow(node: HTMLElement, p: { key: string; expanded: boolean }) {
+    let cur = p
+    const run = () => {
+      if (cur.expanded) return
+      const over = node.scrollHeight > node.clientHeight + 1
+      if (!!overflowMem[cur.key] !== over) overflowMem = { ...overflowMem, [cur.key]: over }
+    }
+    run()
+    const ro = new ResizeObserver(run)
+    ro.observe(node)
+    return {
+      update(next: typeof p) {
+        cur = next
+        run()
+      },
+      destroy() {
+        ro.disconnect()
+      },
+    }
+  }
+
   /* ── 项目记忆：卡片列表 + 展开编辑全文 ── */
 
   let projectDraft = $state<MemoryProjectDetail | null>(null)
@@ -614,22 +651,35 @@
           <div class="memlist">
             {#each itemsOf(panel.target) as it, i}
               <div class="memitem">
+                <span class="membadge">{it.id || '新'}</span>
                 {#if editing?.target === panel.target && editing.index === i}
                   <div class="memeditwrap">
-                    <textarea class="memedit" rows="2" value={editing.text} oninput={(e) => (editing!.text = e.currentTarget.value)}></textarea>
+                    <textarea class="memedit" rows="4" value={editing.text} oninput={(e) => (editing!.text = e.currentTarget.value)}></textarea>
                     <div class="memops">
                       <button class="mop primary" onclick={commitEdit} disabled={memBusy}>保存</button>
                       <button class="mop" onclick={() => (editing = null)}>取消</button>
                     </div>
                   </div>
                 {:else}
-                  <span class="membadge">{it.id || '新'}</span>
-                  <span class="memtext">{it.text}</span>
-                  <span class="memtime">{relTime(it.updatedAt)}</span>
-                  <span class="memacts">
-                    <button class="micon" title="编辑" onclick={() => (editing = { target: panel.target, index: i, text: it.text })}>✎</button>
-                    <button class="micon danger" title="删除" onclick={() => removeItem(panel.target, i)}>✕</button>
-                  </span>
+                  {@const mk = memKey(panel.target, it, i)}
+                  <div class="membody">
+                    <div
+                      class="memtext"
+                      class:expanded={expandedMem.has(mk)}
+                      class:more={overflowMem[mk] && !expandedMem.has(mk)}
+                      use:trackOverflow={{ key: mk, expanded: expandedMem.has(mk) }}>{it.text}</div
+                    >
+                    <div class="memmeta">
+                      <span class="memtime">{relTime(it.updatedAt)}</span>
+                      {#if overflowMem[mk]}
+                        <button class="memmore" onclick={() => toggleMem(mk)}>{expandedMem.has(mk) ? '收起' : '展开'}</button>
+                      {/if}
+                      <span class="memacts">
+                        <button class="micon" title="编辑" onclick={() => (editing = { target: panel.target, index: i, text: it.text })}>✎</button>
+                        <button class="micon danger" title="删除" onclick={() => removeItem(panel.target, i)}>✕</button>
+                      </span>
+                    </div>
+                  </div>
                 {/if}
               </div>
             {/each}
@@ -1238,12 +1288,22 @@
     min-height: 52px;
   }
   .memitem {
+    position: relative;
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    padding: 7px 8px;
+    padding: 8px;
     border-radius: 8px;
     transition: background var(--dur-fast) var(--ease-out);
+  }
+  .memitem + .memitem::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 8px;
+    right: 8px;
+    height: 1px;
+    background: var(--line);
   }
   .memitem:hover {
     background: var(--bg-soft);
@@ -1261,24 +1321,61 @@
     padding: 1px 5px;
     margin-top: 2px;
   }
-  .memtext {
+  .membody {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  /* 正文默认三行截断（超长记忆不撑高面板），展开后放开 */
+  .memtext {
     font-size: 12.5px;
     line-height: 1.6;
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 132px;
-    overflow-y: auto;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  /* 行内操作占位不塌（visibility 而非 display 切换），悬浮不引起布局抖动 */
+  .memtext.expanded {
+    display: block;
+    overflow: visible;
+  }
+  .memtext.more {
+    mask-image: linear-gradient(to bottom, #000 58%, transparent);
+  }
+  /* 元信息行：时间 + 展开钮在左，编辑/删除悬浮在右，不挤占正文宽度 */
+  .memmeta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 20px;
+  }
   .memtime {
     flex: none;
     font-size: 10px;
     color: var(--faint);
     white-space: nowrap;
-    margin-top: 3px;
+  }
+  .memmore {
+    flex: none;
+    padding: 0 2px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: 10.5px;
+    color: var(--accent);
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .memmore:hover {
+    text-decoration: underline;
+  }
+  .memmeta .memacts {
+    margin-left: auto;
   }
   .memacts {
     flex: none;
