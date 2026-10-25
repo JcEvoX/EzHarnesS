@@ -767,6 +767,7 @@ func (s *SettingsService) ActivateMainModel(ctx context.Context, name string) (d
 	for i := range m.Main {
 		m.Main[i].Enabled = m.Main[i].Name == name
 		if m.Main[i].Enabled {
+			m.Main[i].Disabled = false
 			found = true
 		}
 	}

@@ -13,6 +13,7 @@ type ModelEntry struct {
 	APIKey        string            `json:"apiKey"`
 	Headers       map[string]string `json:"headers,omitempty"`       // 自定义请求头（网关鉴权、组织 ID 等）
 	Enabled       bool              `json:"enabled"`                 // 每槽至多一条启用
+	Disabled      bool              `json:"disabled,omitempty"`      // 关闭：不可被 model_call/task 选用,也不进可用模型清单
 	Vision        bool              `json:"vision,omitempty"`        // 支持多模态视觉输入；false 时带图请求主动剥图（防 VLM 400 卡死会话）
 	InTokens      int               `json:"inTokens,omitempty"`      // 累计输入 tokens（含缓存命中，对齐 openai 口径）
 	OutTokens     int               `json:"outTokens,omitempty"`     // 累计输出 tokens
@@ -47,15 +48,17 @@ func DefaultModelsConfig() ModelsConfig {
 	}
 }
 
-/* ActiveMain 返回主模型槽的生效条目（enabled 优先，否则首条；空槽 nil）。 */
+/* ActiveMain 返回主模型槽的生效条目（enabled 优先且跳过已关闭,否则首条未关闭；全关/空槽 nil）。 */
 func (m ModelsConfig) ActiveMain() *ModelEntry {
 	for i := range m.Main {
-		if m.Main[i].Enabled {
+		if m.Main[i].Enabled && !m.Main[i].Disabled {
 			return &m.Main[i]
 		}
 	}
-	if len(m.Main) > 0 {
-		return &m.Main[0]
+	for i := range m.Main {
+		if !m.Main[i].Disabled {
+			return &m.Main[i]
+		}
 	}
 	return nil
 }

@@ -73,8 +73,10 @@ func (t modelCallTool) Invoke(ctx context.Context, raw json.RawMessage) (string,
 	if args.Model != "" {
 		if e := findEntry(t.entries(), args.Model); e != nil {
 			entry = e
+		} else if findAnyEntry(t.entries(), args.Model) != nil {
+			return "", fmt.Errorf("model_call: 模型 %s 已关闭,不可调用（可在 设置·模型 重新开启）", args.Model)
 		} else {
-			return "", fmt.Errorf("model_call: unknown model %q（以设置·模型 三槽为准）", args.Model)
+			return "", fmt.Errorf("model_call: unknown model %q（以 system <models> 清单为准）", args.Model)
 		}
 	}
 	if entry == nil || entry.Name == "" {
@@ -115,8 +117,18 @@ func LoadImages(ctx context.Context, fsys osfs.OS, paths []string) ([]types.Imag
 	return out, nil
 }
 
-/* findEntry 在三槽条目里按名找（启用与否不限——分身/直调允许用未启用条目）。 */
+/* findEntry 在三槽条目里按名找可用条目（未启用的可被直调,已关闭的不可）。
+findAnyEntry 不理会关闭态,用于把"已关闭"与"不存在"区分开报错。 */
 func findEntry(entries []domain.ModelEntry, name string) *domain.ModelEntry {
+	for i := range entries {
+		if entries[i].Name == name && !entries[i].Disabled {
+			return &entries[i]
+		}
+	}
+	return nil
+}
+
+func findAnyEntry(entries []domain.ModelEntry, name string) *domain.ModelEntry {
 	for i := range entries {
 		if entries[i].Name == name {
 			return &entries[i]

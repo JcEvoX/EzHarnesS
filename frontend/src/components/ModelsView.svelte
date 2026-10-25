@@ -76,8 +76,15 @@
       if (slot === 'main') return
       cfg[slot] = cfg[slot].map((e) => ({ ...e, enabled: false }))
     } else {
-      cfg[slot] = cfg[slot].map((e, i) => ({ ...e, enabled: i === idx }))
+      cfg[slot] = cfg[slot].map((e, i) => ({ ...e, enabled: i === idx, disabled: i === idx ? false : e.disabled }))
     }
+    void persist()
+  }
+
+  /* 关闭切换：关闭的模型保留配置但不可被调用（model_call/task/主循环都跳过） */
+  function toggleClose(slot: SlotKey, idx: number) {
+    if (!cfg) return
+    cfg[slot] = cfg[slot].map((e, i) => (i === idx ? { ...e, disabled: !e.disabled, enabled: !e.disabled ? false : e.enabled } : e))
     void persist()
   }
 
@@ -193,15 +200,16 @@
         <div class="list">
           {#each cfg[k.key] as m, i (m.name + i)}
             <div class="model-wrap">
-              <div class="model" class:enabled={m.enabled}>
-                <button class="dot" class:on={m.enabled} onclick={() => enable(k.key, i)} title={m.enabled ? (k.key === 'main' ? '已启用（主模型必启用）' : '已启用（点击停用）') : '点击启用'}></button>
+              <div class="model" class:enabled={m.enabled} class:closed={m.disabled}>
+                <button class="dot" class:on={m.enabled && !m.disabled} onclick={() => enable(k.key, i)} title={m.enabled && !m.disabled ? (k.key === 'main' ? '已启用（主模型必启用）' : '已启用（点击停用）') : '点击启用'}></button>
                 <div class="info">
                   <span class="name">{m.name}</span>
-                  <span class="meta">{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
+                  <span class="meta">{m.disabled ? '已关闭 · ' : ''}{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
                 </div>
                 <div class="usage">
                   <span class="tokens" title="累计用量（输入/输出/缓存命中）">↑{fmtTokens(m.inTokens || 0)} ↓{fmtTokens(m.outTokens || 0)}{m.cacheTokens ? ` ⚡${fmtTokens(m.cacheTokens)}` : ''}</span>
                   <button class="del" onclick={() => editEntry(k.key, i)} title="编辑">编辑</button>
+                  <button class="del" onclick={() => toggleClose(k.key, i)} title={m.disabled ? '重新开启（恢复可调用）' : '关闭（保留配置,不可被调用）'}>{m.disabled ? '开启' : '关闭'}</button>
                   <button class="del" onclick={() => remove(k.key, i)} title="删除">删除</button>
                 </div>
               </div>
@@ -374,6 +382,9 @@
   }
   .model.enabled {
     background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  }
+  .model.closed {
+    opacity: 0.55;
   }
   .dot {
     flex: none;

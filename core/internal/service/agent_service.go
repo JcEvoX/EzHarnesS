@@ -102,11 +102,11 @@ func allModelEntries(m domain.ModelsConfig) []domain.ModelEntry {
 	return out
 }
 
-/* findModelEntry 按名在三槽里找条目（不限启用与否）。 */
+/* findModelEntry 按名在三槽里找条目（已关闭的视同不存在——task 分身只能选可用清单内的模型）。 */
 func findModelEntry(m domain.ModelsConfig, name string) *domain.ModelEntry {
 	all := allModelEntries(m)
 	for i := range all {
-		if all[i].Name == name {
+		if all[i].Name == name && !all[i].Disabled {
 			return &all[i]
 		}
 	}
@@ -824,7 +824,7 @@ func modelStatusList(mc domain.ModelsConfig) []hooks.StatusMcp {
 		entries []domain.ModelEntry
 	}{{"对话", mc.Main}, {"图像", mc.Image}, {"语音", mc.Audio}} {
 		for _, e := range slot.entries {
-			if e.Name == "" || seen[e.Name] {
+			if e.Name == "" || seen[e.Name] || e.Disabled {
 				continue
 			}
 			seen[e.Name] = true

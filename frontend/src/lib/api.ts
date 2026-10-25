@@ -180,6 +180,7 @@ export interface ModelEntry {
   apiKey: string
   headers?: Record<string, string>
   enabled: boolean
+  disabled?: boolean // 关闭：不可被 model_call/task 选用,也不进可用模型清单
   vision?: boolean // 支持多模态视觉输入；false 时带图请求自动省略图片
   inTokens?: number // 累计输入 tokens（含缓存命中）
   outTokens?: number // 累计输出 tokens
