@@ -104,9 +104,9 @@ func (h *Remind) SetPlanRoot(rootID string) { h.planRoot = rootID }
 
 /* OnStart 轮首两段：变更段（有变化才说话）在前、快照段照旧每轮一条。 */
 func (h *Remind) OnStart(ctx context.Context, state *types.LoopState) error {
-	if items, skills, mcps, models := h.buildChanges(ctx); len(items) > 0 {
+	if items, skills, mcps, models, apps := h.buildChanges(ctx); len(items) > 0 {
 		h.insertBeforeLastUser(state, types.Message{Role: types.RoleUser,
-			Content: renderResChange(items, skills, mcps, models)})
+			Content: renderResChange(items, skills, mcps, models, apps)})
 		state.EmitEvent(EventResChange, items)
 	}
 	data := h.buildSnapshot()
@@ -230,14 +230,14 @@ renderResChange 渲染资源变更记录：变更条目行前缀 "- " 是前端�
 模型据此即时可知全部资源，不必读目录与配置文件发现）。desc 压平换行
 防伪造条目行。
 */
-func renderResChange(items []string, skills, mcps, models []StatusMcp) string {
+func renderResChange(items []string, skills, mcps, models []StatusMcp, apps []StatusApp) string {
 	var b strings.Builder
 	b.WriteString("<" + ResChangeTag + ">")
 	b.WriteString("\n（系统检测到的本轮资源变更，非用户发言，无需回应，无需回溯处理）")
 	for _, it := range items {
 		b.WriteString("\n- " + it)
 	}
-	b.WriteString("\n变更后完整清单（技能与 MCP 服务以此为准，不要读取 memory/skills 目录或 mcp.json 来发现技能与服务）：")
+	b.WriteString("\n变更后完整清单（技能、MCP 服务与快应用以此为准，不要读取 memory/skills、mcp.json 或 apps 目录来发现资源）：")
 	if len(skills) > 0 {
 		for _, s := range skills {
 			b.WriteString("\navailable_skill: " + s.Name + " - " + descOrNone(s.Desc))
@@ -251,6 +251,23 @@ func renderResChange(items []string, skills, mcps, models []StatusMcp) string {
 		}
 	} else {
 		b.WriteString("\navailable_mcp: （当前无可用 MCP 服务）")
+	}
+	if len(apps) > 0 {
+		for _, a := range apps {
+			line := "\navailable_app: " + a.Name
+			if a.Title != "" && a.Title != a.Name {
+				line += "（" + a.Title + "）"
+			}
+			if a.Version != "" {
+				line += " v" + a.Version
+			}
+			if a.Callable {
+				line += "〔可调用〕"
+			}
+			b.WriteString(line + " - " + descOrNone(a.Description))
+		}
+	} else {
+		b.WriteString("\navailable_app: （当前无快应用）")
 	}
 	if len(models) > 0 {
 		var names []string

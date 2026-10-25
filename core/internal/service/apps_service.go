@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -22,7 +21,7 @@ import (
 )
 
 /* AppsDir 是快应用目录（工作目录相对）。 */
-const AppsDir = "apps"
+const AppsDir = quickapp.AppsDir
 
 /* PinMax 是桌面小助手钉选上限（钉满后再钉顶掉最早）。 */
 const PinMax = 3
@@ -38,12 +37,15 @@ var ErrAppNotFound = errors.New("app not found")
 
 /* AppEntry 是快应用卡片数据。 */
 type AppEntry struct {
-	Name   string `json:"name"`            // 应用目录名（应用的稳定身份）
-	Title  string `json:"title"`
-	Kind   string `json:"kind"`
-	Mtime  string `json:"mtime"`
-	Icon   string `json:"icon,omitempty"`  // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
-	Pinned bool   `json:"pinned"`          // 已钉到桌面小助手
+	Name        string `json:"name"`                  // 应用目录名（应用的稳定身份）
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"` // 一句话描述
+	Version     string `json:"version,omitempty"`     // 语义化版本
+	Kind        string `json:"kind"`
+	Mtime       string `json:"mtime"`
+	Icon        string `json:"icon,omitempty"`  // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
+	Pinned      bool   `json:"pinned"`          // 已钉到桌面小助手
+	Callable    bool   `json:"callable"`        // 应用文档含「Agent 调用」一节
 }
 
 /* AppView 是一次启动的结果：前端入口路径 + 后端终端（无后端时为空）。 */
@@ -70,40 +72,59 @@ type AppsService struct {
 	Hub  *domain.Hub // 钉选列表存全局设置（nil=测试装配，pin 恒 false）
 }
 
-/* appInfo 是一次声明的解析结果：应用名 + 协议声明 + 已校验的入口。 */
-type appInfo struct {
-	Name  string
-	Spec  quickapp.Spec
-	Entry string
-}
-
-var titleRe = regexp.MustCompile(`(?i)<title[^>]*>([^<]*)</title>`)
-
 /* List 扫描 apps/ 下的快应用（声明缺失、损坏或入口越界的目录跳过）。 */
 func (s *AppsService) List(ctx context.Context) []AppEntry {
-	var out []AppEntry
-	entries, err := s.Fsys.List(ctx, AppsDir)
-	if err != nil {
-		return nil // 目录缺失即无应用
-	}
-	for _, e := range entries {
-		if !e.IsDir {
-			continue
-		}
-		a, aerr := s.load(ctx, e.Name)
-		if aerr != nil {
-			continue
-		}
+	apps := quickapp.Scan(ctx, s.Fsys)
+	out := make([]AppEntry, 0, len(apps))
+	for _, a := range apps {
 		out = append(out, AppEntry{
-			Name:   a.Name,
-			Title:  s.title(ctx, a),
-			Kind:   kindOf(a.Spec),
-			Mtime:  appMtime(a.Name + "/" + quickapp.FileName),
-			Icon:   iconURL(a.Name, a.Spec.Icon),
-			Pinned: s.Hub != nil && slices.Contains(s.Hub.SettingsSnapshot().PinnedApps, a.Name),
+			Name:        a.Name,
+			Title:       a.Title,
+			Description: a.Description,
+			Version:     a.Version,
+			Kind:        kindOf(a.Spec),
+			Mtime:       appMtime(a.Name + "/" + quickapp.FileName),
+			Icon:        iconURL(a.Name, a.Spec.Icon),
+			Pinned:      s.Hub != nil && slices.Contains(s.Hub.SettingsSnapshot().PinnedApps, a.Name),
+			Callable:    a.Callable,
 		})
 	}
 	return out
+}
+
+/*
+renderAppsSection 组装 system 的 <apps> 段：应用清单与使用纪律。
+每 session 固定；轮内新建/更新/删除后由 list_apps 刷新。
+*/
+func renderAppsSection(ctx context.Context, fsys osfs.OS) string {
+	apps := quickapp.Scan(ctx, fsys)
+	var b strings.Builder
+	b.WriteString("\n\n<apps>\n（快应用清单，以此为准，不要读取 apps 目录或 app.quick 来发现应用；应用由 save_app 构建。" +
+		"使用某个应用前先 load_app(name) 读它的调用文档：只有文档含「Agent 调用」一节（清单标〔可调用〕）才可按文档调用，否则仅面向用户，不要臆造接口。" +
+		"本段随会话固定，轮内新增/更新/移除见 <resource_change>；已有应用能满足就先复用，不要重复造功能相同的应用）")
+	if len(apps) == 0 {
+		b.WriteString("\n（暂无快应用）")
+	} else {
+		for _, a := range apps {
+			b.WriteString("\n- " + a.Name)
+			if a.Title != a.Name {
+				b.WriteString("（" + a.Title + "）")
+			}
+			if a.Version != "" {
+				b.WriteString(" v" + a.Version)
+			}
+			if a.Callable {
+				b.WriteString("〔可调用〕")
+			}
+			desc := a.Description
+			if desc == "" {
+				desc = "（无描述）"
+			}
+			b.WriteString("：" + desc)
+		}
+	}
+	b.WriteString("\n</apps>")
+	return b.String()
 }
 
 /*
@@ -159,7 +180,7 @@ func (s *AppsService) Launch(ctx context.Context, name string) (AppView, error) 
 	}
 	view := AppView{
 		Path:  "/apps/" + a.Name + "/" + a.Entry,
-		Title: s.title(ctx, a),
+		Title: a.Title,
 		Kind:  kindOf(a.Spec),
 	}
 	if !a.Spec.HasBackend() {
@@ -202,24 +223,15 @@ func liveTerm(list []TermInfo, origin string) string {
 load 读一个应用的声明并校验：名字必须是单段（不可含分隔符上溯），
 app.quick 缺失即不在名单，声明损坏或入口越界给出具体原因。
 */
-func (s *AppsService) load(ctx context.Context, name string) (appInfo, error) {
-	if !quickapp.ValidName(name) {
-		return appInfo{}, ErrAppNotFound
+func (s *AppsService) load(ctx context.Context, name string) (quickapp.Info, error) {
+	info, err := quickapp.Load(ctx, s.Fsys, name)
+	if errors.Is(err, quickapp.ErrNotFound) {
+		return quickapp.Info{}, ErrAppNotFound
 	}
-	rel := AppsDir + "/" + name
-	data, err := s.Fsys.Read(ctx, rel+"/"+quickapp.FileName)
 	if err != nil {
-		return appInfo{}, ErrAppNotFound
+		return quickapp.Info{}, fmt.Errorf("%s/%s 解析失败: %w", AppsDir+"/"+name, quickapp.FileName, err)
 	}
-	spec, err := quickapp.Parse(data)
-	if err != nil {
-		return appInfo{}, fmt.Errorf("%s/%s 解析失败: %w", rel, quickapp.FileName, err)
-	}
-	entry, err := quickapp.SafeEntry(spec.EntryOr())
-	if err != nil {
-		return appInfo{}, err
-	}
-	return appInfo{Name: name, Spec: spec, Entry: entry}, nil
+	return info, nil
 }
 
 /* kindOf 按是否声明 backend 定形态。 */
@@ -228,21 +240,6 @@ func kindOf(spec quickapp.Spec) string {
 		return KindService
 	}
 	return KindStatic
-}
-
-/* title 取卡片标题：声明的 title > 入口文件的 <title> > 目录名。 */
-func (s *AppsService) title(ctx context.Context, a appInfo) string {
-	if t := strings.TrimSpace(a.Spec.Title); t != "" {
-		return t
-	}
-	if data, err := s.Fsys.Read(ctx, AppsDir+"/"+a.Name+"/"+a.Entry); err == nil {
-		if m := titleRe.FindSubmatch(data); len(m) > 1 {
-			if t := strings.TrimSpace(string(m[1])); t != "" {
-				return t
-			}
-		}
-	}
-	return a.Name
 }
 
 /* appMtime 是应用声明的修改日期（读不到用今天）。 */

@@ -61,6 +61,7 @@ func DefaultToolRules() []ToolRule {
 		/* 系统自带：两档，默认免审 */
 		{Key: "task", Level: LevelAuto},
 		{Key: "save_app", Level: LevelAuto},
+		{Key: "load_app", Level: LevelAuto}, // 只读应用文档
 		{Key: "sleep", Level: LevelAuto},
 		{Key: "memory", Level: LevelAuto}, // 提案本身即待审（用户在记忆页审阅），双重审批无意义
 		{Key: "plan:new", Level: LevelAsk},       // 新方案先由用户审批再落盘

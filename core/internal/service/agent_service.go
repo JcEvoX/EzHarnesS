@@ -314,6 +314,8 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		OneShotInvoke))
 	// memory：长期记忆唯一写入通道（提案制，用户在记忆页审阅）
 	agentTools = append(agentTools, tools.Memory(s.Fsys))
+	// 快应用：清单随 <apps> 段、增删改进 <resource_change>（与技能同构）；工具只读调用文档
+	agentTools = append(agentTools, tools.LoadApp(s.Fsys))
 	// plan：会话级任务计划（落盘 + plan.update 事件驱动输入框上方进度面板）
 	agentTools = append(agentTools, tools.Plan(s.Fsys, s.RootID, func(p *hooks.SessionPlan) {
 		var data json.RawMessage
@@ -334,7 +336,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
-		"model_call", "memory", "plan", "term_tab", "term_action",
+		"model_call", "memory", "plan", "load_app", "term_tab", "term_action",
 		"browser_tab", "browser_action",
 	}
 	mcpHook, mcpAuthCh := NewMcpHook(context.Background(), s.Fsys, a.McpRouter, a.McpAuth)
@@ -608,7 +610,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 	var b strings.Builder
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
 		"能用工具就用工具，回答简洁。" +
-		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动（需要后端进程的见 quick-app 技能）。" +
+		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动（需要后端进程的见 quick-app 技能）；已有快应用先看 <apps>，使用前 load_app 读调用文档。" +
 		"重要的用户偏好与事实用 memory 工具随手读写长期记忆（结构见 <memory> 块）。" +
 		"接任务先看 <action> 行动准则；给用户的可点击入口与输出格式遵守 <output>。")
 	if st.SystemExtra != "" {
@@ -700,6 +702,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		}
 		b.WriteString("\n</skills>")
 	}
+	b.WriteString(renderAppsSection(ctx, fsys))
 	// 可用模型清单（固定段，session 组装时存储；与 skill/mcp 同构）：task/model_call
 	// 的 model 参数取值以此为准；增删随 <resource_change> 告知，主模型每轮见 <agent_status>
 	if ms := modelStatusList(mc); len(ms) > 0 {

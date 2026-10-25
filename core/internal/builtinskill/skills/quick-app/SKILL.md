@@ -35,6 +35,14 @@ description: 构建/更新快应用——判断纯前端还是需要后端，app
 - 用户改需求、原方案不再适用时重新 `new`，不要口头改方案；任务完成后保留全部 completed 即可。
 - 一次 `save_app` 就能写完的纯静态小页面不用 plan。
 
+## 应用文档与版本
+
+- `save_app` 的 `description` / `version` / `document` 写入 `app.quick`；`description` 一句话，`version` 用语义化版本，`document` 缺省 `APP.md`。
+- 可复用或要开放给 agent 的应用写应用文档（默认 `APP.md`）：frontmatter（name/description/version）+「能力 / Agent 调用 / 人类使用 / 限制」。
+  **只有包含「Agent 调用」一节的应用才对 agent 开放**；这一节写清入口、输入、输出、副作用、失败语义、就绪条件——前端可以是一段 JS（如 `window.<app>.<method>()`），后端可以是 HTTP/CLI，规范不限定形态。
+- 每次版本变化在应用目录追加 `CHANGELOG.md`（版本、日期、变更摘要）。
+- 使用已有应用：清单在 system 的 `<apps>` 段（轮内新增/移除见 `<resource_change>`），用 `load_app` 读调用文档；不要凭 `app.quick` 猜调用方式，也不要给没有「Agent 调用」一节的应用臆造接口。
+
 ## 怎么建
 
 **先判断形态，别一上来就写后端：**

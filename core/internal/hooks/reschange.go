@@ -1,6 +1,6 @@
 /*
 reschange 是 remind hook 的变更段：轮首对比 session 资源基线
-（skills/mcps），有变化才产出条目（由 remind.OnStart 汇总为
+（skills/mcps/apps），有变化才产出条目（由 remind.OnStart 汇总为
 <resource_change> 消息与 resource.change 事件，并附变更后完整清单）。
 
 基线（ResSnapshot）持久化随 session：sessionstore 落盘、restoreFrom
@@ -22,6 +22,7 @@ import (
 	"github.com/xuanlv2002/ezloop/ext/hook/skill"
 
 	"ezharness/core/internal/builtinskill"
+	"ezharness/core/internal/quickapp"
 )
 
 /* StatusMcp 是状态基线与 available 清单用的 MCP 服务摘要。 */
@@ -30,12 +31,21 @@ type StatusMcp struct {
 	Desc string
 }
 
+/* StatusApp 是快应用基线与 available 清单摘要。 */
+type StatusApp struct {
+	Name        string
+	Title       string
+	Version     string
+	Description string
+	Callable    bool
+}
+
 /*
 buildChanges 对比资源基线产出变更条目（中文完整短语，模型与前端
 变更卡同源）与变更后完整清单（名+描述，技能只列启用的），并推进基线。
 prev 为 nil（首轮或旧格式）只建基线。
 */
-func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps, models []StatusMcp) {
+func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps, models []StatusMcp, apps []StatusApp) {
 	var off []string
 	if h.disabled != nil {
 		off = h.disabled()
@@ -75,6 +85,14 @@ func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps
 	memSigs := memorySignatures(ctx, h.fsys)
 	projSigs := projectSignatures(ctx, h.fsys)
 
+	// 快应用基线（与技能同构：清单进 system，轮内增删改由 resource_change 报告）
+	appSigs := make([]string, 0)
+	for _, a := range quickapp.Scan(ctx, h.fsys) {
+		apps = append(apps, StatusApp{Name: a.Name, Title: a.Title, Version: a.Version,
+			Description: a.Description, Callable: a.Callable})
+		appSigs = append(appSigs, appSignature(a))
+	}
+
 	prev := h.store.ResSnap()
 	curModel := ""
 	if h.model != nil {
@@ -108,6 +126,7 @@ func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps
 		}
 		items = append(items, diffMemorySignatures(prev.Memory, memSigs)...)
 		items = append(items, diffProjectSignatures(prev.Projects, projSigs)...)
+		items = append(items, diffAppSignatures(prev.Apps, appSigs)...)
 	}
 
 	// 推进基线（启用/停用分列）；available 清单与返回值只含启用的
@@ -121,8 +140,49 @@ func (h *Remind) buildChanges(ctx context.Context) (items []string, skills, mcps
 		}
 	}
 	h.store.SetResSnap(&ResSnapshot{V: resSnapV, Skills: onNames, SkillsOff: offNames, Mcps: names(mcps),
-		Models: names(models), Model: curModel, Memory: memSigs, Projects: projSigs})
-	return items, skills, mcps, models
+		Models: names(models), Model: curModel, Memory: memSigs, Projects: projSigs, Apps: appSigs})
+	return items, skills, mcps, models, apps
+}
+
+/* appSignature 生成应用基线签名（描述放最后，允许含分隔符）。 */
+func appSignature(a quickapp.Info) string {
+	callable := "0"
+	if a.Callable {
+		callable = "1"
+	}
+	return strings.Join([]string{a.Name, a.Title, a.Version, callable, a.Description}, "|")
+}
+
+/*
+diffAppSignatures 对比应用签名：新增/移除按 id，标题/版本/描述/可调用性
+变化记为更新。渲染 "新增快应用 id（标题）" 等完整短语。
+*/
+func diffAppSignatures(oldS, newS []string) []string {
+	parts := func(s string) []string { return strings.SplitN(s, "|", 5) }
+	label := func(p []string) string {
+		if len(p) > 1 && p[1] != "" && p[1] != p[0] {
+			return p[0] + "（" + p[1] + "）"
+		}
+		return p[0]
+	}
+	var out []string
+	for _, s := range newS {
+		p := parts(s)
+		if i := slices.IndexFunc(oldS, func(o string) bool { return parts(o)[0] == p[0] }); i >= 0 {
+			if oldS[i] != s {
+				out = append(out, "更新快应用 "+label(p))
+			}
+			continue
+		}
+		out = append(out, "新增快应用 "+label(p))
+	}
+	for _, s := range oldS {
+		p := parts(s)
+		if !slices.ContainsFunc(newS, func(n string) bool { return parts(n)[0] == p[0] }) {
+			out = append(out, "移除快应用 "+label(p))
+		}
+	}
+	return out
 }
 
 /* memorySignatures 收集 user/soul 条目签名（"目标 id|text"，text 压平单行）。 */
