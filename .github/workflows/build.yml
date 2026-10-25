@@ -76,6 +76,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/v${{ steps.ver.outputs.version }}/*
+          files: |
+            release/v${{ steps.ver.outputs.version }}/ezharness-v*-setup.exe
+            release/v${{ steps.ver.outputs.version }}/ezharness-v*.exe
+            release/v${{ steps.ver.outputs.version }}/ezharness-*.dmg
+            release/v${{ steps.ver.outputs.version }}/ezharness-v*.AppImage
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
