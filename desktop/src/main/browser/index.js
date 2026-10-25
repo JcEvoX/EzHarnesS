@@ -748,9 +748,21 @@ const executors = {
     const tab = tabOf(tabId)
     const wc = tab.view.webContents
     await waitIdle(wc, 3000)
+    /* 先按"单个表达式"编译,不行再按"async 函数体"编译——两条路都只编译不执行,
+       谁先编译过用谁执行,顶层 await 与末尾表达式取值都成立;异常带堆栈原样抛回 */
+    const script = `(async (code) => {
+      const guard = (src) => '(async()=>{try{return await('+src+')}catch(e){throw new Error((e&&(e.stack||e.message))||String(e))}})()'
+      let src
+      try { new Function('return (async()=>'+code+')'); src = '(async()=>'+code+')()' }
+      catch (e1) {
+        try { new Function('return (async()=>{\\n'+code+'\\n})'); src = '(async()=>{\\n'+code+'\\n})()' }
+        catch (e2) { throw new Error('语法错误: '+((e2 && (e2.name+': '+e2.message)) || String(e2))) }
+      }
+      return await (0, eval)(guard(src))
+    })(${JSON.stringify(String(js ?? ''))})`
     let val
     try {
-      val = await wc.executeJavaScript(String(js ?? ''), true)
+      val = await wc.executeJavaScript(script, true)
     } catch (err) {
       throw new Error(`eval 执行出错：${String(err?.message || err)}`)
     }
