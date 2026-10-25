@@ -1,4 +1,5 @@
-# ezharness desktop 打包配置：NSIS 安装包 + 绿色版，内嵌 core exe
+# ezharness desktop 打包配置：win NSIS+绿色版 / mac dmg / linux AppImage，内嵌 core exe
+# 本地构建走 script/build.bat（win）；三平台自动构建走 .github/workflows/build.yml
 appId: com.ezharness.desktop
 productName: ezharness
 directories:
@@ -7,8 +8,9 @@ files:
   - src/**
   - package.json
 # core 与配置同目录（resources/）：exe 在哪，配置与数据就在哪
+# （core 产物统一命名 ezharness-core.exe，三平台一致——spawn 与打包都认这一个名字）
 extraResources:
-  - from: ../bin/ezharness-core.exe
+  - from: ../release/dev/ezharness-core.exe
     to: ezharness-core.exe
   - from: ../assets/icon.png
     to: icon.png
@@ -24,3 +26,12 @@ nsis:
   artifactName: ezharness-v${version}-setup.exe
 portable:
   artifactName: ezharness-v${version}.exe
+mac:
+  target:
+    - dmg
+  category: public.app-category.productivity
+linux:
+  target:
+    - AppImage
+  category: Utility
+  artifactName: ezharness-v${version}.AppImage

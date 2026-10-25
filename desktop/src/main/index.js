@@ -90,11 +90,11 @@ function guardWebContents(wc) {
   })
 }
 
-/* core exe 所在目录：打包后在 resources/；开发模式在仓库根 bin/ */
+/* core exe 所在目录：打包后在 resources/；开发模式在 release/dev/ */
 function coreDir() {
   return app.isPackaged
     ? process.resourcesPath
-    : path.join(path.resolve(__dirname, '../../..'), 'bin')
+    : path.join(path.resolve(__dirname, '../../..'), 'release', 'dev')
 }
 
 /* 配置目录：portable 绿色版自解压到临时目录运行，配置与数据须锚定到
