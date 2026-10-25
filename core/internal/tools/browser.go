@@ -73,7 +73,7 @@ type browserActionArgs struct {
 	ErrorsOnly bool   `json:"errorsOnly,omitempty" desc:"console:只看 error;network:只看失败/4xx/5xx"`
 	Filter     string `json:"filter,omitempty" desc:"network:URL 子串过滤"`
 	Chars      int    `json:"chars,omitempty" desc:"read:text/html/elements/links:返回字符数上限,默认 4000,上限 20000"`
-	JS         string `json:"js,omitempty" desc:"eval:在页面内执行的 JS(自动按 async 函数包裹:顶层可直接 await;取值写成单个末尾表达式或 IIFE,语句块里用 return;真实异常含堆栈会回传。已注入 __ezOne/__ezAll 深查询辅助)"`
+	JS         string `json:"js,omitempty" desc:"eval:在页面内执行的 JS(自动按 async 函数包裹:顶层可直接 await,末尾表达式自动作为返回值(同浏览器 console),也可显式 return;真实异常含堆栈会回传。已注入 __ezOne/__ezAll 深查询辅助)"`
 	Files      string `json:"files,omitempty" desc:"upload:本机文件绝对路径,多个用逗号分隔"`
 }
 
@@ -108,7 +108,7 @@ func SharedBrowser(b BrowserIO) []types.Tool {
 				"navigate 打开网址并等加载;"+
 				"read 读页面内容(mode=text 正文/elements 可交互元素清单含选择器/html/links/element 单元素/frames 子帧清单;选择器穿透 shadow DOM 与同源 iframe,跨域 iframe 只给帧地址);"+
 				"screenshot 截图(默认当前视口——浏览器真实渲染的那一块,尺寸与用户所见一致;fullPage=true 截整页看整体结构,按视口高分段;给 selector 只截该元素。不做设备仿真,截的就是真实大小。经 image_loaded 转图片消息,多模态模型直接看图);"+
-				"eval 页面内执行 JS——**页面里的 DOM 操作都走这里**:找元素/点击/填值/滚动/断言都行(已注入 __ezOne/__ezAll 深查询辅助)。脚本自动按 async 函数包裹:顶层可直接 await;取值用单个末尾表达式或 IIFE(语句块里用 return);执行异常带堆栈原样回传。点击用 __ezOne(选择器).click();填值设 value 后派发 input/change(React 受控组件用原生 value setter);滚动用 window.scrollTo 或容器的 scrollTop。改了 html/body 的 zoom/transform/filter 会持续污染后续截图与坐标,会当场警告。"+
+				"eval 页面内执行 JS——**页面里的 DOM 操作都走这里**:找元素/点击/填值/滚动/断言都行(已注入 __ezOne/__ezAll 深查询辅助)。脚本自动按 async 函数包裹:顶层可直接 await,末尾表达式自动作为返回值(同浏览器 console),也可显式 return;执行异常带堆栈原样回传。点击用 __ezOne(选择器).click();填值设 value 后派发 input/change(React 受控组件用原生 value setter);滚动用 window.scrollTo 或容器的 scrollTop。改了 html/body 的 zoom/transform/filter 会持续污染后续截图与坐标,会当场警告。"+
 				"console 读控制台(含未捕获异常与 CSP/混合内容日志,errorsOnly 只看 error,mode=clear 清空);"+
 				"network 读网络请求(index 省略=清单,index=n 取该条详情:请求/响应头+响应体;filter 过滤 URL;errorsOnly 只看失败);"+
 				"upload 给 <input type=file> 传本机文件(selector+files;非 multiple 的输入框只设第一个)。"+

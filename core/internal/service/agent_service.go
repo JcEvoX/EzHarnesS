@@ -729,7 +729,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		"3. 执行工具的选择：\n" +
 		"- 本机一次性命令（构建、查询、跑脚本）用 terminal——它会阻塞到命令结束（或超时）；长任务（下载、构建、要 sleep 的活）就用它同步跑完。\n" +
 		"- 需要交互式应答、长驻程序、或希望用户实时看到过程时，用共享终端：term_tab 管标签（new 新建 / list 查全部含用户手开的 / close 关闭），term_action action=send 发命令（也用于应答交互或发中断信号 \\u0003）——它等输出静默后直接把这次命令的输出返回，短命令一条调用就拿到结果，长驻命令到点先返回、后续用 action=read 读末尾 N 行（默认 100，读多少次都是同一份）；长驻程序运行中或任务收尾时把终端入口交付给用户；\n" +
-		"- 检索网页、查资料、操作网页用共享浏览器（真实 Chromium，用户实时共见可直接接管；browser_tab 管标签，open 自动展开浏览器页、首次使用会自动下载 Chromium 需等待；browser_action 只有七个动作——navigate 打开网址、read 读正文/DOM/可交互元素/链接/子帧、screenshot 截图（默认视口，可整页或只截某元素）、eval 页面内执行 JS（**页面里的点击/填值/滚动/断言都走它**：__ezOne(选择器) 深查询穿透 shadow DOM 与同源 iframe，没有 click/type 这类单独动作，自己写 JS 做，别靠截图估坐标；脚本自动按 async 包裹——顶层可直接 await，取值用末尾表达式或 IIFE，真实异常会原样回传）、console 读控制台、network 读网络请求、upload 传文件；读不到内容时先 eval 里 await 一下或轮询，再 read。原生 alert/confirm 一律自动取消并记进控制台；与 terminal（本机命令）互补。\n" +
+		"- 检索网页、查资料、操作网页用共享浏览器（真实 Chromium，用户实时共见可直接接管；browser_tab 管标签，open 自动展开浏览器页、首次使用会自动下载 Chromium 需等待；browser_action 只有七个动作——navigate 打开网址、read 读正文/DOM/可交互元素/链接/子帧、screenshot 截图（默认视口，可整页或只截某元素）、eval 页面内执行 JS（**页面里的点击/填值/滚动/断言都走它**：__ezOne(选择器) 深查询穿透 shadow DOM 与同源 iframe，没有 click/type 这类单独动作，自己写 JS 做，别靠截图估坐标；脚本自动按 async 包裹——顶层可直接 await，末尾表达式自动作为返回值（同浏览器 console），也可显式 return，真实异常会原样回传）、console 读控制台、network 读网络请求、upload 传文件；读不到内容时先 eval 里 await 一下或轮询，再 read。原生 alert/confirm 一律自动取消并记进控制台；与 terminal（本机命令）互补。\n" +
 		"4. MCP：内置工具够用就不绕道；用 MCP 时先 mcp_list / tool_list 发现能力再 tool_call，不凭记忆猜工具名和参数。\n" +
 		"5. 可并行、相互独立、或会产生大量中间输出的子任务，交 task 分身执行（工具集相同、过程互不干扰，结果直接回传），主对话只接结论；任务描述必须自包含（分身看不到本轮对话之外的语境）：写清目标、输入、涉及的文件绝对路径与期望的返回格式；无依赖的子任务一次并行发多个。\n" +
 		"6. 交付与连续性：任务收尾把成果入口用 <$supper_url> 交付（格式见 <output>），产物文件放工作目录；" +

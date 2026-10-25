@@ -21,6 +21,7 @@ const path = require('path')
 const { BrowserWindow, WebContentsView, ipcMain, session } = require('electron')
 const { attachInspectMenu } = require('../inspect')
 const devtools = require('./devtools')
+const acorn = require('../../vendor/acorn')
 
 let corePort = 5260
 let coreToken = ''
@@ -398,6 +399,31 @@ function __ezAbsRect(el) {
 /* runDeep 在页面里执行一段代码（带深查询前置）。code 是 IIFE 体，可 return。 */
 function runDeep(wc, code) {
   return wc.executeJavaScript(`(() => { ${DEEP_JS} ${code} })()`, true)
+}
+
+/* wrapEval 把用户脚本包成 async IIFE 源码:按 async 函数体解析(顶层 await 与
+   return 都合法),末尾是表达式语句就提升为 return——浏览器 console 的取值语义;
+   解析失败抛「语法错误: …」,报错行号折回用户脚本的行号。 */
+function wrapEval(js) {
+  const src = String(js ?? '')
+  const prefix = '(async function () {\n'
+  let body
+  try {
+    body = acorn.parse(prefix + src + '\n})', { ecmaVersion: 'latest' })
+      .body[0].expression.body.body
+  } catch (e) {
+    const msg = String(e.message || e).replace(/\((\d+):(\d+)\)/,
+      (_, l, c) => `(${Math.max(1, l - 1)}:${c})`)
+    throw new Error(`语法错误: ${e.name || 'SyntaxError'}: ${msg}`)
+  }
+  const last = body[body.length - 1]
+  if (last && last.type === 'ExpressionStatement') {
+    const head = src.slice(0, last.start - prefix.length)
+    const expr = src.slice(last.start - prefix.length, last.end - prefix.length)
+    const tail = src.slice(last.end - prefix.length)
+    return `(async () => {\n${head}return (\n${expr}\n)${tail}})()`
+  }
+  return `(async () => {\n${src}\n})()`
 }
 
 /* withSurface 截图前的上屏保障：视图未挂任何窗口时（浏览器抽屉没开过/
@@ -780,18 +806,9 @@ const executors = {
     const tab = tabOf(tabId)
     const wc = tab.view.webContents
     await waitIdle(wc, 3000)
-    /* 先按"单个表达式"编译,不行再按"async 函数体"编译——两条路都只编译不执行,
-       谁先编译过用谁执行,顶层 await 与末尾表达式取值都成立;异常带堆栈原样抛回 */
-    const script = `(async (code) => {
-      const guard = (src) => '(async()=>{try{return await('+src+')}catch(e){throw new Error((e&&(e.stack||e.message))||String(e))}})()'
-      let src
-      try { new Function('return (async()=>'+code+')'); src = '(async()=>'+code+')()' }
-      catch (e1) {
-        try { new Function('return (async()=>{\\n'+code+'\\n})'); src = '(async()=>{\\n'+code+'\\n})()' }
-        catch (e2) { throw new Error('语法错误: '+((e2 && (e2.name+': '+e2.message)) || String(e2))) }
-      }
-      return await (0, eval)(guard(src))
-    })(${JSON.stringify(String(js ?? ''))})`
+    /* 主进程先解析包装(语法错误在这里拦下),页面侧只负责执行与异常透传 */
+    const wrapped = wrapEval(js)
+    const script = `(async (src) => await (0, eval)('(async()=>{try{return await('+src+')}catch(e){throw new Error((e&&(e.stack||e.message))||String(e))}})()'))(${JSON.stringify(wrapped)})`
     let val
     try {
       val = await wc.executeJavaScript(script, true)
