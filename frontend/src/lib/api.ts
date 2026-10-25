@@ -196,8 +196,8 @@ export interface ModelsConfig {
   audio: ModelEntry[]
 }
 
-export interface DayStats {
-  date: string
+export interface HourStats {
+  start: number // 小时起点 UnixMilli
   turns: number
   in: number
   out: number
@@ -511,8 +511,8 @@ export const api = {
 
   getModels: () => fetch('/api/models').then(json<ModelsConfig>),
 
-  /* 按天用量序列（模型面板趋势图;近 120 天,升序） */
-  getDailyStats: () => fetch('/api/stats/daily').then(json<{ days: DayStats[] }>).then((r) => r.days || []),
+  /* 按小时用量序列（模型面板趋势图;近 30 天,升序） */
+  getHourlyStats: () => fetch('/api/stats/hourly').then(json<{ hours: HourStats[] }>).then((r) => r.hours || []),
 
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
 

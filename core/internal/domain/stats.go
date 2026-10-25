@@ -16,7 +16,10 @@ import (
 	"ezharness/core/internal/osfs"
 )
 
-const statsFile = "stats.json"
+const (
+	statsFile  = "stats.json"
+	statsKeyFY = "2006-01-02T15" // 小时桶键（本地时区，字典序可排序）
+)
 
 /* Stats 累计生命体征。 */
 type Stats struct {
@@ -25,24 +28,24 @@ type Stats struct {
 	firstSeen time.Time
 	total     types.Usage
 	turns     int
-	days      map[string]*DayStats
+	hours     map[string]*HourStats
 }
 
-/* ModelDayUsage 单模型单日用量。 */
-type ModelDayUsage struct {
+/* ModelUsage 单模型单小时用量。 */
+type ModelUsage struct {
 	In    int `json:"in"`
 	Out   int `json:"out"`
 	Cache int `json:"cache"`
 	Turns int `json:"turns"`
 }
 
-/* DayStats 单日聚合（In=输入,Cache=其中缓存命中,Out=输出;Models 按模型拆分）。 */
-type DayStats struct {
-	Turns  int                       `json:"turns"`
-	In     int                       `json:"in"`
-	Out    int                       `json:"out"`
-	Cache  int                       `json:"cache"`
-	Models map[string]*ModelDayUsage `json:"models,omitempty"`
+/* HourStats 单小时聚合（In=输入,Cache=其中缓存命中,Out=输出;Models 按模型拆分）。 */
+type HourStats struct {
+	Turns  int                    `json:"turns"`
+	In     int                    `json:"in"`
+	Out    int                    `json:"out"`
+	Cache  int                    `json:"cache"`
+	Models map[string]*ModelUsage `json:"models,omitempty"`
 }
 
 /* StatsView 是 stats 的下发视图。 */
@@ -52,23 +55,23 @@ type StatsView struct {
 }
 
 type statsFileLayout struct {
-	FirstSeen int64                `json:"firstSeen"` // UnixMilli
-	Turns     int                  `json:"turns"`
-	Total     types.Usage          `json:"total"`
-	Days      map[string]*DayStats `json:"days,omitempty"`
+	FirstSeen int64                 `json:"firstSeen"` // UnixMilli
+	Turns     int                   `json:"turns"`
+	Total     types.Usage           `json:"total"`
+	Hours     map[string]*HourStats `json:"hours,omitempty"`
 }
 
 /* NewStats 读 stats.json；不存在则以当前时间为首启写盘。 */
 func NewStats(fsys osfs.OS) *Stats {
-	s := &Stats{fsys: fsys, firstSeen: time.Now(), days: map[string]*DayStats{}}
+	s := &Stats{fsys: fsys, firstSeen: time.Now(), hours: map[string]*HourStats{}}
 	if data, err := fsys.Read(context.Background(), statsFile); err == nil {
 		var f statsFileLayout
 		if json.Unmarshal(data, &f) == nil && f.FirstSeen > 0 {
 			s.firstSeen = time.UnixMilli(f.FirstSeen)
 			s.turns = f.Turns
 			s.total = f.Total
-			if f.Days != nil {
-				s.days = f.Days
+			if f.Hours != nil {
+				s.hours = f.Hours
 			}
 			return s
 		}
@@ -77,21 +80,21 @@ func NewStats(fsys osfs.OS) *Stats {
 	return s
 }
 
-/* AddTurn 累加一轮用量并落盘（model 为本轮主模型名,按天按模型分桶）。 */
+/* AddTurn 累加一轮用量并落盘（model 为本轮主模型名,按小时按模型分桶）。 */
 func (s *Stats) AddTurn(u *types.Usage, model string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	day := s.dayLocked()
+	hour := s.hourLocked()
 	if u != nil {
 		s.total.Add(*u)
-		day.In += u.PromptTokens
-		day.Cache += u.CachedTokens
-		day.Out += u.CompletionTokens
+		hour.In += u.PromptTokens
+		hour.Cache += u.CachedTokens
+		hour.Out += u.CompletionTokens
 		if model != "" {
-			m := day.Models[model]
+			m := hour.Models[model]
 			if m == nil {
-				m = &ModelDayUsage{}
-				day.Models[model] = m
+				m = &ModelUsage{}
+				hour.Models[model] = m
 			}
 			m.In += u.PromptTokens
 			m.Cache += u.CachedTokens
@@ -99,53 +102,57 @@ func (s *Stats) AddTurn(u *types.Usage, model string) {
 			m.Turns++
 		}
 	}
-	day.Turns++
+	hour.Turns++
 	s.turns++
 	s.pruneLocked()
 	s.saveLocked()
 }
 
-func (s *Stats) dayLocked() *DayStats {
-	key := time.Now().Format("2006-01-02")
-	d := s.days[key]
-	if d == nil {
-		d = &DayStats{Models: map[string]*ModelDayUsage{}}
-		s.days[key] = d
+func (s *Stats) hourLocked() *HourStats {
+	key := time.Now().Format(statsKeyFY)
+	h := s.hours[key]
+	if h == nil {
+		h = &HourStats{Models: map[string]*ModelUsage{}}
+		s.hours[key] = h
 	}
-	return d
+	return h
 }
 
-/* pruneLocked 只保留最近 120 天（按天分桶只喂趋势图,更早的留在累计总量里）。 */
+/* pruneLocked 只保留最近 30 天的小时桶（更早的留在累计总量里）。 */
 func (s *Stats) pruneLocked() {
-	if len(s.days) <= 120 {
+	if len(s.hours) <= 30*24 {
 		return
 	}
-	cutoff := time.Now().AddDate(0, 0, -120).Format("2006-01-02")
-	for k := range s.days {
+	cutoff := time.Now().AddDate(0, 0, -30).Format(statsKeyFY)
+	for k := range s.hours {
 		if k < cutoff {
-			delete(s.days, k)
+			delete(s.hours, k)
 		}
 	}
 }
 
-/* DayView 日期 + 当日聚合（Daily 的下发条目）。 */
-type DayView struct {
-	Date string `json:"date"`
-	DayStats
+/* HourView 小时起点（UnixMilli）+ 该小时聚合（Hourly 的下发条目）。 */
+type HourView struct {
+	Start int64 `json:"start"`
+	HourStats
 }
 
-/* Daily 返回按日升序的用量序列（模型面板趋势图数据源）。 */
-func (s *Stats) Daily() []DayView {
+/* Hourly 返回按小时升序的用量序列（模型面板趋势图数据源）。 */
+func (s *Stats) Hourly() []HourView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	keys := make([]string, 0, len(s.days))
-	for k := range s.days {
+	keys := make([]string, 0, len(s.hours))
+	for k := range s.hours {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	out := make([]DayView, 0, len(keys))
+	out := make([]HourView, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, DayView{Date: k, DayStats: *s.days[k]})
+		t, err := time.ParseInLocation(statsKeyFY, k, time.Local)
+		if err != nil {
+			continue
+		}
+		out = append(out, HourView{Start: t.UnixMilli(), HourStats: *s.hours[k]})
 	}
 	return out
 }
@@ -186,7 +193,7 @@ func (s *Stats) saveLocked() {
 		FirstSeen: s.firstSeen.UnixMilli(),
 		Turns:     s.turns,
 		Total:     s.total,
-		Days:      s.days,
+		Hours:     s.hours,
 	}, "", "  ")
 	if err != nil {
 		return

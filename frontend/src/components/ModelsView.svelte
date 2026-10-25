@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { api, type ModelEntry, type ModelsConfig, type DayStats } from '../lib/api'
+  import { api, type ModelEntry, type ModelsConfig, type HourStats } from '../lib/api'
   import { store } from '../lib/store.svelte'
+  import * as echarts from 'echarts/core'
+  import { LineChart } from 'echarts/charts'
+  import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+  import { CanvasRenderer } from 'echarts/renderers'
+  import type { ECharts } from 'echarts/core'
+
+  echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
   /*
   「主模型 + 能力槽」三类：main（驱动 agent 循环的唯一对话模型，支持
@@ -58,67 +65,167 @@
     } catch {
       message = '模型数据加载失败（后端不可达）'
     }
-    daily = await api.getDailyStats().catch(() => [])
+    hourly = await api.getHourlyStats().catch(() => [])
     loaded = true
   })
 
-  /* 用量趋势（近 30 天,每模型一条折线 + 全部总量线;点图例显隐）：
-     入口是页头常驻按钮，弹窗展示——没有按天数据时也能看到入口与空态 */
-  let daily = $state<DayStats[]>([])
+  /* 用量趋势（按小时分桶，近 30 天保留；范围 24h/7d/30d）。入口是页头
+     常驻按钮，弹窗展示——没有数据时也能看到入口与空态。 */
+  let hourly = $state<HourStats[]>([])
   let statsOpen = $state(false)
-  let hiddenSeries = $state<string[]>([])
-  const statsWindow = $derived(daily.slice(-30))
+  const RANGES = [
+    { key: '24h', label: '24 小时', hours: 24 },
+    { key: '7d', label: '7 天', hours: 24 * 7 },
+    { key: '30d', label: '30 天', hours: 24 * 30 },
+  ] as const
+  let range = $state<(typeof RANGES)[number]['key']>('24h')
+  const rangeLabel = $derived(RANGES.find((r) => r.key === range)?.label ?? '')
+
+  /* 以当前整点为终点生成连续小时槽，缺数据补 0（空闲小时折线如实归零） */
+  const statsWindow = $derived.by(() => {
+    const now = new Date()
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime()
+    const hours = RANGES.find((r) => r.key === range)?.hours ?? 24
+    const byStart = new Map(hourly.map((h) => [h.start, h]))
+    const slots = []
+    for (let i = hours - 1; i >= 0; i--) {
+      const start = end - i * 3_600_000
+      const h = byStart.get(start)
+      slots.push({ start, in: h?.in ?? 0, out: h?.out ?? 0, cache: h?.cache ?? 0, turns: h?.turns ?? 0, models: h?.models })
+    }
+    return slots
+  })
   const statsTotals = $derived.by(() => {
     let inTok = 0
     let outTok = 0
     let cacheTok = 0
-    for (const d of statsWindow) {
-      inTok += d.in
-      outTok += d.out
-      cacheTok += d.cache
+    let turns = 0
+    for (const h of statsWindow) {
+      inTok += h.in
+      outTok += h.out
+      cacheTok += h.cache
+      turns += h.turns
     }
-    return { inTok, outTok, cacheTok, days: statsWindow.length }
+    return { inTok, outTok, cacheTok, turns }
   })
   const PALETTE = ['#58a6ff', '#3fb950', '#d29a63', '#bc8cff', '#f85149', '#39c5cf', '#e3b341']
+
+  /* 每模型一条折线 + 全部总量线；图例由 ECharts 接管显隐 */
   const trend = $derived.by(() => {
-    const days = daily.slice(-30)
-    if (days.length < 2) return null
-    const names = [...new Set(days.flatMap((d) => Object.keys(d.models ?? {})))]
+    if (!statsWindow.some((h) => h.in + h.out > 0)) return null
+    const names = [...new Set(statsWindow.flatMap((h) => Object.keys(h.models ?? {})))]
     const rows = [
-      { key: '__all__', name: '全部', color: 'var(--accent)', values: days.map((d) => d.in + d.out) },
+      { name: '全部', color: cssVar('--accent', '#2563eb'), width: 2.2, values: statsWindow.map((h) => h.in + h.out) },
       ...names.map((n, i) => ({
-        key: n,
         name: n,
         color: PALETTE[(i + 1) % PALETTE.length],
-        values: days.map((d) => (d.models?.[n]?.in ?? 0) + (d.models?.[n]?.out ?? 0)),
+        width: 1.5,
+        values: statsWindow.map((h) => (h.models?.[n]?.in ?? 0) + (h.models?.[n]?.out ?? 0)),
       })),
-    ].filter((r) => !hiddenSeries.includes(r.key))
-    const max = Math.max(1, ...rows.flatMap((r) => r.values))
-    const W = 640
-    const H = 150
-    const PL = 6
-    const PR = 6
-    const PT = 8
-    const PB = 20
-    const iw = W - PL - PR
-    const ih = H - PT - PB
-    const px = (i: number) => PL + (i / (days.length - 1)) * iw
-    const py = (v: number) => PT + ih - (v / max) * ih
+    ]
     return {
-      max,
-      firstDate: days[0].date.slice(5),
-      lastDate: days[days.length - 1].date.slice(5),
-      gridY: [0.25, 0.5, 0.75, 1].map((f) => PT + ih - f * ih),
-      lines: rows.map((r) => ({
-        ...r,
-        total: r.values.reduce((a, b) => a + b, 0),
-        path: r.values.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(''),
-      })),
+      rows,
+      totals: Object.fromEntries(rows.map((r) => [r.name, r.values.reduce((a, b) => a + b, 0)])),
     }
   })
-  const toggleSeries = (key: string) => {
-    hiddenSeries = hiddenSeries.includes(key) ? hiddenSeries.filter((k) => k !== key) : [...hiddenSeries, key]
+  let chartEl = $state<HTMLDivElement>()
+  let chart = $state<ECharts>()
+
+  function cssVar(name: string, fallback: string): string {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    return v || fallback
   }
+
+  const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+  const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c)
+
+  function buildOption(t: NonNullable<typeof trend>) {
+    const line = cssVar('--line', '#e8eaf1')
+    const faint = cssVar('--faint', '#a6acba')
+    const fg = cssVar('--fg', '#26272d')
+    return {
+      animationDuration: 200,
+      grid: { left: 46, right: 14, top: 16, bottom: 34 },
+      legend: {
+        type: 'scroll',
+        bottom: 0,
+        icon: 'roundRect',
+        itemWidth: 8,
+        itemHeight: 8,
+        itemGap: 12,
+        textStyle: { color: faint, fontSize: 10.5, fontFamily: 'ui-monospace, monospace' },
+        formatter: (name: string) => `${name} ${fmtTokens(t.totals[name] ?? 0)}`,
+      },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'line', lineStyle: { color: cssVar('--line-strong', '#43474f') } },
+        backgroundColor: cssVar('--bg', '#fbfcfe'),
+        borderColor: line,
+        textStyle: { color: fg, fontSize: 11, fontFamily: 'ui-monospace, monospace' },
+        formatter: (params: unknown) => {
+          const list = (Array.isArray(params) ? params : [params]) as { value?: [number, number]; marker?: string; seriesName?: string }[]
+          if (!list.length) return ''
+          const d = new Date(list[0].value?.[0] ?? 0)
+          const head = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+          const rows = list.map((p) => `${p.marker ?? ''}${escapeHtml(p.seriesName ?? '')} <b>${fmtTokens(p.value?.[1] ?? 0)}</b>`)
+          return [head, ...rows].join('<br/>')
+        },
+      },
+      xAxis: {
+        type: 'time',
+        axisLine: { lineStyle: { color: line } },
+        axisTick: { show: false },
+        axisLabel: { color: faint, fontSize: 10, hideOverlap: true },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        splitNumber: 4,
+        axisLabel: { color: faint, fontSize: 10, formatter: (v: number) => fmtTokens(v) },
+        splitLine: { lineStyle: { color: line } },
+      },
+      series: t.rows.map((r) => ({
+        name: r.name,
+        type: 'line',
+        showSymbol: false,
+        smooth: false,
+        emphasis: { focus: 'series' },
+        lineStyle: { width: r.width, color: r.color },
+        itemStyle: { color: r.color },
+        data: statsWindow.map((h, i) => [h.start, r.values[i]]),
+      })),
+    }
+  }
+
+  /* 弹窗打开时初始化图表；关闭（元素消失）即销毁 */
+  $effect(() => {
+    if (!statsOpen || !chartEl) return
+    const c = echarts.init(chartEl)
+    chart = c
+    return () => {
+      c.dispose()
+      if (chart === c) chart = undefined
+    }
+  })
+
+  /* 数据/范围变化时整图重设（notMerge，避免旧序列残留） */
+  $effect(() => {
+    const t = trend
+    const c = chart
+    if (!c) return
+    if (!t) {
+      c.clear()
+      return
+    }
+    c.setOption(buildOption(t), true)
+    c.resize()
+  })
+
+  onMount(() => {
+    const onResize = () => chart?.resize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  })
 
   /* persist 自动保存（所有变更即时提交，busy 时 409 提示等待本轮结束）。 */
   async function persist() {
@@ -253,7 +360,7 @@
       {#if saving}
         <span class="saving">保存中…</span>
       {/if}
-      <button class="stats-btn" onclick={() => (statsOpen = true)} title="查看按天用量趋势">
+      <button class="stats-btn" onclick={() => (statsOpen = true)} title="查看按小时用量趋势">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
           <path d="M4 19V5M4 19h16" />
           <path d="M8 16v-4M12 16V8M16 16v-6" />
@@ -305,40 +412,27 @@
     <header class="stats-head">
       <div>
         <h3>用量统计</h3>
-        <p class="stats-sub">近 30 天按天汇总输入/输出 tokens（输入含缓存命中），点图例显隐。</p>
+        <p class="stats-sub">最近 30 天按小时汇总输入/输出 tokens（输入含缓存命中），点图例显隐。</p>
       </div>
       <button class="stats-close" onclick={() => (statsOpen = false)} title="关闭">✕</button>
     </header>
+    <div class="range-bar">
+      {#each RANGES as r (r.key)}
+        <button class="range-btn" class:active={range === r.key} onclick={() => (range = r.key)}>{r.label}</button>
+      {/each}
+    </div>
     <div class="stats-sum">
-      <div class="stat"><span class="stat-k">活跃天数</span><span class="stat-v">{statsTotals.days}</span></div>
       <div class="stat"><span class="stat-k">输入</span><span class="stat-v">↑{fmtTokens(statsTotals.inTok)}</span></div>
       <div class="stat"><span class="stat-k">输出</span><span class="stat-v">↓{fmtTokens(statsTotals.outTok)}</span></div>
       <div class="stat"><span class="stat-k">缓存命中</span><span class="stat-v">⚡{fmtTokens(statsTotals.cacheTok)}</span></div>
+      <div class="stat"><span class="stat-k">轮数</span><span class="stat-v">{statsTotals.turns}</span></div>
     </div>
     {#if trend}
-      <svg class="trend" viewBox="0 0 640 150" preserveAspectRatio="none">
-        {#each trend.gridY as y}
-          <line x1="6" x2="634" y1={y} y2={y} class="grid" />
-        {/each}
-        {#each trend.lines as l}
-          <path d={l.path} stroke={l.color} />
-        {/each}
-        <text x="6" y="148" class="axis">{trend.firstDate}</text>
-        <text x="634" y="148" text-anchor="end" class="axis">{trend.lastDate}</text>
-        <text x="634" y="{trend.gridY[3] - 3}" text-anchor="end" class="axis">{fmtTokens(trend.max)}</text>
-      </svg>
-      <div class="legend">
-        {#each trend.lines as l (l.key)}
-          <button class="lg" onclick={() => toggleSeries(l.key)}>
-            <span class="sw" style:background={l.color}></span>
-            {l.name}<span class="lg-v">{fmtTokens(l.total)}</span>
-          </button>
-        {/each}
-      </div>
+      <div class="stats-chart" bind:this={chartEl}></div>
     {:else}
       <div class="stats-empty">
-        <p>{daily.length ? '至少需要两天的数据才能画出趋势线。' : '还没有按天用量记录。'}</p>
-        <p class="sub">发起几轮对话后，这里会自动按天汇总。</p>
+        <p>最近 {rangeLabel}还没有用量记录。</p>
+        <p class="sub">发起几轮对话后，这里会自动按小时汇总。</p>
       </div>
     {/if}
   </div>
@@ -498,56 +592,39 @@
     flex-direction: column;
     gap: 10px;
   }
-  .trend {
+  .range-bar {
+    display: flex;
+    gap: 6px;
+  }
+  .range-btn {
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 3px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .range-btn:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .range-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .stats-chart {
     width: 100%;
-    height: 150px;
+    height: 240px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--bg-soft);
-  }
-  .trend .grid {
-    stroke: var(--line);
-    stroke-width: 0.5;
-  }
-  .trend path {
-    fill: none;
-    stroke-width: 1.6;
-    stroke-linejoin: round;
-    stroke-linecap: round;
-  }
-  .trend .axis {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    fill: var(--faint);
-  }
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .lg {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid var(--line);
-    background: transparent;
-    border-radius: 999px;
-    padding: 3px 10px;
-    font-size: 11px;
-    font-family: var(--font-mono);
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .lg:hover {
-    background: var(--bg-soft);
-  }
-  .lg .sw {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-  }
-  .lg .lg-v {
-    color: var(--faint);
   }
   h2 {
     font-size: 13px;

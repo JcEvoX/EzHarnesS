@@ -35,6 +35,7 @@ export interface ToolBlockData {
   result: string
   err: string
   state: 'building' | 'running' | 'done' // building＝模型流式构造参数中
+  live?: string // 执行中的实时输出尾部（terminal 的 tool.output 增量累积）
   decision?: string // 人机决策徽标（已批准/已拒绝…，刷新后由 decisions.jsonl 重建）
 }
 
@@ -1643,6 +1644,18 @@ class AppStore {
               this.openDrawer(drawer)
             }, 1000),
           )
+        }
+        break
+      }
+      case 'tool.output': {
+        /* 工具执行中的实时输出（terminal 边跑边发）：按 callId 追加到
+           运行中的工具块，只留末尾 20000 字符（实时窗口只显示尾部） */
+        const d = ev.data || {}
+        if (!d.callId || !d.text) break
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        const t = bs.find((b) => b.kind === 'tool' && b.id === d.callId && b.state === 'running')
+        if (t && t.kind === 'tool') {
+          t.live = ((t.live || '') + d.text).slice(-20000)
         }
         break
       }

@@ -561,7 +561,7 @@ func (s *Session) dropSnapLocked(fork string) {
 */
 func replayable(t string) bool {
 	switch t {
-	case "model_chunk", "reasoning_chunk", "tool_chunk", "model_start",
+	case "model_chunk", "reasoning_chunk", "tool_chunk", "model_start", "tool.output",
 		"status.snapshot", "resource.change", "loop.guard", "turn_end", "loop_end", "iteration_end":
 		return false
 	}

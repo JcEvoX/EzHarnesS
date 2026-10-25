@@ -14,6 +14,14 @@
   const tail = $derived(data.state === 'building' ? data.args.slice(-600) : '')
   const nchars = $derived(data.args.length)
 
+  /* 执行中实时输出：固定高度内滚，随增量贴底（不改折叠状态，避免抖动） */
+  let liveEl = $state<HTMLPreElement>()
+  $effect(() => {
+    const text = data.live
+    if (!liveEl || !text) return
+    liveEl.scrollTop = liveEl.scrollHeight
+  })
+
   /* done 态折叠时结果首行摘要：不用展开即可大致知道干了什么 */
   const preview = $derived.by(() => {
     if (data.state !== 'done') return ''
@@ -51,6 +59,12 @@
       <span class="err-tag">error</span>
     {/if}
   </button>
+  {#if data.state === 'running' && data.live}
+    <div class="live">
+      <span class="live-label">实时输出</span>
+      <pre class="live-body" bind:this={liveEl}>{data.live}</pre>
+    </div>
+  {/if}
   {#if data.state === 'building'}
     <div class="dwrap" class:closed={!shown || !tail}>
       <div class="detail">
@@ -182,6 +196,30 @@
   }
   .preview + .err-tag {
     margin-left: 8px;
+  }
+  /* 实时输出：固定高度，增量只在内滚，不推动时间线 */
+  .live {
+    border-top: 1px solid var(--line);
+    background: var(--bg-soft);
+  }
+  .live-label {
+    display: block;
+    padding: 3px 10px 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .live-body {
+    height: 140px;
+    margin: 0;
+    padding: 2px 10px 8px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--muted);
   }
   pre.stream {
     font-family: var(--font-mono);
