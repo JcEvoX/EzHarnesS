@@ -37,11 +37,21 @@
   滞回：<30px 恢复跟随，>120px 脱离，中间保持，杜绝边界抖动。 */
   let selfScroll = false
   let lastUserScrollAt = 0
+  /* 快速跳转：向上滚给"回顶"，向下滚给"回底"；已在某端则改为去另一端 */
+  let lastTop = 0
+  let jumpDir = $state<'' | 'top' | 'bottom'>('')
 
   function follow() {
     if (!el) return
     selfScroll = true
     el.scrollTop = el.scrollHeight
+    lastTop = el.scrollTop
+  }
+
+  function jump(direction: 'top' | 'bottom') {
+    if (!el) return
+    if (direction === 'bottom') stick = true
+    el.scrollTo({ top: direction === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' })
   }
 
   function jumpTo(uid: number) {
@@ -179,13 +189,22 @@
     if (selfScroll) {
       /* 程序滚动（吸底回弹）：不动 stick，也别记成用户滚动 */
       selfScroll = false
+      lastTop = el.scrollTop
       updateActive()
       return
     }
     lastUserScrollAt = Date.now()
-    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+    const top = el.scrollTop
+    const dist = el.scrollHeight - top - el.clientHeight
+    const goingUp = top < lastTop
+    lastTop = top
     if (dist < 30) stick = true
     else if (dist > 120) stick = false
+    /* 不足一屏时没有可跳的距离 */
+    if (el.scrollHeight <= el.clientHeight + 24) jumpDir = ''
+    else if (top <= 24) jumpDir = 'bottom'
+    else if (dist <= 24) jumpDir = 'top'
+    else jumpDir = goingUp ? 'top' : 'bottom'
     updateActive()
   }
 
@@ -276,6 +295,21 @@
       {/each}
     </div>
   {/if}
+  {#if jumpDir}
+    <button class="jump" onclick={() => jump(jumpDir)}
+      title={jumpDir === 'top' ? '回到顶部' : '回到底部'}
+      aria-label={jumpDir === 'top' ? '回到顶部' : '回到底部'}>
+      {#if jumpDir === 'top'}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19V5M5 12l7-7 7 7" />
+        </svg>
+      {:else}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M19 12l-7 7-7-7" />
+        </svg>
+      {/if}
+    </button>
+  {/if}
 </div>
 
   <style>
@@ -285,6 +319,47 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+  /* 快速跳转：向上滚显示回顶、向下滚显示回底，已在端上则指向另一端 */
+  .jump {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 6;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--glass);
+    backdrop-filter: var(--glass-blur);
+    color: var(--muted);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+    transition:
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
+    animation: jump-in 140ms var(--ease-out) both;
+  }
+  .jump:hover {
+    color: var(--fg);
+    border-color: var(--line-strong);
+    background: var(--bg);
+  }
+  .jump svg {
+    width: 15px;
+    height: 15px;
+  }
+  @keyframes jump-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
   .timeline {
     flex: 1;
