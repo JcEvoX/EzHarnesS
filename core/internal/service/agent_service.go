@@ -330,7 +330,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		core.WithHooks(
 			sys,                  // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
 			traceHook,            // toolStart 首位：task/ask_user/load_skill 等 OnToolStart 内干活的 hook 返回 Skip 会短路后续 hook，观测层必须排在它们前面才有 span
-			hooks.NewLoopGuard(), // 循环护栏：trace 后、Skip 型 hook 前——被拒后反复重试同样计数；重复触发 <loop_guard> 提醒（不拦调用）
+			hooks.NewLoopGuard(maxIters), // 循环护栏：trace 后、Skip 型 hook 前——同签名重复先提醒后拦截,轮数压力线强收敛
 			contextfix.New(),
 			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir)), filetools.WithImageHandler(readImage)),
 			skilltool.New(s.Fsys, absSkillsDir(), disabledSkills, // 绝对目录：load_skill 返回的技能路径被模型直接拿去读写

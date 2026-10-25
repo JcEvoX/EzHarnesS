@@ -1394,10 +1394,10 @@ class AppStore {
     switch (ev.type) {
       case 'loop.guard': {
         // 循环护栏：时间线实时小字条（历史重建由 <loop_guard> 消息渲染，回放不重发）
-        const d = ev.data as { tool?: string; count?: number } | undefined
+        const d = ev.data as { tool?: string; count?: number; note?: string } | undefined
         if (!ev.forkId) {
-          const tool = d?.tool ? `工具 ${d.tool} ` : '任务'
-          this.blocks.push({ kind: 'note', uid: this.nuid(), text: `🛑 ${tool}重复调用 ${d?.count ?? '?'} 次，已提醒模型停止重复；无效可停止本轮` })
+          const text = d?.note || `工具 ${d?.tool ?? ''} 重复调用 ${d?.count ?? '?'} 次，已提醒模型停止重复；无效可停止本轮`
+          this.blocks.push({ kind: 'note', uid: this.nuid(), text: `🛑 ${text}` })
         }
         break
       }
