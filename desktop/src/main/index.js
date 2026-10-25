@@ -5,7 +5,7 @@ core 伺服的页面；托盘常驻；关闭语义（托盘隐藏/确认退出�
 用子窗口；共享浏览器（WebContentsView，browser 模块）。
 core 是唯一业务后端——本进程只做壳与桌面资产，不做业务。
 */
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, screen } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, screen, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -14,10 +14,15 @@ const { spawn } = require('child_process')
 const { startBrowserModule, overlayBrowser } = require('./browser')
 const { attachInspectMenu } = require('./inspect')
 
+/* 应用名先行确定：mac/Linux 的用户数据目录由 app.getPath('userData') 推导，
+   不设置时开发态会用 package.json 的 name（ezharness-desktop）。 */
+app.setName('ezharness')
+
 let mainWindow = null
 let tray = null
 let coreProc = null
 let quitting = false
+let coreReady = false
 let corePort = 5260
 /* 桌面宠物：透明置顶小窗，固定 288×288 一次到位（不动态扩缩）。默认
    整窗鼠标穿透（透明区点击归下层应用）。悬浮/穿透判定：主进程 60ms 轮询
@@ -45,6 +50,26 @@ function pageUrl(suffix) {
   return `${pageBase()}${suffix}${suffix.includes('?') ? '&' : '?'}token=${coreToken}`
 }
 
+/* failStart 打包环境没有终端可看：启动失败弹系统对话框，细节留在日志里。 */
+function failStart(msg) {
+  if (app.isPackaged) dialog.showErrorBox('ezharness 启动失败', msg)
+}
+
+/*
+installAppMenu 固定应用菜单：macOS 需要标准编辑快捷键（Cmd+C/V/A），但
+默认 View 菜单的 Cmd+＋/－ 会抢掉共享浏览器的缩放；Windows/Linux 无自定义
+菜单需求，直接去掉（标题栏自绘）。只保留 app/编辑/窗口三组。
+*/
+function installAppMenu() {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]),
+  )
+}
+
 /* coreFetch 主进程访问 core API，统一带头。 */
 function coreFetch(pathname, opts = {}) {
   return fetch(`http://127.0.0.1:${corePort}${pathname}`, {
@@ -53,14 +78,24 @@ function coreFetch(pathname, opts = {}) {
   })
 }
 
-/* killCore 结束 core 及其全部子进程（Windows 用 taskkill /T 树杀）。 */
+/* killCore 结束 core 及其全部子进程（Windows 用 taskkill /T 树杀）；
+   Unix 先 SIGTERM 让 core 走正常收尾（关终端 shell / MCP 子进程），
+   2 秒未退再 SIGKILL。 */
 function killCore() {
   if (!coreProc || coreProc.killed) return
   if (process.platform === 'win32') {
     spawn('taskkill', ['/PID', String(coreProc.pid), '/T', '/F'], { windowsHide: true })
-  } else {
-    coreProc.kill('SIGKILL')
+    return
   }
+  const pid = coreProc.pid
+  coreProc.kill('SIGTERM')
+  setTimeout(() => {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      /* 已退出 */
+    }
+  }, 2000).unref()
 }
 
 /* guardWebContents 导航守卫：只许停留在 core origin，外部目标转系统浏览器。 */
@@ -97,16 +132,62 @@ function coreDir() {
     : path.join(path.resolve(__dirname, '../../..'), 'release', 'dev')
 }
 
-/* 配置目录：portable 绿色版自解压到临时目录运行，配置与数据须锚定到
-exe 所在目录（PORTABLE_EXECUTABLE_DIR 由 portable 运行器注入） */
-function configDir() {
-  return process.env.PORTABLE_EXECUTABLE_DIR || coreDir()
+/*
+rootDir 是配置与数据根（ezharness.json + data/）：
+- 开发态：release/dev（与 core 产物同目录，dev.bat 的既有习惯）
+- Windows 打包：便携版锚定 exe 解压目录，安装版锚定安装目录的 resources/
+- macOS / Linux 打包：.app 可能被 Gatekeeper 移位、AppImage 是只读挂载，
+  写进应用目录不可靠，统一用系统用户数据目录（~/Library/Application Support/
+  ezharness、~/.config/ezharness）。EZHARNESS_ROOT 可显式覆盖。
+*/
+function rootDir() {
+  if (process.env.EZHARNESS_ROOT) return path.resolve(process.env.EZHARNESS_ROOT)
+  if (!app.isPackaged) return coreDir()
+  if (process.platform === 'win32') {
+    const base = process.env.PORTABLE_EXECUTABLE_DIR || coreDir()
+    // 装到 Program Files 等只读位置时回落到用户目录
+    return writableDir(base) ? base : app.getPath('userData')
+  }
+  return app.getPath('userData')
+}
+
+/* writableDir 目录是否可写（只读安装位置/AppImage 挂载点会 false）。 */
+function writableDir(dir) {
+  try {
+    fs.accessSync(dir, fs.constants.W_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/*
+loginPath 解析登录 shell 的 PATH：macOS 从 Finder/Dock 启动时只有 launchd
+的最小 PATH，go/node/python 等工具找不到。开发态继承终端环境，不用探测。
+*/
+function loginPath() {
+  if (process.platform !== 'darwin' || !app.isPackaged) return process.env.PATH
+  try {
+    const { execFileSync } = require('child_process')
+    const sh = process.env.SHELL || '/bin/zsh'
+    /* fish 的 $PATH 是列表，需显式用冒号连接 */
+    const expr = path.basename(sh) === 'fish' ? 'string join : $PATH' : 'printf %s "$PATH"'
+    const out = execFileSync(sh, ['-ilc', expr], {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const lines = out.trim().split(/\r?\n/).filter(Boolean)
+    return lines.length ? lines[lines.length - 1] : process.env.PATH
+  } catch {
+    return process.env.PATH
+  }
 }
 
 /* readCoreConfig 读配置目录 ezharness.json（缺失按默认端口） */
 function readCoreConfig() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(configDir(), 'ezharness.json'), 'utf8'))
+    return JSON.parse(fs.readFileSync(path.join(rootDir(), 'ezharness.json'), 'utf8'))
   } catch {
     return {}
   }
@@ -123,21 +204,42 @@ function startCore() {
     app.quit()
     return Promise.reject(new Error('core missing'))
   }
-  const args = []
-  if (process.env.PORTABLE_EXECUTABLE_DIR) {
-    args.push('--root', process.env.PORTABLE_EXECUTABLE_DIR)
+  const root = rootDir()
+  try {
+    fs.mkdirSync(root, { recursive: true })
+  } catch (err) {
+    console.error(`数据目录不可用: ${root}（${err.message}）`)
+    app.quit()
+    return Promise.reject(new Error('root dir unavailable'))
+  }
+  /* 打包产物经压缩/解压后可能丢可执行位（mac/Linux） */
+  if (process.platform !== 'win32') {
+    try {
+      fs.chmodSync(exe, 0o755)
+    } catch {
+      /* 只读挂载或权限不足：交给 spawn 报错 */
+    }
   }
   /* windowsHide：让 core 拿到一个隐藏控制台（非 Windows 忽略）——它 spawn 的
      控制台程序（terminal 的 cmd.exe、taskkill、MCP server）继承该控制台，否则
      Windows 会给每个子进程新开一个可见控制台，黑框一闪。stdio 仍走 inherit，
      dev 下 core 日志照常出现在启动它的控制台里 */
-  coreProc = spawn(exe, args, {
-    cwd: configDir(), stdio: 'inherit', windowsHide: true,
-    env: { ...process.env, EZHARNESS_TOKEN: coreToken },
+  coreProc = spawn(exe, ['--root', root], {
+    cwd: root, stdio: 'inherit', windowsHide: true,
+    env: { ...process.env, PATH: loginPath(), EZHARNESS_TOKEN: coreToken },
   })
-  coreProc.on('exit', () => {
+  coreProc.on('error', (err) => {
+    console.error('core 启动失败:', err.message)
+    failStart(`无法启动 core：${err.message}`)
+    quitting = true
+    app.quit()
+  })
+  coreProc.on('exit', (code) => {
     if (!quitting) {
       console.error('core 进程退出，桌面壳随之退出')
+      if (!coreReady) {
+        failStart(`core 启动失败（退出码 ${code}）。\n请确认数据目录可写：${root}\n日志：${path.join(root, 'data', 'logs')}`)
+      }
       quitting = true
       app.quit()
     }
@@ -151,11 +253,13 @@ function startCore() {
         headers: { 'X-EZ-Token': coreToken },
       }, (res) => {
         res.resume()
+        coreReady = true
         resolve()
       })
       req.on('error', () => {
         if (Date.now() - started > 30000) {
           console.error('core 健康检查超时（30s）')
+          failStart(`core 30 秒内未就绪。\n请确认端口 ${corePort} 未被占用、数据目录可写：${root}\n日志：${path.join(root, 'data', 'logs')}`)
           quitting = true
           app.quit()
           reject(new Error('health timeout'))
@@ -332,7 +436,9 @@ function createTray() {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, 'icon.png')
     : path.resolve(__dirname, '../../../assets/icon.png')
-  tray = new Tray(nativeImage.createFromPath(iconPath))
+  const icon = nativeImage.createFromPath(iconPath)
+  /* macOS 菜单栏图标按 18pt 绘制，用原图（512）会撑满整条菜单栏 */
+  tray = new Tray(process.platform === 'darwin' ? icon.resize({ width: 18, height: 18 }) : icon)
   tray.setToolTip('ezharness')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示主窗口', click: () => showMain() },
@@ -549,6 +655,7 @@ function registerIpc() {
 }
 
 app.whenReady().then(async () => {
+  installAppMenu()
   await startCore()
   createMainWindow()
   createTray()
@@ -557,10 +664,18 @@ app.whenReady().then(async () => {
   /* 悬浮球默认开：读 petEnabled !== false（coreSettings 失败返回 {} 时也开） */
   const settings = await coreSettings()
   if (settings.petEnabled !== false) petWindow = createPetWindow()
-}).catch((err) => console.error('启动失败:', err))
+}).catch((err) => {
+  console.error('启动失败:', err)
+  failStart(String(err?.message || err))
+})
 
 /* 托盘常驻：全部窗口关闭不退出（退出只走托盘菜单/关闭确认） */
 app.on('window-all-closed', () => {})
+
+/* macOS 点 Dock 图标恢复主窗（窗口是 hide 不是销毁，showMain 即可） */
+app.on('activate', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) showMain()
+})
 
 app.on('before-quit', () => {
   quitting = true

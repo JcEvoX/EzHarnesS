@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -155,6 +154,10 @@ func shellPath() string {
 	if sh := os.Getenv("SHELL"); sh != "" {
 		return sh
 	}
+	// 桌面会话未带 SHELL 时优先 bash（交互体验接近用户日常），再退到 sh
+	if _, err := os.Stat("/bin/bash"); err == nil {
+		return "/bin/bash"
+	}
 	return "/bin/sh"
 }
 
@@ -178,7 +181,14 @@ func (s *TerminalService) create(dir, name, desc, origin string) (*TermInfo, err
 	}
 	cmd := p.Command(shellPath())
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	// 覆盖而非追加 TERM：桌面启动的环境里可能是 dumb/空，追加会保留旧值
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "TERM=") {
+			env = append(env, e)
+		}
+	}
+	cmd.Env = append(env, "TERM=xterm-256color")
 
 	s.mu.Lock()
 	s.seq++
@@ -542,9 +552,17 @@ func (s *TerminalService) CloseTerm(id string) (string, error) {
 	return string(b), nil
 }
 
-/* remove 杀进程树并摘除会话,广播清单。 */
+/*
+	remove 杀进程树并摘除会话,广播清单。
+
+Unix 上 shell 开启作业控制后,前台/后台作业各自成组,单杀 shell 所在组收
+不到它们——关闭 PTY 主端,内核会向前台作业组发 SIGHUP,读泵随之退出。
+*/
 func (s *TerminalService) remove(sess *TermSession) {
 	killTree(sess.cmd)
+	if sess.pty != nil {
+		_ = sess.pty.Close()
+	}
 	s.mu.Lock()
 	delete(s.sessions, sess.ID)
 	s.mu.Unlock()
@@ -621,17 +639,6 @@ func (s *TerminalService) Close(id string) {
 	s.remove(sess)
 }
 
-func killTree(cmd *pty.Cmd) {
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F").Run()
-	} else {
-		_ = cmd.Process.Kill()
-	}
-}
-
 /* Shutdown 换代/停机收尾:关闭全部终端。 */
 func (s *TerminalService) Shutdown(_ time.Duration) {
 	s.mu.Lock()
@@ -643,5 +650,8 @@ func (s *TerminalService) Shutdown(_ time.Duration) {
 	s.mu.Unlock()
 	for _, sess := range sessions {
 		killTree(sess.cmd)
+		if sess.pty != nil {
+			_ = sess.pty.Close() // 换代不停进程:必须显式收掉 PTY,前台作业组靠 SIGHUP 退出
+		}
 	}
 }

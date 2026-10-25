@@ -64,13 +64,14 @@
     term.loadAddon(fit)
     term.loadAddon(uni)
     term.unicode.activeVersion = '11'
-    /* Ctrl+V 放行给浏览器原生 paste：xterm 默认把 ctrl+字母转成控制字符
-       （V→0x16）并吞掉 keydown，原生粘贴永不触发；返回 false 不拦，
+    /* Ctrl/Cmd+V 放行给浏览器原生 paste：xterm 默认把 ctrl+字母转成控制
+       字符（V→0x16）并吞掉 keydown，原生粘贴永不触发；返回 false 不拦，
        helper textarea 上的 paste 监听会接手走 onData。
-       Ctrl+C 有选区时放行原生 copy（xterm 的 copy 监听写剪贴板），
+       Ctrl/Cmd+C 有选区时放行原生 copy（xterm 的 copy 监听写剪贴板），
        无选区维持 \x03 中断——Windows Terminal 同款语义 */
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type !== 'keydown' || !ev.ctrlKey || ev.altKey || ev.metaKey) return true
+      /* Ctrl（Windows/Linux）与 Cmd（macOS）都放行给原生复制粘贴 */
+      if (ev.type !== 'keydown' || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return true
       const k = ev.key.toLowerCase()
       if (k === 'v') return false
       if (k === 'c' && term.hasSelection()) return false

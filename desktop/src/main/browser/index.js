@@ -229,9 +229,9 @@ function createTab(name, desc, origin, startURL) {
     return { action: 'deny' }
   })
   attachInspectMenu(wc)
-  /* Ctrl+＋/－/0 缩放（Ctrl+滚轮在 preload 里转发，见 preload/browser.js） */
+  /* Ctrl（Windows/Linux）/ Cmd（macOS）+＋/－/0 缩放（滚轮在 preload 转发） */
   wc.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return
     if (input.key === '=' || input.key === '+') {
       event.preventDefault()
       zoomTab(wc, 'in')
