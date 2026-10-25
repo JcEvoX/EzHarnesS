@@ -1,15 +1,9 @@
 <script lang="ts">
   import { store, type Block } from '../lib/store.svelte'
-  import { buildRows, TOOL_GROUP_MIN } from '../lib/rows'
+  import { buildRows } from '../lib/rows'
   import Logo from './Logo.svelte'
   import EzAvatar from './EzAvatar.svelte'
-  import MessageItem from './MessageItem.svelte'
-  import ToolBlock from './ToolBlock.svelte'
-  import ToolGroup from './ToolGroup.svelte'
-  import ForkCard from './ForkCard.svelte'
-  import DecisionCard from './DecisionCard.svelte'
-  import StatusTagCard from './StatusTagCard.svelte'
-  import ResChangeCard from './ResChangeCard.svelte'
+  import ThreadRows from './ThreadRows.svelte'
 
   let el: HTMLDivElement
   let stick = true
@@ -236,96 +230,14 @@
       </div>
     {/if}
     {#if !empty}
-      {#each rows as row, i (row.key)}
-      {#if row.kind === 'user'}
-        {@const ub = row.b}
-        <div class:reveal={store.batchIds.has(ub.uid)} data-uid={ub.uid}>
-          <MessageItem
-            text={ub.text}
-            images={ub.images}
-            files={ub.files}
-            fileRefs={ub.fileRefs}
-            role="user"
-            onFork={ub.owner && ub.msgIdx !== undefined ? () => void store.forkFrom(ub.owner!, ub.msgIdx!) : undefined}
-          />
-        </div>
-      {:else}
-        <div class="grp" class:leader={row.kind === 'leader'}>
-          {#if row.kind === 'group'}
-            {@const live = i === rows.length - 1}
-            <span class="tag">
-              <EzAvatar size={48} run={live && store.busy} animate={live}>ez</EzAvatar>
-            </span>
-          {/if}
-          <div class="gbody">
-          {#each row.segs as seg}
-          {#if seg.type === 'tools'}
-            {@const key = seg.blocks[0].uid}
-            {#if seg.blocks.length >= TOOL_GROUP_MIN}
-              <ToolGroup blocks={seg.blocks} open={openGroups.has(key)} onToggle={() => toggleGroup(key)} />
-            {:else}
-              {#each seg.blocks as b (b.uid)}
-                <div class:reveal={store.batchIds.has(b.uid)}>
-                  <ToolBlock data={b} />
-                </div>
-              {/each}
-            {/if}
-          {:else if seg.b.kind === 'assistant'}
-            {@const ab = seg.b}
-            <div class:reveal={store.batchIds.has(ab.uid)}>
-              <MessageItem
-                text={ab.text}
-                reasoning={ab.reasoning}
-                streaming={ab.streaming}
-                role="assistant"
-                bare
-                onFork={ab.owner && ab.msgIdx !== undefined && !ab.streaming ? () => void store.forkFrom(ab.owner!, ab.msgIdx!) : undefined}
-              />
-            </div>
-          {:else if seg.b.kind === 'fork'}
-            <div class:reveal={store.batchIds.has(seg.b.uid)}>
-              <ForkCard fork={store.forks[seg.b.forkId]} />
-            </div>
-          {:else if seg.b.kind === 'decision'}
-            <div id={`decision-${seg.b.id}`} class:reveal={store.batchIds.has(seg.b.uid)}>
-              <DecisionCard data={seg.b} />
-            </div>
-          {:else if seg.b.kind === 'status'}
-            <div class:reveal={store.batchIds.has(seg.b.uid)}>
-              <StatusTagCard data={seg.b.data} raw={seg.b.text} />
-            </div>
-          {:else if seg.b.kind === 'resourcechange'}
-            <div class:reveal={store.batchIds.has(seg.b.uid)}>
-              <ResChangeCard items={seg.b.items} />
-            </div>
-          {:else if seg.b.kind === 'note'}
-            <div class="note" class:reveal={store.batchIds.has(seg.b.uid)}>
-              <span class="line"></span>
-              {seg.b.text}
-              <span class="line"></span>
-            </div>
-          {:else if seg.b.kind === 'imgload'}
-            <div class="imgload" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
-              {#each seg.b.paths as p, i (p)}
-                {@const snap = seg.b.images?.[i]}
-                <img src={snap ? `data:${snap.mimeType};base64,${snap.data}` : `/api/workspace/file?path=${encodeURIComponent(p)}`} alt={p} loading="lazy"
-                  onclick={() => store.openFileAt(p)}
-                  onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-                  title={`${p}（点击打开文件，可编辑保存写回；缩略图为当时进上下文的快照）`} />
-              {/each}
-              <span class="label">已加载上下文</span>
-            </div>
-          {:else if seg.b.kind === 'endtick'}
-            <div class="endtick" class:reveal={store.batchIds.has(seg.b.uid)} title={seg.b.title}>
-              <span class="dot" class:warn={seg.b.icon === '⚠'}>{seg.b.icon}</span>
-              <span class="rtext">{seg.b.title}</span>
-            </div>
-          {/if}
-          {/each}
-          </div>
-        </div>
-      {/if}
-      {/each}
+      <ThreadRows
+        {rows}
+        liveBusy={store.busy}
+        reveal={store.batchIds}
+        avatarOutside
+        {openGroups}
+        onToggleGroup={toggleGroup}
+      />
     {/if}
     {#if store.retryInfo}
       <div class="thinking retry" title={store.retryInfo.err}>
@@ -379,17 +291,14 @@
     overflow-y: auto;
     overflow-x: hidden; /* 会话区不要横向滚动条（长串断行后此为兜底） */
     min-height: 0;
-    /* 滚动条槽位常驻且双侧对称（both-edges）：文本宽度恒定，
-    且消息流中心与下方输入框（居中于全宽）对齐——单侧槽会让内容
-    整体左偏半个槽宽，输入框看起来左宽右窄 */
-    scrollbar-gutter: stable both-edges;
     overscroll-behavior: contain;
   }
   /* 轮次导航：默认仅一列刻度线垂直居中贴右缘，悬浮展开文字卡片。
      高度封顶（约 20 条刻度），超出滚动——滚动条仅悬浮时显形 */
   .turnnav {
     position: absolute;
-    right: 10px;
+    /* 贴内容列右缘（主列已满宽，直接 right:10 会跑到窗口最右压住悬浮列） */
+    right: max(10px, calc(50% - 380px));
     top: 50%;
     transform: translateY(-50%);
     z-index: 4;
@@ -448,7 +357,7 @@
     flex: 0 1 auto;
     min-width: 0;
     max-width: 200px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
     overflow: hidden;
@@ -462,7 +371,7 @@
   }
   .turnnav button.cur .tt {
     color: var(--fg);
-    font-weight: 550;
+    font-weight: 500;
   }
   .turnnav .tick {
     flex: none;
@@ -480,7 +389,8 @@
   .inner {
     max-width: 780px;
     margin: 0 auto;
-    padding: 40px 48px 24px;
+    /* 左右 58：48 给头像、10 是头像与正文的间隙 */
+    padding: 40px 58px 24px;
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -493,7 +403,7 @@
     justify-content: center;
     gap: 8px;
     overflow: hidden;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     font-family: var(--font-mono);
     transition: height 0.12s var(--ease-out), opacity 0.12s var(--ease-out);
@@ -521,25 +431,11 @@
   .ptext {
     white-space: nowrap;
   }
-  /* 拉出的上一会话内容：自上而下展开 */
-  .reveal {
-    animation: reveal-down 0.36s var(--ease-out) both;
-  }
-  @keyframes reveal-down {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
   .thinking {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     padding: 2px 0;
   }
@@ -593,116 +489,7 @@
   }
   .hint {
     margin-top: 8px;
-    font-size: 11.5px;
-    font-family: var(--font-mono);
+    font-size: var(--font-size-ui);
     color: var(--faint);
-  }
-  .note {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    font-size: 11.5px;
-    color: var(--faint);
-    font-family: var(--font-mono);
-    padding: 4px 0;
-    animation: float-in var(--dur-fast) var(--ease-out) both;
-  }
-  .note .line {
-    flex: 1;
-    height: 1px;
-    background: var(--line);
-  }
-  /* 回复组：一个用户输入对应一个头像，组内过程块紧凑排列（间隙 7px）。
-  --proc-indent 是过程卡缩进基准：组内 0（对齐正文），未设处回落 40px
-  （ForkPanel 等旧上下文保持原缩进） */
-  .grp {
-    display: flex;
-    gap: 14px;
-    align-items: flex-start;
-  }
-  .grp .tag {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: var(--av-size);
-    height: var(--av-size);
-    margin-top: 1px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    border: 1px solid var(--line-strong);
-    border-radius: 10px;
-    background: var(--bg);
-    color: var(--fg);
-  }
-  /* 表情图上屏后去掉徽章底：头像直接露出（回退 ez 字样仍是徽章）。
-  img 来自子组件，:global 逃逸作用域才能命中 */
-  .grp .tag:has(> :global(img)) {
-    border-color: transparent;
-    background: transparent;
-  }
-  .gbody {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    padding-top: 2px;
-  }
-  .grp:not(.leader) .gbody {
-    --proc-indent: 0px;
-  }
-  /* 引导组：首 user 之前的系统记录，无头像平铺（缩进回落 40px 同旧观感） */
-  .grp.leader .gbody {
-    gap: 10px;
-  }
-  /* 轮次收尾行：靠左紧凑「图标 + 结束原因」，宽约 30% 截断，悬浮看全文 */
-  .endtick {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    max-width: 30%;
-    padding-left: calc(var(--proc-indent, 40px) + 8px);
-    font-size: 11px;
-    color: var(--faint);
-    animation: float-in var(--dur-fast) var(--ease-out) both;
-  }
-  /* <image_loaded> 图片消息：缩略图小行（read_file 读图已进上下文） */
-  .imgload {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding-left: calc(var(--proc-indent, 40px) + 8px);
-    font-size: 11px;
-    color: var(--faint);
-    animation: float-in var(--dur-fast) var(--ease-out) both;
-  }
-  .imgload img {
-    width: 22px;
-    height: 22px;
-    object-fit: cover;
-    border-radius: 5px;
-    border: 1px solid var(--line);
-    cursor: zoom-in;
-  }
-  .imgload .label {
-    white-space: nowrap;
-  }
-  .endtick .dot {
-    flex: none;
-    font-size: 10px;
-    line-height: 1;
-    color: var(--line-strong);
-    user-select: none;
-  }
-  .endtick .dot.warn {
-    color: #f0883e;
-  }
-  .endtick .rtext {
-    flex: 0 1 auto;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 </style>

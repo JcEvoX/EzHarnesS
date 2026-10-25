@@ -49,6 +49,7 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 
 		api.GET("/bootstrap", c.Session.Bootstrap)
 		api.GET("/status", c.Session.Status)
+		api.GET("/stats/hourly", c.Session.HourlyStats)
 
 		api.GET("/sessions/:id", c.Session.History)
 		api.GET("/sessions/:id/prev", c.Session.Prev)
@@ -78,6 +79,7 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.DELETE("/memory/project/:id", c.Settings.DeleteProject)            // 删除项目
 		api.POST("/memory/pending/:id/decide", c.Settings.DecideMemoryPending) // 待确认记忆操作：确认应用/取消丢弃
 		api.POST("/memory/skills", c.Settings.CreateSkill)                     // zip base64 新建技能
+		api.GET("/memory/skills/:id", c.Settings.GetSkill)                     // 技能详情（SKILL.md 正文）
 		api.DELETE("/memory/skills/:id", c.Settings.DeleteSkill)               // 删除技能目录
 		api.POST("/memory/skills/:id/enabled", c.Settings.ToggleSkill)         // 启停技能
 
@@ -181,6 +183,12 @@ func serveStatic(r *gin.Engine, dist fs.FS) {
 				fileServer.ServeHTTP(g.Writer, g.Request)
 				return
 			}
+		}
+		/* assets 是构建产物：缺失即 404。回退 index.html 会让模块请求拿到
+		   text/html，动态 import 只报模糊的 "Failed to fetch" */
+		if strings.HasPrefix(path, "assets/") {
+			g.Status(http.StatusNotFound)
+			return
 		}
 		g.Request.URL.Path = "/"
 		fileServer.ServeHTTP(g.Writer, g.Request)

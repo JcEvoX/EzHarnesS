@@ -1,0 +1,79 @@
+# 三平台自动构建：推 v* 标签即出 win/linux/macos 安装包并附到 GitHub Release；
+# 也可手动触发（workflow_dispatch），产物进 Artifacts。
+# 版本单源 script/version.yaml；win 本地构建走 script/build.bat。
+name: build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win
+          - os: ubuntu-latest
+            target: --linux
+          - os: macos-latest
+            target: --mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(sed -n 's/^version:[[:space:]]*//p' script/version.yaml)" >> "$GITHUB_OUTPUT"
+
+      - name: Sync version into package.jsons
+        run: |
+          node -e "const fs=require('fs');const v='${{ steps.ver.outputs.version }}';for(const [f,p] of [['frontend/package.json','v'],['desktop/package.json','']]){const j=JSON.parse(fs.readFileSync(f));j.version=p+v;fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')}"
+
+      - name: Build frontend
+        run: cd frontend && npm ci && npm run build
+
+      - name: Embed dist into core
+        shell: bash
+        run: rm -rf core/web/dist && cp -r frontend/dist core/web/dist
+
+      - name: Build core
+        shell: bash
+        run: |
+          cd core
+          mkdir -p ../release/dev
+          go build -o ../release/dev/ezharness-core.exe .
+
+      - name: Package desktop
+        run: |
+          cd desktop
+          npm ci
+          npx electron-builder ${{ matrix.target }} --config.directories.output=../release/v${{ steps.ver.outputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezharness-v${{ steps.ver.outputs.version }}-${{ runner.os }}
+          path: release/v${{ steps.ver.outputs.version }}/*
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/v${{ steps.ver.outputs.version }}/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte'
   import type { DecisionData } from '../lib/store.svelte'
+  import ToolFace from './ToolFace.svelte'
 
   let { data }: { data: DecisionData } = $props()
 
@@ -8,14 +9,6 @@
   /* 决策完成后自动折叠成一行；点头部可展开回看详情（open 用户操作优先） */
   let open = $state<boolean | null>(null)
   const collapsed = $derived(data.resolved && open !== true)
-
-  function pretty(raw: string): string {
-    try {
-      return JSON.stringify(JSON.parse(raw), null, 2)
-    } catch {
-      return raw
-    }
-  }
 
   function approve(yes: boolean) {
     void store.decideApprove(data, yes, yes ? '' : input)
@@ -42,7 +35,7 @@
   >
     {#if data.dtype === 'approve'}
       <span class="icon approve">?</span>
-      <span class="title">审批请求</span>
+      <span class="title">{data.name === 'plan' ? '计划待批准' : '审批请求'}</span>
     {:else if data.dtype === 'mcp-auth'}
       <span class="icon auth">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -85,7 +78,7 @@
     {:else}
       <div class="call">
         <span class="tool-name">{data.name}</span>
-        <pre>{pretty(data.args)}</pre>
+        <ToolFace name={data.name} raw={data.args} />
       </div>
     {/if}
   </div>
@@ -156,7 +149,7 @@
   .fold-arrow {
     margin-left: auto;
     color: var(--faint);
-    font-size: 10px;
+    font-size: var(--font-size-small);
   }
   .icon {
     display: grid;
@@ -164,7 +157,7 @@
     width: 18px;
     height: 18px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-weight: 700;
     border: 1px solid var(--line-strong);
     border-radius: 5px;
@@ -178,17 +171,17 @@
     border-color: color-mix(in srgb, var(--accent) 40%, var(--line-strong));
   }
   .title {
-    font-size: 13px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
   }
   .from {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent);
   }
   .resolution {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     font-family: var(--font-mono);
     max-width: 320px;
@@ -200,7 +193,7 @@
     padding: 12px 14px;
   }
   .question {
-    font-size: 14.5px;
+    font-size: var(--font-size-body);
     white-space: pre-wrap;
   }
   .question b {
@@ -209,7 +202,7 @@
   }
   .err {
     margin-top: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: #dc2626;
     word-break: break-word;
   }
@@ -225,8 +218,8 @@
     border-radius: 999px;
     background: transparent;
     padding: 6px 16px;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--font-size-section);
+    font-weight: 500;
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -243,17 +236,8 @@
   }
   .tool-name {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     font-weight: 700;
-  }
-  .content pre {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-all;
-    max-height: 200px;
-    overflow-y: auto;
   }
   .actions {
     display: flex;
@@ -275,7 +259,7 @@
     border-radius: 8px;
     padding: 7px 10px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     outline: none;
     transition: border-color var(--dur-fast) var(--ease-out);
   }
@@ -287,8 +271,8 @@
     background: transparent;
     border-radius: 8px;
     padding: 7px 14px;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--font-size-section);
+    font-weight: 500;
     transition:
       background var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out);

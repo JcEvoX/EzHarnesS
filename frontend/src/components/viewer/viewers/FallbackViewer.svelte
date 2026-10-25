@@ -29,7 +29,7 @@
     border-radius: 12px;
     background: var(--bg);
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     padding: 0 24px;
     text-align: center;
   }
@@ -38,12 +38,12 @@
   }
   .path {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     word-break: break-all;
   }
   .hint {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
 </style>

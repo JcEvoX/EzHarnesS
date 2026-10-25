@@ -1,8 +1,9 @@
 /*
 记忆树目录布局与条目式存储（注入走 buildSystemBase 的 <memory> 段）：
-user/soul 是条目集合（数据库式，唯一键 ID 一条条），项目记忆 = 索引
-（projects.json）+ 每项目一个全文 md。agent 侧读写只能走 memory 工具，
-用户侧在记忆页结构化编辑——两端共用本存储层。
+user（用户信息）/soul（agent 的灵魂：用户对 agent 的期望）是条目集合
+（数据库式，唯一键 ID 一条条），项目记忆 = 索引（projects.json）+ 每项目
+一个全文 md。agent 侧读写只能走 memory 工具，用户侧在记忆页结构化编辑
+——两端共用本存储层。
 */
 package hooks
 
@@ -24,7 +25,7 @@ const (
 	LongtermDir  = "memory/longterm"
 	SkillsDir    = "memory/skills"
 	UserJson     = LongtermDir + "/user.json"     // 用户个人信息（条目式）
-	SoulJson     = LongtermDir + "/soul.json"     // agent 工作习惯（条目式）
+	SoulJson     = LongtermDir + "/soul.json"     // agent soul（用户对 agent 的期望，条目式）
 	ProjectsJson = LongtermDir + "/projects.json" // 项目索引（条目式）
 )
 

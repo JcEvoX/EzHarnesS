@@ -125,7 +125,6 @@
     gap: 6px;
     padding: 14px 10px;
     background: var(--bg-soft);
-    border-right: 1px solid var(--line);
     overflow: hidden;
     transition: width var(--dur-in) var(--ease-out);
   }
@@ -146,8 +145,7 @@
     gap: 10px;
   }
   .brand {
-    font-family: var(--font-mono);
-    font-size: 13.5px;
+    font-size: var(--font-size-section);
     font-weight: 700;
     color: var(--fg);
     white-space: nowrap;
@@ -195,7 +193,7 @@
     color: var(--fg-invert);
   }
   .label {
-    font-size: 13px;
+    font-size: var(--font-size-section);
     max-width: 0;
     opacity: 0;
     overflow: hidden;
@@ -221,7 +219,7 @@
     background: var(--line);
   }
   .group-title {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;

@@ -88,6 +88,10 @@
   /* 无独立底色与分割线：标签条与内容同底，只有标签自身是胶囊 */
   .tabbar {
     flex: none;
+    /* 主列已占满内容区：标签条自身限宽居中，与消息流/输入框同列 */
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto;
     padding: 5px 10px;
   }
   /* 无标签不渲染（也不显示底线），但根元素常在以回报高度 0 */
@@ -107,11 +111,11 @@
     gap: 6px;
     flex: 0 1 auto;
     min-width: 72px; /* 名字至少留约 3 字，收不到只剩点+叉的残骸 */
-    border: 1px solid var(--line);
-    background: var(--bg);
+    border: none;
+    background: transparent;
     border-radius: 8px;
-    padding: 3px 5px 3px 9px;
-    font-size: 11.5px;
+    padding: 4px 5px 4px 9px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     max-width: 190px;
     transition:
@@ -119,11 +123,10 @@
       color var(--dur-fast) var(--ease-out);
   }
   .tab:hover {
-    background: var(--bg-soft);
+    background: color-mix(in srgb, var(--bg-soft) 60%, transparent);
     color: var(--fg);
   }
   .tab.active {
-    border-color: var(--line-strong);
     background: var(--bg-soft);
     color: var(--fg);
     font-weight: 600;
@@ -146,7 +149,7 @@
     animation: breathe 1.6s ease-in-out infinite;
   }
   .wait {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: #e67e22;
     flex: none;
   }
@@ -173,11 +176,11 @@
     place-items: center;
     width: 22px;
     height: 22px;
-    border: 1px solid var(--line);
-    background: var(--bg);
+    border: none;
+    background: transparent;
     border-radius: 7px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     line-height: 1;
   }
   .new:hover {
@@ -201,7 +204,7 @@
     background: transparent;
     text-align: left;
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     border-radius: 6px;
   }

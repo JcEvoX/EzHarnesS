@@ -102,20 +102,23 @@ func allModelEntries(m domain.ModelsConfig) []domain.ModelEntry {
 	return out
 }
 
-/* findModelEntry 按名在三槽里找条目（不限启用与否）。 */
+/* findModelEntry 按名在三槽里找条目（已关闭的视同不存在——task 分身只能选可用清单内的模型）。 */
 func findModelEntry(m domain.ModelsConfig, name string) *domain.ModelEntry {
 	all := allModelEntries(m)
 	for i := range all {
-		if all[i].Name == name {
+		if all[i].Name == name && !all[i].Disabled {
 			return &all[i]
 		}
 	}
 	return nil
 }
 
-/* modelFactoryOf 产出 task 分身的模型工厂：按名取条目（三槽任意）现造 provider，
+/*
+	modelFactoryOf 产出 task 分身的模型工厂：按名取条目（三槽任意）现造 provider，
+
 未知名字返回 nil（task 把"unknown model"作为工具结果回传，模型自纠）。
-包级函数而非内联闭包：Assemble 里 provider 是局部变量，会遮蔽 provider 包名。 */
+包级函数而非内联闭包：Assemble 里 provider 是局部变量，会遮蔽 provider 包名。
+*/
 func modelFactoryOf(hub *domain.Hub) func(string) provider.ModelProvider {
 	return func(name string) provider.ModelProvider {
 		if e := findModelEntry(hub.ModelsSnapshot(), name); e != nil {
@@ -145,8 +148,11 @@ func absSkillsDir() string {
 	return filepath.ToSlash(abs)
 }
 
-/* renderMemoryItems 渲染条目集合为 "- [id] text（更新于 YYYY-MM-DD）" 行
-（按更新时间新→旧排序；空集合给占位符）。 */
+/*
+	renderMemoryItems 渲染条目集合为 "- [id] text（更新于 YYYY-MM-DD）" 行
+
+（按更新时间新→旧排序；空集合给占位符）。
+*/
 func renderMemoryItems(items []hooks.MemoryItem) string {
 	if len(items) == 0 {
 		return "（暂无）"
@@ -163,9 +169,12 @@ func renderMemoryItems(items []hooks.MemoryItem) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-/* memoryUpdatedHint 渲染条目的更新日期（零值给空）。给绝对日期而非"距今
+/*
+	memoryUpdatedHint 渲染条目的更新日期（零值给空）。给绝对日期而非"距今
+
 X"：system 段每 session 组装一次并固化，相对时长会随对话进行越变越不准，
-绝对日期永不漂移，由模型自己与每轮 <agent_status> 的当前时间比对。 */
+绝对日期永不漂移，由模型自己与每轮 <agent_status> 的当前时间比对。
+*/
 func memoryUpdatedHint(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -271,6 +280,11 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	// 可选模型清单（与 skill/mcp 同构）：新增/移除随资源变更进上下文；
 	// 清单本体在 system 的 <models> 固定段（session 组装时存储）
 	remindHook.SetModelList(func() []hooks.StatusMcp { return modelStatusList(a.Hub.ModelsSnapshot()) })
+	// 启停基线：停用名单与启用清单互补，区分「新增/移除」与「启用/停用」
+	remindHook.SetMcpOff(func() []string { return mcpOffList(s.Fsys) })
+	remindHook.SetModelOff(func() []string { return modelOffNames(a.Hub.ModelsSnapshot()) })
+	// 计划按分支根持久化（compact 换代不丢），每轮注入 agent_status
+	remindHook.SetPlanRoot(s.RootID)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
 		window*st.TrimPercent/100,             // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
@@ -312,6 +326,21 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		OneShotInvoke))
 	// memory：长期记忆唯一写入通道（提案制，用户在记忆页审阅）
 	agentTools = append(agentTools, tools.Memory(s.Fsys))
+	// 快应用：清单随 <apps> 段、增删改进 <resource_change>（与技能同构）；工具只读调用文档
+	agentTools = append(agentTools, tools.LoadApp(s.Fsys))
+	// plan：会话级任务计划（落盘 + plan.update 事件驱动输入框上方进度面板）
+	agentTools = append(agentTools, tools.Plan(s.Fsys, s.RootID, func(p *hooks.SessionPlan) {
+		var data json.RawMessage
+		if p != nil {
+			if b, err := json.Marshal(p); err == nil {
+				data = b
+			}
+		}
+		if data == nil {
+			data = json.RawMessage("null")
+		}
+		s.Publish(domain.Event{Type: "plan.update", Ts: time.Now().UnixMilli(), Data: data})
+	}))
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
 	}
@@ -319,7 +348,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
-		"model_call", "memory", "term_tab", "term_action",
+		"model_call", "memory", "plan", "load_app", "term_tab", "term_action",
 		"browser_tab", "browser_action",
 	}
 	mcpHook, mcpAuthCh := NewMcpHook(context.Background(), s.Fsys, a.McpRouter, a.McpAuth)
@@ -328,9 +357,9 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		core.WithToolWarp(toolarg.Warp(s.Fsys), limit.Warp(4), safetool.Warp()),
 		core.WithTools(agentTools...),
 		core.WithHooks(
-			sys,                  // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
-			traceHook,            // toolStart 首位：task/ask_user/load_skill 等 OnToolStart 内干活的 hook 返回 Skip 会短路后续 hook，观测层必须排在它们前面才有 span
-			hooks.NewLoopGuard(), // 循环护栏：trace 后、Skip 型 hook 前——被拒后反复重试同样计数；重复触发 <loop_guard> 提醒（不拦调用）
+			sys,                          // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
+			traceHook,                    // toolStart 首位：task/ask_user/load_skill 等 OnToolStart 内干活的 hook 返回 Skip 会短路后续 hook，观测层必须排在它们前面才有 span
+			hooks.NewLoopGuard(maxIters), // 循环护栏：trace 后、Skip 型 hook 前——同签名重复先提醒后拦截,轮数压力线强收敛
 			contextfix.New(),
 			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir)), filetools.WithImageHandler(readImage)),
 			skilltool.New(s.Fsys, absSkillsDir(), disabledSkills, // 绝对目录：load_skill 返回的技能路径被模型直接拿去读写
@@ -593,7 +622,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 	var b strings.Builder
 	b.WriteString("你是 ezharness——一个持续陪伴用户的设备级 agent，可全权操作本机文件与命令。" +
 		"能用工具就用工具，回答简洁。" +
-		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动（需要后端进程的见 quick-app 技能）。" +
+		"用户需要小工具或网页时用 save_app 生成为快应用，用户可一键启动（需要后端进程的见 quick-app 技能）；已有快应用先看 <apps>，使用前 load_app 读调用文档。" +
 		"重要的用户偏好与事实用 memory 工具随手读写长期记忆（结构见 <memory> 块）。" +
 		"接任务先看 <action> 行动准则；给用户的可点击入口与输出格式遵守 <output>。")
 	if st.SystemExtra != "" {
@@ -639,12 +668,12 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		"与当前时间（每轮见 <agent_status> 的「当前时间」）比对，间隔过久的当作可能已漂移的旧信息；" +
 		"项目详情按 id 用 memory 工具 project-read 读取）\n" +
 		"# user（用户个人信息）\n" + renderMemoryItems(userItems) +
-		"\n# soul（agent 工作习惯）\n" + renderMemoryItems(soulItems) +
+		"\n# soul（你的灵魂：用户对你的期望——性格、表达方式、工作方式与协作原则；项目相关的硬性约束写项目记忆）\n" + renderMemoryItems(soulItems) +
 		"\n# project（项目索引：id — 名称 — 描述）\n" + strings.TrimSuffix(projLines.String(), "\n") +
 		"\n# 读写纪律（现行，优先级最高）\n" +
 		"# - 记忆只能用 memory 工具读写：条目 add/update/remove（target=user|soul，id 用上面的标注），项目 project-save/project-remove/project-read；不可用文件工具读写 memory/ 下任何文件\n" +
 		"# - 提交的变更先存待确认区，用户在通知栏确认后才生效（取消即丢弃）：同一条信息不要重复提交，生效与否以下一轮 resource_change 为准\n" +
-		"# - 发现值得长期保留的用户信息或工作习惯随手提交；过时条目随手提交 remove，宁精勿杂\n" +
+		"# - 发现值得长期保留的用户信息、或用户对你（soul）的要求随手提交；过时条目随手提交 remove，宁精勿杂\n" +
 		"# - 归档时系统也会自动生成记忆修改方案（同样待用户确认）\n" +
 		"\n</memory>")
 	skills := builtinskill.Skills()
@@ -685,6 +714,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		}
 		b.WriteString("\n</skills>")
 	}
+	b.WriteString(renderAppsSection(ctx, fsys))
 	// 可用模型清单（固定段，session 组装时存储；与 skill/mcp 同构）：task/model_call
 	// 的 model 参数取值以此为准；增删随 <resource_change> 告知，主模型每轮见 <agent_status>
 	if ms := modelStatusList(mc); len(ms) > 0 {
@@ -729,7 +759,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		"3. 执行工具的选择：\n" +
 		"- 本机一次性命令（构建、查询、跑脚本）用 terminal——它会阻塞到命令结束（或超时）；长任务（下载、构建、要 sleep 的活）就用它同步跑完。\n" +
 		"- 需要交互式应答、长驻程序、或希望用户实时看到过程时，用共享终端：term_tab 管标签（new 新建 / list 查全部含用户手开的 / close 关闭），term_action action=send 发命令（也用于应答交互或发中断信号 \\u0003）——它等输出静默后直接把这次命令的输出返回，短命令一条调用就拿到结果，长驻命令到点先返回、后续用 action=read 读末尾 N 行（默认 100，读多少次都是同一份）；长驻程序运行中或任务收尾时把终端入口交付给用户；\n" +
-		"- 检索网页、查资料、操作网页用共享浏览器（真实 Chromium，用户实时共见可直接接管；browser_tab 管标签，open 自动展开浏览器页、首次使用会自动下载 Chromium 需等待；browser_action 只有七个动作——navigate 打开网址、read 读正文/DOM/可交互元素/链接/子帧、screenshot 截图（默认视口，可整页或只截某元素）、eval 页面内执行 JS（**页面里的点击/填值/滚动/断言都走它**：__ezOne(选择器) 深查询穿透 shadow DOM 与同源 iframe，没有 click/type 这类单独动作，自己写 JS 做，别靠截图估坐标）、console 读控制台、network 读网络请求、upload 传文件；读不到内容时先 eval 里 await 一下或轮询，再 read。原生 alert/confirm 一律自动取消并记进控制台；与 terminal（本机命令）互补。\n" +
+		"- 检索网页、查资料、操作网页用共享浏览器（真实 Chromium，用户实时共见可直接接管；browser_tab 管标签，open 自动展开浏览器页、首次使用会自动下载 Chromium 需等待；browser_action 只有七个动作——navigate 打开网址、read 读正文/DOM/可交互元素/链接/子帧、screenshot 截图（默认视口，可整页或只截某元素）、eval 页面内执行 JS（**页面里的点击/填值/滚动/断言都走它**：__ezOne(选择器) 深查询穿透 shadow DOM 与同源 iframe，没有 click/type 这类单独动作，自己写 JS 做，别靠截图估坐标；脚本自动按 async 包裹——顶层可直接 await，末尾表达式自动作为返回值（同浏览器 console），也可显式 return，真实异常会原样回传）、console 读控制台、network 读网络请求、upload 传文件；读不到内容时先 eval 里 await 一下或轮询，再 read。原生 alert/confirm 一律自动取消并记进控制台；与 terminal（本机命令）互补。\n" +
 		"4. MCP：内置工具够用就不绕道；用 MCP 时先 mcp_list / tool_list 发现能力再 tool_call，不凭记忆猜工具名和参数。\n" +
 		"5. 可并行、相互独立、或会产生大量中间输出的子任务，交 task 分身执行（工具集相同、过程互不干扰，结果直接回传），主对话只接结论；任务描述必须自包含（分身看不到本轮对话之外的语境）：写清目标、输入、涉及的文件绝对路径与期望的返回格式；无依赖的子任务一次并行发多个。\n" +
 		"6. 交付与连续性：任务收尾把成果入口用 <$supper_url> 交付（格式见 <output>），产物文件放工作目录；" +
@@ -815,6 +845,35 @@ func mcpStatusList(fsys osfs.OS) []hooks.StatusMcp {
 	return out
 }
 
+/* mcpOffList 返回已停用 server 名（与 mcpStatusList 互补，启停基线 diff 用）。 */
+func mcpOffList(fsys osfs.OS) []string {
+	f := loadMcpFileOrNil(context.Background(), fsys)
+	if f == nil {
+		return nil
+	}
+	var out []string
+	for _, srv := range f.Servers {
+		if !srv.IsEnabled() {
+			out = append(out, srv.Name)
+		}
+	}
+	return out
+}
+
+/* modelOffNames 返回三槽中被关闭（disabled）的模型名（与 modelStatusList 互补）。 */
+func modelOffNames(mc domain.ModelsConfig) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range allModelEntries(mc) {
+		if e.Name == "" || !e.Disabled || seen[e.Name] {
+			continue
+		}
+		seen[e.Name] = true
+		out = append(out, e.Name)
+	}
+	return out
+}
+
 /* modelStatusList 汇总可选模型（三槽去重，名字+槽位/视觉能力），供 <models> 段与资源清单共用。 */
 func modelStatusList(mc domain.ModelsConfig) []hooks.StatusMcp {
 	seen := map[string]bool{}
@@ -824,7 +883,7 @@ func modelStatusList(mc domain.ModelsConfig) []hooks.StatusMcp {
 		entries []domain.ModelEntry
 	}{{"对话", mc.Main}, {"图像", mc.Image}, {"语音", mc.Audio}} {
 		for _, e := range slot.entries {
-			if e.Name == "" || seen[e.Name] {
+			if e.Name == "" || seen[e.Name] || e.Disabled {
 				continue
 			}
 			seen[e.Name] = true

@@ -22,12 +22,21 @@ const FileName = "app.quick"
 /* DefaultEntry 是 entry 缺省值。 */
 const DefaultEntry = "index.html"
 
+/* DefaultDocument 是应用文档缺省路径（调用文档，供 agent 按需加载）。 */
+const DefaultDocument = "APP.md"
+
+/* AppsDir 是快应用根目录（工作目录相对）。 */
+const AppsDir = "apps"
+
 /* Spec 是 app.quick 声明。 */
 type Spec struct {
-	Title   string `json:"title,omitempty"`   // 卡片标题；缺省回落 entry 的 <title>，再回落目录名
-	Entry   string `json:"entry,omitempty"`   // 前端入口（相对应用目录），缺省 index.html
-	Backend string `json:"backend,omitempty"` // 后端启动命令，在应用目录里执行；空 = 纯前端
-	Icon    string `json:"icon,omitempty"`    // 预留：卡片头像
+	Title       string `json:"title,omitempty"`       // 卡片标题；缺省回落 entry 的 <title>，再回落目录名
+	Description string `json:"description,omitempty"` // 一句话描述（应用清单展示）
+	Version     string `json:"version,omitempty"`     // 语义化版本（建议）
+	Entry       string `json:"entry,omitempty"`       // 前端入口（相对应用目录），缺省 index.html
+	Backend     string `json:"backend,omitempty"`     // 后端启动命令，在应用目录里执行；空 = 纯前端
+	Icon        string `json:"icon,omitempty"`        // 卡片头像
+	Document    string `json:"document,omitempty"`    // 应用文档（调用约定），缺省 APP.md
 }
 
 /*
@@ -55,6 +64,14 @@ func (s Spec) EntryOr() string {
 
 /* HasBackend 报告是否声明了后端命令。 */
 func (s Spec) HasBackend() bool { return strings.TrimSpace(s.Backend) != "" }
+
+/* DocumentOr 返回应用文档路径（缺省 APP.md）。 */
+func (s Spec) DocumentOr() string {
+	if strings.TrimSpace(s.Document) == "" {
+		return DefaultDocument
+	}
+	return s.Document
+}
 
 /* ValidName 报告应用名是否可作单段目录名（拒绝分隔符、上溯与保留字符）。 */
 func ValidName(name string) bool {

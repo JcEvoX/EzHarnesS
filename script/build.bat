@@ -1,9 +1,10 @@
 @echo off
-rem release: versioned full build (version source: script/version.yaml)
-rem chain: frontend build -> copy dist to core/web/dist -> go build (bin/) -> electron-builder
+rem build: versioned full build (version source: script/version.yaml), windows local build
+rem chain: frontend build -> copy dist to core/web/dist -> go build (release/dev/) -> electron-builder
 rem output:
 rem   release\v<version>\ezharness-v<version>-setup.exe   NSIS installer
 rem   release\v<version>\ezharness-v<version>.exe         portable exe
+rem cross-platform builds (win/linux/macos) run in CI: .github/workflows/build.yml
 rem NOTE: keep this file PURE ASCII -- cmd parses .bat in the OEM codepage, so a UTF-8
 rem comment is decoded into bytes that can swallow the line end and run as a command
 setlocal EnableExtensions
@@ -17,7 +18,7 @@ set SRCVER=%VERSION%
 powershell -NoProfile -Command "$v = $env:SRCVER; $f = 'frontend\package.json'; $j = Get-Content $f -Raw -Encoding UTF8; $j = $j -replace '\"version\": \"[^\"]*\"', ('\"version\": \"v' + $v + '\"'); [IO.File]::WriteAllText($f, $j); $d = 'desktop\package.json'; $j = Get-Content $d -Raw -Encoding UTF8; $j = $j -replace '\"version\": \"[^\"]*\"', ('\"version\": \"' + $v + '\"'); [IO.File]::WriteAllText($d, $j)"
 if errorlevel 1 exit /b 1
 
-echo [release] building frontend...
+echo [build] building frontend...
 cd frontend
 call npm run build
 if errorlevel 1 exit /b 1
@@ -25,24 +26,24 @@ cd ..
 
 powershell -NoProfile -Command "Remove-Item -Recurse -Force core/web/dist -ErrorAction SilentlyContinue; Copy-Item -Recurse frontend/dist core/web/dist"
 
-echo [release] building core...
-if not exist bin mkdir bin
+echo [build] building core...
+if not exist release\dev mkdir release\dev
 cd core
 rem build core as a console-subsystem app: do NOT add -H windowsgui. A GUI-subsystem core
 rem has no console, so each console child it spawns (terminal's cmd.exe, taskkill, MCP
 rem server) gets its own visible console window and flashes a black box. The desktop shell
 rem instead spawns core with windowsHide, so core holds one hidden console that children inherit
-go build -o ..\bin\ezharness-core.exe .
+go build -o ..\release\dev\ezharness-core.exe .
 if errorlevel 1 exit /b 1
 cd ..
 
-echo [release] packaging desktop (electron-builder)...
+echo [build] packaging desktop (electron-builder)...
 cd desktop
 call npx electron-builder --win --config.directories.output=../release/v%VERSION%
 if errorlevel 1 exit /b 1
 cd ..
 
 echo.
-echo release done:
+echo build done:
 echo   release\v%VERSION%\ezharness-v%VERSION%-setup.exe
 echo   release\v%VERSION%\ezharness-v%VERSION%.exe

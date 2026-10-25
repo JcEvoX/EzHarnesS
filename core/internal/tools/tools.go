@@ -82,6 +82,8 @@ type saveAppTool struct{ fsys osfs.OS }
 func (saveAppTool) Name() string { return "save_app" }
 func (saveAppTool) Description() string {
 	return "把一个快应用保存到 apps/<名>/（app.quick 声明 + index.html 前端）。" +
+		"description（一句话）与 version（语义化版本）写进应用清单；document 指向应用文档（默认 APP.md），" +
+		"文档含「Agent 调用」一节才开放给 agent（用 load_app 读取）。" +
 		"需要后端进程时给 backend（在应用目录里执行的命令，如 python probe.py），" +
 		"卡片头像给 icon（应用目录内的图片文件名，如 icon.svg，先用 write_file 写进同目录）；" +
 		"后端脚本等其余文件同样用 write_file 补进同一目录"
@@ -93,6 +95,9 @@ func (t saveAppTool) ArgsSchema() json.RawMessage {
 		"properties": {
 			"name": {"type": "string", "description": "应用名（英文短名，如 certprobe）"},
 			"title": {"type": "string", "description": "卡片标题（可读名；缺省用 name）"},
+			"description": {"type": "string", "description": "一句话描述（应用清单展示与 agent 发现用）"},
+			"version": {"type": "string", "description": "语义化版本（如 1.2.0，可选）"},
+			"document": {"type": "string", "description": "应用文档路径（默认 APP.md；写清 agent 调用方式，含「Agent 调用」一节才开放调用）"},
 			"html": {"type": "string", "description": "完整 html 文档内容（前端入口 index.html）"},
 			"backend": {"type": "string", "description": "后端启动命令（可选；cwd 是应用目录，如 python probe.py）"},
 			"icon": {"type": "string", "description": "卡片头像：应用目录内的图片文件名（可选，如 icon.svg/png，先用 write_file 写好）"}
@@ -103,11 +108,14 @@ func (t saveAppTool) ArgsSchema() json.RawMessage {
 
 func (t saveAppTool) Invoke(ctx context.Context, args json.RawMessage) (string, error) {
 	var a struct {
-		Name    string `json:"name"`
-		Title   string `json:"title"`
-		HTML    string `json:"html"`
-		Backend string `json:"backend"`
-		Icon    string `json:"icon"`
+		Name        string `json:"name"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Version     string `json:"version"`
+		Document    string `json:"document"`
+		HTML        string `json:"html"`
+		Backend     string `json:"backend"`
+		Icon        string `json:"icon"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return "", err
@@ -125,7 +133,21 @@ func (t saveAppTool) Invoke(ctx context.Context, args json.RawMessage) (string, 
 			return "", fmt.Errorf("icon %w", err)
 		}
 	}
-	spec := quickapp.Spec{Title: title, Entry: quickapp.DefaultEntry, Backend: strings.TrimSpace(a.Backend), Icon: strings.TrimSpace(a.Icon)}
+	document := strings.TrimSpace(a.Document)
+	if document != "" {
+		if _, err := quickapp.SafeEntry(document); err != nil {
+			return "", fmt.Errorf("document %w", err)
+		}
+	}
+	spec := quickapp.Spec{
+		Title:       title,
+		Description: strings.TrimSpace(a.Description),
+		Version:     strings.TrimSpace(a.Version),
+		Entry:       quickapp.DefaultEntry,
+		Backend:     strings.TrimSpace(a.Backend),
+		Icon:        strings.TrimSpace(a.Icon),
+		Document:    document,
+	}
 	meta, err := spec.Marshal()
 	if err != nil {
 		return "", err

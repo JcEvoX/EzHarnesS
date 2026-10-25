@@ -119,27 +119,25 @@
   .page {
     flex: 1;
     min-height: 0;
+    /* 全宽滚动容器（滚动条贴窗口右缘）；内容由直接子项各自限宽居中 */
     overflow-y: auto;
-    max-width: 720px;
-    width: 100%;
-    margin: 0 auto;
     padding: 40px 48px 60px;
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
   .head h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .lead {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: 4px;
   }
   .dir {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     display: flex;
     align-items: center;
@@ -203,7 +201,7 @@
   }
   .kind {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 600;
     text-transform: uppercase;
     color: var(--muted);
@@ -212,13 +210,13 @@
     padding: 2px 6px;
   }
   h2 {
-    font-size: 13.5px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     margin-top: 2px;
   }
   .desc {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     color: var(--faint);
     display: -webkit-box;
@@ -235,7 +233,7 @@
   }
   .time {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .footbtns {
@@ -277,8 +275,8 @@
     color: var(--fg-invert);
     border-radius: 8px;
     padding: 5px 12px;
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
   }
   .run svg {
     width: 11px;

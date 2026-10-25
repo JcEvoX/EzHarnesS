@@ -61,7 +61,11 @@
     'browser_action:screenshot': '页面截图（只读）',
     'browser_action:upload': '给文件输入框传本机文件',
     task: 'fork 分身执行子任务（分身继承主 agent 策略）',
+    'plan:new': '提交任务方案（需用户批准后落盘）',
+    'plan:update': '同步任务进度',
+    'plan:clear': '清除当前计划',
     save_app: '保存快应用 html',
+    load_app: '读取快应用调用文档（只读）',
     sleep: '定时阻塞等待（等后端就绪/轮询间隔；用户停止即中断）',
     ask_user: '向用户提问收集信息（交互工具）',
     trim_context: '模型整理压缩上下文（内部整理）',
@@ -95,10 +99,11 @@
   }
 
   /* 稳定排序：先按工具、再按 action，避免后端返回顺序抖动导致行乱跳 */
-  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'sleep', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
+  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'plan', 'save_app', 'load_app', 'sleep', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
   const ACTION_ORDER: Record<string, string[]> = {
     term_action: ['send', 'read'],
     browser_action: ['navigate', 'read', 'eval', 'console', 'network', 'screenshot', 'upload'],
+    plan: ['new', 'update', 'clear'],
   }
   function orderOf(key: string): number {
     const base = baseOf(key)
@@ -202,10 +207,10 @@
 <!-- 名单编辑框（终端命令 / 文件路径 / mcp 共用） -->
 {#snippet listEditor(r: RuleRow)}
   {@const kind = kindOf(r.key) ?? 'command'}
-  <div class="list-edit">
-    <p class="list-hint">
-      {r.level === 'black' ? '黑名单' : '白名单'}（{listMeta[kind].label}）——{r.level === 'black' ? '命中才审批' : '命中即放行'}
-    </p>
+  <div
+    class="list-edit"
+    title={`${r.level === 'black' ? '黑名单' : '白名单'}（${listMeta[kind].label}）——${r.level === 'black' ? '命中才审批' : '命中即放行'}`}
+  >
     <div class="chips">
       {#each r.list as entry (entry)}
         <span class="chip">
@@ -239,9 +244,8 @@
 {#snippet ruleRow(r: RuleRow, label: string, sub: boolean)}
   <div class="rule-wrap" class:sub>
     <div class="rule">
-      <div class="info">
+      <div class="info" title={r.desc}>
         <span class="name">{label}</span>
-        <span class="desc">{r.desc}</span>
       </div>
       <div class="seg" role="radiogroup" aria-label={r.key}>
         {#each levelsOf(r.key) as lv (lv)}
@@ -261,17 +265,14 @@
 
   <section>
     <div class="section-head">
-      <h2>工具审批策略</h2>
+      <h2
+        title="多数工具两档：每次审批 / 全部免审。终端命令与 MCP 可配黑白名单（白名单按前缀命中放行，黑名单按包含命中拦下审批）；写文件可配路径前缀白名单。合并式工具（term_action、browser_action）先展开逐 action 单独配档，也可以直接用工具行右边的「全部审批 / 全部免审」一键定。变更自动保存。"
+        >工具审批策略</h2
+      >
       {#if saving}
         <span class="saving">保存中…</span>
       {/if}
     </div>
-    <p class="hint">
-      多数工具两档：每次审批 / 全部免审。终端命令与 MCP 可配黑白名单（白名单按前缀
-      命中放行，黑名单按包含命中拦下审批）；写文件可配路径前缀白名单。合并式工具
-      （term_action、browser_action）先点 ▸ 展开逐 action 单独配档，也可以直接用工具行
-      右边的「全部审批 / 全部免审」一键定。变更自动保存。
-    </p>
     {#if message}
       <p class="msg">{message}</p>
     {/if}
@@ -285,11 +286,10 @@
         {#if groupRules.length}
           <div class="group">
             <div class="group-head">
-              <h3>{g.label}</h3>
-              <span class="group-desc">{g.desc}</span>
+              <h3 title={g.desc}>{g.label}</h3>
             </div>
             <div class="list">
-              {#each sectionsOf(groupRules) as sec (sec.base)}
+              {#each sectionsOf(groupRules) as sec (sec.simple ? `one:${sec.base}` : `actions:${sec.base}`)}
                 {#if sec.simple}
                   {@render ruleRow(sec.simple, sec.simple.key, false)}
                 {:else}
@@ -332,21 +332,19 @@
   .page {
     flex: 1;
     min-height: 0;
+    /* 全宽滚动容器（滚动条贴窗口右缘）；内容由直接子项各自限宽居中 */
     overflow-y: auto;
-    max-width: 720px;
-    width: 100%;
-    margin: 0 auto;
     padding: 40px 48px 60px;
     display: flex;
     flex-direction: column;
     gap: 30px;
   }
   h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .lead {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--muted);
     margin-top: -24px;
   }
@@ -356,12 +354,12 @@
     gap: 10px;
   }
   h2 {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--muted);
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: -4px;
   }
@@ -371,11 +369,11 @@
     justify-content: space-between;
   }
   .saving {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .msg {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: -2px;
   }
@@ -392,13 +390,9 @@
     padding: 0 2px;
   }
   .group-head h3 {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 700;
     color: var(--fg);
-  }
-  .group-desc {
-    font-size: 11px;
-    color: var(--faint);
   }
   .list {
     display: flex;
@@ -422,7 +416,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1;
     flex: none;
     align-self: center;
@@ -448,11 +442,11 @@
   }
   .name {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
   }
   .desc {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .seg {
@@ -466,7 +460,7 @@
     border: none;
     background: transparent;
     padding: 5px 11px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -500,11 +494,6 @@
       transform: translateY(0);
     }
   }
-  .list-hint {
-    font-size: 10.5px;
-    color: var(--faint);
-    font-family: var(--font-mono);
-  }
   .chips {
     display: flex;
     flex-wrap: wrap;
@@ -519,7 +508,7 @@
     border-radius: 7px;
     padding: 4px 6px 4px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     background: var(--bg);
     max-width: 100%;
@@ -557,7 +546,7 @@
     outline: none;
     background: transparent;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     width: 130px;
     min-width: 0;
@@ -569,7 +558,7 @@
     border: none;
     background: transparent;
     color: var(--accent);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     padding: 4px 8px;
   }
   .add-btn:disabled {

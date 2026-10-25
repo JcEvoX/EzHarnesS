@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte'
   import { api, McpAuthError, type McpServerView, type McpToolView } from '../lib/api'
   import { openExternal } from '../lib/desktop'
+  import { store } from '../lib/store.svelte'
 
   /* MCP = 外部工具服务器（mcp.json 热加载）。页面侧可手动建立 MCP 会话
   （与 agent 的连接相互独立）：点连接查看工具清单、填参试调用。
@@ -39,6 +40,15 @@
     }
   }
   onDestroy(stopAuthPoll)
+
+  /* 顶栏搜索跳转：直达指定 server 详情（消费后清空锚点） */
+  $effect(() => {
+    const anchor = store.jumpAnchor
+    if (!anchor.startsWith('mcp:') || !loaded) return
+    store.jumpAnchor = ''
+    const s = servers.find((x) => x.name === anchor.slice('mcp:'.length))
+    if (s) selected = s
+  })
 
   /* 进详情时滚动归零——滚动容器在视图切换间被复用，否则停留在网格页的滚动偏移。 */
   $effect(() => {
@@ -601,7 +611,7 @@
           </div>
           <h2>{s.name}</h2>
           {#if s.description && s.description !== s.name}
-            <p class="card-desc">{s.description}</p>
+            <p class="card-desc" title={s.description}>{s.description}</p>
           {/if}
           <p class="endpoint">
             <i>{s.transport}</i>{s.endpoint}
@@ -658,7 +668,21 @@
     {/if}
   </div>
 
-  {#if adding}
+  <button class="add" onclick={() => (adding = true)}>+ 添加服务器</button>
+</div>
+{/if}
+
+<!-- 添加服务器弹框：表单独立于卡片，不再把页面撑长 -->
+{#if adding}
+  <div class="drawer-mask" onclick={() => (adding = false)}></div>
+  <div class="modal add-modal" role="dialog" aria-modal="true" aria-label="添加 MCP 服务器">
+    <header class="add-head">
+      <div>
+        <h3>添加 MCP 服务器</h3>
+        <p class="modal-hint">接入后 agent 获得对应工具，保存即热加载。</p>
+      </div>
+      <button class="modal-x" onclick={() => (adding = false)} title="关闭">✕</button>
+    </header>
     <div class="add-form">
       <input type="text" placeholder="服务器名（如 github）" bind:value={draft.name} />
       <input type="text" placeholder="描述（供 agent 发现用，如 GitHub 仓库搜索）" bind:value={draft.desc} />
@@ -699,15 +723,12 @@
         {/each}
         <button class="hdr-add" onclick={() => (draft.pairs = [...draft.pairs, { key: '', value: '' }])}>+ 请求头</button>
       {/if}
-      <div class="add-actions">
-        <button class="add-ok" disabled={!draftValid()} onclick={addServer}>添加</button>
-        <button class="add-no" onclick={() => (adding = false)}>取消</button>
-      </div>
     </div>
-  {:else}
-    <button class="add" onclick={() => (adding = true)}>+ 添加服务器</button>
-  {/if}
-</div>
+    <footer>
+      <button class="btn" onclick={() => (adding = false)}>取消</button>
+      <button class="btn primary" disabled={!draftValid()} onclick={addServer}>添加</button>
+    </footer>
+  </div>
 {/if}
 
 <!-- MCP OAuth 授权弹窗（页面侧）：去授权 → 系统浏览器打开 → 轮询状态 -->
@@ -750,17 +771,15 @@
   .page {
     flex: 1;
     min-height: 0;
+    /* 全宽滚动容器（滚动条贴窗口右缘）；内容由直接子项各自限宽居中 */
     overflow-y: auto;
-    max-width: 720px;
-    width: 100%;
-    margin: 0 auto;
     padding: 40px 48px 60px;
     display: flex;
     flex-direction: column;
     gap: 16px;
   }
   .head h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .head {
@@ -769,16 +788,16 @@
     justify-content: space-between;
   }
   .lead {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: 4px;
   }
   .saving {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .msg {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: -10px;
   }
@@ -789,7 +808,7 @@
     color: var(--faint);
     border-radius: 10px;
     padding: 8px 18px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   .add:hover {
     border-color: var(--line-strong);
@@ -799,10 +818,9 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 16px;
-    max-width: 420px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
   .add-form input,
   .add-form select,
@@ -811,7 +829,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     outline: none;
     background: var(--bg);
     color: var(--fg);
@@ -834,7 +852,7 @@
     background: var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 10px center;
   }
   .form-sec {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: 2px;
   }
@@ -848,8 +866,8 @@
     color: var(--fg-invert);
     border-radius: 8px;
     padding: 6px 16px;
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
   }
   .add-ok:disabled {
     opacity: 0.4;
@@ -861,7 +879,7 @@
     color: var(--muted);
     border-radius: 8px;
     padding: 6px 16px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   .grid {
     display: grid;
@@ -921,7 +939,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     color: var(--faint);
     border: 1px solid var(--line);
@@ -963,26 +981,29 @@
     align-self: flex-start;
   }
   h2 {
-    font-size: 14px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     margin-top: 3px;
   }
+  /* 卡片描述：展示但压缩两行，全文见 title 与详情页 */
   .card-desc {
-    font-size: 11px;
-    color: var(--muted);
-    white-space: nowrap;
+    margin: 0;
+    font-size: var(--font-size-small);
+    line-height: 1.5;
+    color: var(--faint);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    margin-top: -2px;
   }
   .detail-desc {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .endpoint {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--faint);
     display: -webkit-box;
@@ -993,7 +1014,7 @@
   }
   .endpoint i {
     font-style: normal;
-    font-size: 9.5px;
+    font-size: var(--font-size-small);
     font-weight: 600;
     text-transform: uppercase;
     color: var(--muted);
@@ -1012,7 +1033,7 @@
     padding-top: 2px;
   }
   .tools {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     white-space: nowrap;
   }
@@ -1053,7 +1074,7 @@
   .back {
     align-self: flex-start;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 2px 0;
   }
   .back:hover {
@@ -1080,7 +1101,7 @@
     min-width: 0;
   }
   .detail-title h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
     line-height: 1.3;
     overflow-wrap: anywhere;
@@ -1092,7 +1113,7 @@
   }
   .hdr-line {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     overflow-wrap: anywhere;
   }
@@ -1112,7 +1133,7 @@
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 5px 12px;
     border-radius: 8px;
   }
@@ -1128,7 +1149,7 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-left: auto;
   }
@@ -1136,8 +1157,8 @@
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--font-size-small);
+    font-weight: 500;
     padding: 3.5px 11px;
     border-radius: 99px;
   }
@@ -1165,7 +1186,7 @@
     cursor: default;
   }
   .detail-ops .conn {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 5px 14px;
   }
   .tools-sec {
@@ -1190,12 +1211,12 @@
   }
   .tool-name {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
   .tool-desc {
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--faint);
     display: -webkit-box;
@@ -1214,7 +1235,7 @@
   }
   .param {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--muted);
     overflow-wrap: anywhere;
@@ -1224,7 +1245,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     outline: none;
     background: var(--bg);
@@ -1243,7 +1264,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--fg);
     white-space: pre-wrap;
@@ -1265,7 +1286,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     outline: none;
     background: var(--bg);
@@ -1281,7 +1302,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     outline: none;
     background: var(--bg);
     color: var(--fg);
@@ -1320,7 +1341,7 @@
     border: none;
     background: transparent;
     color: var(--accent);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 2px 0;
   }
   .card.ghost {
@@ -1358,13 +1379,50 @@
     padding: 18px 20px;
   }
   .modal h3 {
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 700;
     color: var(--fg);
     margin: 0;
   }
+  /* 添加服务器：比确认框宽，表单区独立滚动，长表单不撑破视口 */
+  .add-modal {
+    width: min(480px, 92vw);
+    max-height: 86vh;
+  }
+  .add-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .modal-x {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: var(--font-size-small);
+    cursor: pointer;
+  }
+  .modal-x:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .btn.primary {
+    background: var(--bg-invert);
+    border-color: var(--bg-invert);
+    color: var(--fg-invert);
+  }
+  .btn.primary:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
   .modal-hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--faint);
     margin: 0;
@@ -1383,7 +1441,7 @@
     background: transparent;
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 7px 16px;
     cursor: pointer;
   }

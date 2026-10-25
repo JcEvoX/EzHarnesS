@@ -13,6 +13,7 @@ import {
   type ModelEntry,
   type ReasoningEffort,
   type Settings,
+  type SessionPlan,
   type SseEvent,
   type Status,
   type StatusPayload,
@@ -35,6 +36,7 @@ export interface ToolBlockData {
   result: string
   err: string
   state: 'building' | 'running' | 'done' // building＝模型流式构造参数中
+  live?: string // 执行中的实时输出尾部（terminal 的 tool.output 增量累积）
   decision?: string // 人机决策徽标（已批准/已拒绝…，刷新后由 decisions.jsonl 重建）
 }
 
@@ -96,7 +98,8 @@ export type Block = { uid: number } & (
       msgIdx?: number
     }
   | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean; owner?: string; msgIdx?: number }
-  | { kind: 'tool' } & ToolBlockData
+  /* hidden：task 调用一旦有分身入口卡，通用工具卡就让位（entry 卡是唯一呈现） */
+  | ({ kind: 'tool' } & ToolBlockData & { hidden?: boolean })
   | { kind: 'fork'; forkId: string }
   | { kind: 'decision' } & DecisionData
   | { kind: 'note'; text: string }
@@ -198,7 +201,11 @@ class AppStore {
   blocks = $state<Block[]>([])
   forks = $state<Record<string, ForkState>>({})
   notices = $state<NoticeData[]>([])
+  /* 本轮已处理的记忆待确认操作（op id → 结果）：通知栏与聊天记忆卡共用的确认入口，
+     本地记录结果给卡片落定状态（后端返回后待确认项即消失） */
+  memoryDecisions = $state<Record<string, 'accept' | 'cancel'>>({})
   jumpView = $state<'' | 'memory'>('') // 通知跳页请求（App 消费后清空）
+  jumpAnchor = $state('') // 顶栏搜索跳转目标（view:anchor，目标视图消费后清空）
   lastTool = $state('')
   busy = $state(false)
   archivingRootId = $state('') // 归档进行中的分支（线根 ID，空=无）：锁该分支输入与按钮
@@ -246,6 +253,8 @@ class AppStore {
   /* 本轮资源变更条目（resource.change 事件更新，右上角 StatusCard 数据源；
      loop_start 清空——事件按需推送，不清会滞留上一轮的旧变更） */
   liveChanges = $state<string[]>([])
+  /* 当前分支的任务计划（plan.update 事件 / history 恢复；输入框上方面板数据源） */
+  plan = $state<SessionPlan | null>(null)
   /* main 槽模型清单（输入框模型切换器；打开时懒加载） */
   mainModels = $state<ModelEntry[]>([])
   private modelsFetched = false
@@ -365,6 +374,7 @@ class AppStore {
     this.lastTool = ''
     this.live = null
     this.liveChanges = []
+    this.plan = null
     this.hasPrev = false
     this.loadingPrev = false
     this.batchIds = new Set()
@@ -390,6 +400,7 @@ class AppStore {
         }
       }
       this.blocks = this.buildBlocks(s.messages, s.decisions, s.forks ?? [], s.id)
+      this.plan = s.plan ?? null
       this.busy = s.busy
       // 切回运行中的分支：model_start/tool_start 等增量事件不重放，用 busy 兜底
       // 点亮活动指示（否则"思考中"整段消失、像没在执行）；后续事件到达自然接管
@@ -531,7 +542,7 @@ class AppStore {
         }
         // 展开工具调用：名称与参数来自 tool_calls（Args 序列化后是嵌套对象，非字符串）
         for (const tc of m.tool_calls || []) {
-          out.push({
+          const tb: Extract<Block, { kind: 'tool' }> = {
             kind: 'tool',
             uid: this.nuid(),
             id: tc.ID || '',
@@ -541,9 +552,12 @@ class AppStore {
             err: '',
             state: 'done',
             decision: dmap.get(tc.ID || ''),
-          })
+          }
           // task 调用紧随分身入口卡（真实启动的 fork 才有摘要：审批拒绝/失败的不插）
-          if (tc.Name === 'task' && forkQueue.length > 0) {
+          const started = tc.Name === 'task' && forkQueue.length > 0
+          if (started) tb.hidden = true
+          out.push(tb)
+          if (started) {
             const f = forkQueue.shift()!
             out.push({ kind: 'fork', uid: this.nuid(), forkId: f.id })
           }
@@ -701,9 +715,10 @@ class AppStore {
   }
 
   /* openFileAt 拉开抽屉文件页并打开指定文件（supper_url file:// 点击）。
-     资源页已弹出则打开请求转发到窗口。 */
-  openFileAt(path: string) {
+     文件夹交给系统资源管理器直接打开;资源页已弹出则打开请求转发到窗口。 */
+  async openFileAt(path: string) {
     if (!path) return
+    if (await (window as any).ez?.window?.openDir?.(path)) return
     if (this.popoutTools.includes('file')) {
       ;(window as any).ez?.popout?.signal('file', 'file', path)
       this.yieldDrawer('file')
@@ -1315,11 +1330,14 @@ class AppStore {
   async resolveNoticeGlobal(n: NoticeData, action: string, input?: string) {
     // 记忆待确认：确认应用/取消丢弃（全局端点，非分支决策）
     if (n.kind === 'memory') {
+      const accept = action === 'accept'
       this.notices = this.notices.filter((x) => x.id !== n.id)
+      this.memoryDecisions[n.id] = accept ? 'accept' : 'cancel'
       try {
-        const r = await api.decideMemoryPending(n.id, action === 'accept')
+        const r = await api.decideMemoryPending(n.id, accept)
         this.lastStatus = r.result
       } catch (e) {
+        delete this.memoryDecisions[n.id]
         this.lastStatus = `记忆操作处理失败：${(e as Error).message}`
       }
       await this.refreshNotices()
@@ -1393,10 +1411,10 @@ class AppStore {
     switch (ev.type) {
       case 'loop.guard': {
         // 循环护栏：时间线实时小字条（历史重建由 <loop_guard> 消息渲染，回放不重发）
-        const d = ev.data as { tool?: string; count?: number } | undefined
+        const d = ev.data as { tool?: string; count?: number; note?: string } | undefined
         if (!ev.forkId) {
-          const tool = d?.tool ? `工具 ${d.tool} ` : '任务'
-          this.blocks.push({ kind: 'note', uid: this.nuid(), text: `🛑 ${tool}重复调用 ${d?.count ?? '?'} 次，已提醒模型停止重复；无效可停止本轮` })
+          const text = d?.note || `工具 ${d?.tool ?? ''} 重复调用 ${d?.count ?? '?'} 次，已提醒模型停止重复；无效可停止本轮`
+          this.blocks.push({ kind: 'note', uid: this.nuid(), text: `🛑 ${text}` })
         }
         break
       }
@@ -1645,6 +1663,18 @@ class AppStore {
         }
         break
       }
+      case 'tool.output': {
+        /* 工具执行中的实时输出（terminal 边跑边发）：按 callId 追加到
+           运行中的工具块，只留末尾 20000 字符（实时窗口只显示尾部） */
+        const d = ev.data || {}
+        if (!d.callId || !d.text) break
+        const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
+        const t = bs.find((b) => b.kind === 'tool' && b.id === d.callId && b.state === 'running')
+        if (t && t.kind === 'tool') {
+          t.live = ((t.live || '') + d.text).slice(-20000)
+        }
+        break
+      }
       case 'tool_end': {
         const d = ev.data || {}
         const bs = ev.forkId ? this.ensureFork(ev.forkId).blocks : this.blocks
@@ -1660,6 +1690,8 @@ class AppStore {
         if (loadedPaths.length) {
           bs.push({ kind: 'imgload', uid: this.nuid(), paths: loadedPaths })
         }
+        // 记忆待确认：立即拉一次通知数据，聊天记忆卡与通知栏同源显示
+        if (d.name === 'memory' && String(d.content || '').includes('"pendingId"')) void this.refreshNotices()
         if (!ev.forkId) this.lastTool = ''
         break
       }
@@ -1669,12 +1701,18 @@ class AppStore {
         const f = this.ensureFork(fid)
         f.task = d.task || ''
         f.status = 'running'
-        // 入口卡紧跟对应的 task 工具卡（callId 精确匹配，回退最后一张 task 卡）
+        // 入口卡紧跟对应的 task 工具卡（callId 精确匹配，回退最后一张未让位的 task 卡）；
+        // 工具卡随即让位——分身入口卡是 task 的唯一呈现，避免两行重复摘要
         let ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.id === d.callId)
-        if (ti < 0) ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.name === 'task')
+        if (ti < 0) {
+          ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.name === 'task' && !b.hidden)
+        }
         const card: Block = { kind: 'fork', uid: this.nuid(), forkId: fid }
-        if (ti >= 0) this.blocks.splice(ti + 1, 0, card)
-        else this.blocks.push(card)
+        if (ti >= 0) {
+          const tb = this.blocks[ti]
+          if (tb.kind === 'tool') tb.hidden = true
+          this.blocks.splice(ti + 1, 0, card)
+        } else this.blocks.push(card)
         break
       }
       case 'task.end': {
@@ -1828,6 +1866,11 @@ class AppStore {
         if (d?.suggestCompact) {
           this.insertBeforeLastUser({ kind: 'status', uid: this.nuid(), text: '', data: d })
         }
+        break
+      }
+      case 'plan.update': {
+        // 计划是分支级状态（工具落盘后推送）；null = 已清除
+        this.plan = ev.data ?? null
         break
       }
       case 'session.compacting': {

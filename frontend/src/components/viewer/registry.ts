@@ -4,13 +4,32 @@ ResourcePane 据此挂载对应 viewer 组件。新增资源种类 = 加 kind �
 viewer 组件 + ResourcePane 注册挂载，框架与其余 viewer 不动。
 */
 
+import type { Component } from 'svelte'
 import { fileBaseName, isTextFilePath } from '../../lib/textfile'
+import PdfViewer from './viewers/PdfViewer.svelte'
+import FallbackViewer from './viewers/FallbackViewer.svelte'
+import MediaViewer from './viewers/MediaViewer.svelte'
+import ExcelViewer from './viewers/ExcelViewer.svelte'
+import DocxViewer from './viewers/DocxViewer.svelte'
+import PptxViewer from './viewers/PptxViewer.svelte'
 
-export type ResourceKind = 'image' | 'markdown' | 'html' | 'pdf' | 'text' | 'fallback'
+export type ResourceKind = 'image' | 'markdown' | 'html' | 'pdf' | 'text' | 'media' | 'excel' | 'word' | 'ppt' | 'fallback'
+
+/* VIEWERS 统一 props({tab, active})的即挂组件表:二进制类资源(浏览器内
+渲染、无可编辑状态)新增类型只加 kindOf 判定+此处一项,ResourcePane 不动。
+文本系(单编辑器重绑)与图片(per-tab 画布保活)走 ResourcePane 专属路径。 */
+export const VIEWERS: Partial<Record<ResourceKind, Component>> = {
+  pdf: PdfViewer,
+  media: MediaViewer,
+  excel: ExcelViewer,
+  word: DocxViewer,
+  ppt: PptxViewer,
+  fallback: FallbackViewer,
+}
 
 /* kindOf 按路径判定资源种类：image 优先（svg 归图片——画板可加载
-光栅化）；markdown/html/pdf 是专属查看器；其余文本白名单归 text；
-都不命中走 fallback 提示（ppt 等后续逐种补充）。 */
+光栅化）；markdown/html/pdf/excel/word/ppt/媒体 是专属查看器；
+其余文本白名单归 text；都不命中走 fallback 提示。 */
 export function kindOf(path: string): ResourceKind {
   const base = fileBaseName(path).toLowerCase()
   const i = base.lastIndexOf('.')
@@ -19,6 +38,10 @@ export function kindOf(path: string): ResourceKind {
   if (ext === 'md' || ext === 'markdown') return 'markdown'
   if (ext === 'html' || ext === 'htm') return 'html'
   if (ext === 'pdf') return 'pdf'
+  if (['xlsx', 'xlsm', 'xls', 'csv', 'ods'].includes(ext)) return 'excel'
+  if (ext === 'docx' || ext === 'doc') return 'word'
+  if (ext === 'pptx' || ext === 'ppt') return 'ppt'
+  if (['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v', 'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'].includes(ext)) return 'media'
   if (isTextFilePath(path)) return 'text'
   return 'fallback'
 }

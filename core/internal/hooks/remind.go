@@ -5,7 +5,7 @@ remind 是系统提醒 hook：统一负责"系统→模型"的全部单向旁路
   - 快照段（每轮 OnStart）：<agent_status> 水位/时间快照 + status.snapshot
     SSE 事件（前端右上角水位条）——system 每 session 固定，水位与时间
     是轮内唯一需要同步的运行时状态；
-  - 变更段（每轮 OnStart，reschange.go）：skill/mcp 基线 diff，
+  - 变更段（每轮 OnStart，reschange.go）：skill/mcp/模型/快应用基线 diff，
     有变化才插一条 <resource_change> 消息（附变更后完整清单）+
     resource.change 事件（按需、零噪音）；基线持久化随 session
     （重启不重复报）；
@@ -57,7 +57,7 @@ type StatusData struct {
 	CtxTokens          int      `json:"ctxTokens"`
 	CtxWindow          int      `json:"ctxWindow"`
 	SuggestCompact     bool     `json:"suggestCompact"`
-	Model              string   `json:"model,omitempty"`    // 当前主模型摘要（名称+视觉能力）
+	Model              string   `json:"model,omitempty"` // 当前主模型摘要（名称+视觉能力）
 	Terms              []string `json:"terms,omitempty"` // 运行中终端名（非持久状态，每轮现查）
 	Tabs               []string `json:"tabs,omitempty"`  // 开启中的浏览器标签（同上）
 }
@@ -69,11 +69,14 @@ type Remind struct {
 	ctxTokens func() int
 	ctxWindow int
 	mcpList   func() []StatusMcp
-	disabled  func() []string // 可空：禁用技能目录名（实时读设置快照）
-	terms     func() []string // 可空：运行中终端名（终端/浏览器是进程生命周期态，重启即失，
-	tabs      func() []string // 不进 system 固定段，走每轮快照——与 skill/mcp 类持久资源分界
-	model     func() string     // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
+	mcpOff    func() []string    // 可空：已停用 MCP server 名（与启用清单互补，启停 diff 用）
+	disabled  func() []string    // 可空：禁用技能目录名（实时读设置快照）
+	terms     func() []string    // 可空：运行中终端名（终端/浏览器是进程生命周期态，重启即失，
+	tabs      func() []string    // 不进 system 固定段，走每轮快照——与 skill/mcp 类持久资源分界
+	model     func() string      // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
 	modelList func() []StatusMcp // 可空：可选模型清单（名称+能力）；资源变更 diff + available 清单
+	modelOff  func() []string    // 可空：已关闭模型名（与可用清单互补，启停 diff 用）
+	planRoot  string             // 计划归属的分支根 ID（空=不注入计划）
 }
 
 /*
@@ -98,16 +101,26 @@ func (h *Remind) SetModelBrief(fn func() string) { h.model = fn }
 /* SetModelList 注入可选模型清单（名称+能力；实时读快照）——新增/移除走资源变更。 */
 func (h *Remind) SetModelList(fn func() []StatusMcp) { h.modelList = fn }
 
+/* SetMcpOff 注入已停用 MCP server 名（与启用清单互补）——启用/停用走资源变更。 */
+func (h *Remind) SetMcpOff(fn func() []string) { h.mcpOff = fn }
+
+/* SetModelOff 注入已关闭模型名（与可用清单互补）——启用/停用走资源变更。 */
+func (h *Remind) SetModelOff(fn func() []string) { h.modelOff = fn }
+
+/* SetPlanRoot 注入计划归属分支根（每轮若有计划则追加进 agent_status）。 */
+func (h *Remind) SetPlanRoot(rootID string) { h.planRoot = rootID }
+
 /* OnStart 轮首两段：变更段（有变化才说话）在前、快照段照旧每轮一条。 */
 func (h *Remind) OnStart(ctx context.Context, state *types.LoopState) error {
-	if items, skills, mcps, models := h.buildChanges(ctx); len(items) > 0 {
+	if items, skills, mcps, models, apps := h.buildChanges(ctx); len(items) > 0 {
 		h.insertBeforeLastUser(state, types.Message{Role: types.RoleUser,
-			Content: renderResChange(items, skills, mcps, models)})
+			Content: renderResChange(items, skills, mcps, models, apps)})
 		state.EmitEvent(EventResChange, items)
 	}
 	data := h.buildSnapshot()
+	plan, _ := LoadPlan(ctx, h.fsys, h.planRoot)
 	h.insertBeforeLastUser(state, types.Message{Role: types.RoleUser,
-		Content: "<" + StatusTag + ">\n" + renderStatus(data) + "\n</" + StatusTag + ">"})
+		Content: "<" + StatusTag + ">\n" + renderStatus(data, plan) + "\n</" + StatusTag + ">"})
 	state.EmitEvent(EventStatus, data)
 	return nil
 }
@@ -158,7 +171,7 @@ renderStatus 把快照数据渲染成模型可读的中文文本（行格式是�
 前端历史重建按关键词"整理上下文"识别异常行进时间线，普通轮次只在
 右上角——改行格式须同步前端解析）。
 */
-func renderStatus(d StatusData) string {
+func renderStatus(d StatusData, plan *SessionPlan) string {
 	var b strings.Builder
 	b.WriteString("当前时间：" + d.Now)
 	if d.CtxWindow > 0 {
@@ -175,7 +188,31 @@ func renderStatus(d StatusData) string {
 	}
 	b.WriteString("\n当前运行中终端：" + namesOrNone(d.Terms))
 	b.WriteString("\n当前开启浏览器标签：" + namesOrNone(d.Tabs))
+	if plan != nil {
+		renderPlan(&b, plan)
+	}
 	return b.String()
+}
+
+/* renderPlan 把计划追加进快照（多行压平，防模型伪造状态行）。 */
+func renderPlan(b *strings.Builder, plan *SessionPlan) {
+	if plan.Plan != "" {
+		b.WriteString("\n当前任务计划：" + oneLine(plan.Plan, 1200))
+	}
+	for _, p := range plan.Progress {
+		b.WriteString("\n- [" + planStatusLabel(p.Status) + "] " + oneLine(p.Title, 160))
+	}
+}
+
+/* planStatusLabel 把进度状态渲染成中文。 */
+func planStatusLabel(status string) string {
+	switch status {
+	case PlanRunning:
+		return "执行中"
+	case PlanCompleted:
+		return "已完成"
+	}
+	return "待执行"
 }
 
 /*
@@ -201,14 +238,14 @@ renderResChange 渲染资源变更记录：变更条目行前缀 "- " 是前端�
 模型据此即时可知全部资源，不必读目录与配置文件发现）。desc 压平换行
 防伪造条目行。
 */
-func renderResChange(items []string, skills, mcps, models []StatusMcp) string {
+func renderResChange(items []string, skills, mcps, models []StatusMcp, apps []StatusApp) string {
 	var b strings.Builder
 	b.WriteString("<" + ResChangeTag + ">")
 	b.WriteString("\n（系统检测到的本轮资源变更，非用户发言，无需回应，无需回溯处理）")
 	for _, it := range items {
 		b.WriteString("\n- " + it)
 	}
-	b.WriteString("\n变更后完整清单（技能与 MCP 服务以此为准，不要读取 memory/skills 目录或 mcp.json 来发现技能与服务）：")
+	b.WriteString("\n变更后完整清单（技能、MCP 服务与快应用以此为准，不要读取 memory/skills、mcp.json 或 apps 目录来发现资源）：")
 	if len(skills) > 0 {
 		for _, s := range skills {
 			b.WriteString("\navailable_skill: " + s.Name + " - " + descOrNone(s.Desc))
@@ -222,6 +259,23 @@ func renderResChange(items []string, skills, mcps, models []StatusMcp) string {
 		}
 	} else {
 		b.WriteString("\navailable_mcp: （当前无可用 MCP 服务）")
+	}
+	if len(apps) > 0 {
+		for _, a := range apps {
+			line := "\navailable_app: " + a.Name
+			if a.Title != "" && a.Title != a.Name {
+				line += "（" + a.Title + "）"
+			}
+			if a.Version != "" {
+				line += " v" + a.Version
+			}
+			if a.Callable {
+				line += "〔可调用〕"
+			}
+			b.WriteString(line + " - " + descOrNone(a.Description))
+		}
+	} else {
+		b.WriteString("\navailable_app: （当前无快应用）")
 	}
 	if len(models) > 0 {
 		var names []string

@@ -76,7 +76,9 @@ func main() {
 
 	a, err := newApp(c, token)
 	if err != nil {
-		log.Fatal(err)
+		// 初始化失败常常正是日志目录不可写：stderr 必须直接可见
+		fmt.Fprintln(os.Stderr, "启动失败:", err)
+		log.Fatalf("启动失败: %v", err)
 	}
 	if err := a.start(); err != nil {
 		log.Fatalf("端口 %d 监听失败: %v", c.Port, err)

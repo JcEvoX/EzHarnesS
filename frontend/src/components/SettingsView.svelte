@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, type AppConfig } from '../lib/api'
   import { getToken } from '../lib/auth'
+  import { store } from '../lib/store.svelte'
 
   const ez = (window as any).ez
 
@@ -55,6 +56,17 @@
   let origOffload = $state<number | null>(null)
   let savingOffload = $state(false)
   let offloadMsg = $state('')
+
+  /* 顶栏搜索跳转：滚动到对应分区（消费后清空锚点） */
+  $effect(() => {
+    const anchor = store.jumpAnchor
+    if (!anchor.startsWith('settings:')) return
+    store.jumpAnchor = ''
+    const target = anchor.slice('settings:'.length)
+    if (target === 'paths') showPaths = true
+    const el = document.getElementById(`set-${target}`)
+    requestAnimationFrame(() => el?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  })
 
   onMount(async () => {
     try {
@@ -247,9 +259,8 @@
 <div class="page">
   <h1>设置</h1>
 
-  <section>
-    <h2>服务端配置</h2>
-    <p class="hint">监听、端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。监听 127.0.0.1 = 仅本机访问（默认，无防火墙弹窗），0.0.0.0 = 局域网可达（会触发防火墙授权）。</p>
+  <section id="set-server">
+    <h2 title="监听、端口与数据目录是启动期配置，修改后需点「应用并重启」换代（进程内完成，数据目录变更自动迁移）；其余设置保存即生效，无需重启。监听 127.0.0.1 = 仅本机访问（默认，无防火墙弹窗），0.0.0.0 = 局域网可达（会触发防火墙授权）。">服务端配置</h2>
     <div class="grid2">
       <label class="field">
         <span>监听地址</span>
@@ -281,14 +292,8 @@
     </label>
   </section>
 
-  <section>
-    <h2>上下文管理</h2>
-    <p class="hint">
-      上下文整理水位 = 模型上下文窗口 × 百分比：模型调用的 prompt tokens
-      超过即自动整理（早期对话就地折叠为摘要，立即生效，会话不变），换模型自动适配
-      （如 128K 窗口 × 75% = 96000）；0 表示关闭自动整理（模型仍可主动调用
-      trim_context 工具）。话题归档（总结归档开新会话）请用分支面板的「归档」按钮。
-    </p>
+  <section id="set-context">
+    <h2 title="上下文整理水位 = 模型上下文窗口 × 百分比：模型调用的 prompt tokens 超过即自动整理（早期对话就地折叠为摘要，立即生效，会话不变），换模型自动适配 （如 128K 窗口 × 75% = 96000）；0 表示关闭自动整理（模型仍可主动调用 trim_context 工具）。话题归档（总结归档开新会话）请用分支面板的「归档」按钮。">上下文管理</h2>
     <label class="field">
       <span>整理水位（窗口百分比）</span>
       <input type="number" bind:value={percent} min="0" max="100" />
@@ -333,12 +338,8 @@
     {/if}
   </section>
 
-  <section>
-    <h2>工作目录</h2>
-    <p class="hint">
-      terminal 命令默认执行目录，模型草稿与命令产物落这里；空 =
-      数据目录下 workspace/，相对路径按数据目录解析，保存时目录不存在会自动创建。
-    </p>
+  <section id="set-workdir">
+    <h2 title="terminal 命令默认执行目录，模型草稿与命令产物落这里；空 = 数据目录下 workspace/，相对路径按数据目录解析，保存时目录不存在会自动创建。">工作目录</h2>
     <div class="grid2">
       <label class="field">
         <span>工作目录路径</span>
@@ -357,9 +358,8 @@
     {/if}
   </section>
 
-  <section>
-    <h2>桌面窗口</h2>
-    <p class="hint">托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。悬浮球右键可关闭，关闭后在此重新开启。</p>
+  <section id="set-window">
+    <h2 title="托盘常驻：点关闭 = 隐藏窗口到托盘（后端继续运行），从托盘图标恢复或退出；变更即时生效。悬浮球右键可关闭，关闭后在此重新开启。">桌面窗口</h2>
     <label class="switch-row">
       <span>关闭时最小化到托盘</span>
       <input
@@ -380,9 +380,8 @@
     </label>
   </section>
 
-  <section>
-    <h2>调试</h2>
-    <p class="hint">调试模式：把每次发给模型的完整输入（消息 + 工具清单）写进 data/logs/core-日期.log，排查上下文问题用；关闭时日志不记模型输入。dev.bat 启动时默认开启。</p>
+  <section id="set-debug">
+    <h2 title="调试模式：把每次发给模型的完整输入（消息 + 工具清单）写进 data/logs/core-日期.log，排查上下文问题用；关闭时日志不记模型输入。dev.bat 启动时默认开启。">调试</h2>
     <label class="switch-row">
       <span>模型输入进日志（调试模式）</span>
       <input
@@ -394,15 +393,18 @@
     </label>
   </section>
 
-  <section>
-    <button class="fold" onclick={() => (showPaths = !showPaths)}>
+  <section id="set-paths">
+    <button
+      class="fold"
+      title="ezharness 不用数据库——所有数据就是数据目录下的一堆文件，改坏了删掉对应文件即可复位。"
+      onclick={() => (showPaths = !showPaths)}
+    >
       数据文件位置
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class:open={showPaths}>
         <path d="M9 6l6 6-6 6" />
       </svg>
     </button>
-    <p class="hint">ezharness 不用数据库——所有数据就是数据目录下的一堆文件，改坏了删掉对应文件即可复位。</p>
-    {#if showPaths}
+        {#if showPaths}
       <div class="paths">
         {#if cfg}
           {#each cfg.paths as p (p.file)}
@@ -437,27 +439,26 @@
   .page {
     flex: 1;
     min-height: 0;
+    /* 全宽滚动容器（滚动条贴窗口右缘）；内容由直接子项各自限宽居中 */
     overflow-y: auto;
-    max-width: 720px;
-    width: 100%;
-    margin: 0 auto;
     padding: 40px 48px 60px;
     display: flex;
     flex-direction: column;
     gap: 36px;
   }
   h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   section {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    scroll-margin-top: 28px;
   }
   h2 {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--muted);
   }
   .section-head {
@@ -465,17 +466,12 @@
     align-items: center;
     justify-content: space-between;
   }
-  .hint {
-    font-size: 11px;
-    color: var(--faint);
-    margin-top: -6px;
-  }
   .msg {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .err {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: #c0392b;
   }
   .grid2 {
@@ -488,7 +484,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     color: var(--fg);
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -505,7 +501,7 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .tokenRow {
@@ -525,7 +521,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     outline: none;
     resize: vertical;
     background: var(--bg);
@@ -534,7 +530,7 @@
   }
   textarea {
     font-family: var(--font-ui);
-    font-size: 13px;
+    font-size: var(--font-size-section);
   }
   input:focus,
   select:focus,
@@ -548,11 +544,11 @@
     color: var(--fg-invert);
     border-radius: 8px;
     padding: 8px 18px;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--font-size-section);
+    font-weight: 500;
   }
   .saving {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .fold {
@@ -562,7 +558,7 @@
     border: none;
     background: transparent;
     padding: 0;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     font-weight: 700;
     color: var(--muted);
   }
@@ -594,26 +590,26 @@
   .label {
     display: flex;
     flex-direction: column;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     white-space: nowrap;
   }
   .label i {
     font-style: normal;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .value {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     text-align: right;
     overflow-wrap: anywhere;
   }
   .pending {
     padding: 18px 14px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     font-family: var(--font-mono);
   }

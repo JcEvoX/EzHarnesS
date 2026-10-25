@@ -110,7 +110,7 @@
   </div>
 {:else}
 <div class="shell">
-  <TitleBar />
+  <TitleBar onNavigate={(v) => (view = v as typeof view)} sidebarWidth={expanded ? 176 : 64} />
   <div class="app" class:expanded>
     <Sidebar view={view} expanded={expanded} onNavigate={(v) => (view = v)} onToggle={() => (expanded = !expanded)} />
     <main>
@@ -132,11 +132,11 @@
     </main>
     <!-- 工作区抽屉（终端/文件/画板三工具页）：推挤式右布局列（.app flex
     行内，打开挤窄 main；pane 常驻挂载保活） -->
-    <WorkspaceDrawer />
+    <WorkspaceDrawer visible={view === 'chat'} />
   </div>
 </div>
 
-<footer class="brand-foot" class:away={store.termDrawerOpen}>
+<footer class="brand-foot" class:away={view === 'chat' && store.termDrawerOpen}>
   <a href="https://github.com/xuanlv2002/ezharness" target="_blank" rel="noreferrer">ezharness-{pkg.version}</a>
   <span>·</span>
   <a href="https://github.com/xuanlv2002/ezloop" target="_blank" rel="noreferrer">powered by ezloop</a>
@@ -182,8 +182,7 @@
     z-index: 50;
     display: flex;
     gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     user-select: none;
     opacity: 0.45;

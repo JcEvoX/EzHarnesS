@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { ToolBlockData } from '../lib/store.svelte'
+  import { memoryChange } from '../lib/toolface'
+  import ToolFace from './ToolFace.svelte'
+  import MemoryFace from './MemoryFace.svelte'
 
   let { data }: { data: ToolBlockData } = $props()
   /* 详情一律默认折叠（头部右侧的一行摘要已够辨识）；只有用户手动点开
@@ -9,20 +12,24 @@
 
   const shown = $derived(open)
 
-  function prettyArgs(raw: string): string {
-    try {
-      return JSON.stringify(JSON.parse(raw), null, 2)
-    } catch {
-      return raw
-    }
-  }
-
   /* building 态参数尾部预览（tail 跟随，像日志一样看内容增长） */
   const tail = $derived(data.state === 'building' ? data.args.slice(-600) : '')
   const nchars = $derived(data.args.length)
 
+  /* 执行中实时输出：固定高度内滚，随增量贴底（不改折叠状态，避免抖动） */
+  let liveEl = $state<HTMLPreElement>()
+  $effect(() => {
+    const text = data.live
+    if (!liveEl || !text) return
+    liveEl.scrollTop = liveEl.scrollHeight
+  })
+
+  /* 记忆变更走专用卡片（diff 常显，不需要展开）；读写类 project-read 仍用通用块 */
+  const change = $derived(memoryChange(data.name || '', data.args, data.result))
+
   /* done 态折叠时结果首行摘要：不用展开即可大致知道干了什么 */
   const preview = $derived.by(() => {
+    if (change?.message) return change.message
     if (data.state !== 'done') return ''
     const src = (data.err || data.result || '').trim()
     if (!src) return ''
@@ -33,8 +40,8 @@
 </script>
 
 <div class="tool enter-rise" class:done={data.state === 'done'}>
-  <button class="head" onclick={() => (open = !shown)}>
-    <span class="arrow" class:open={shown}>{shown ? '▾' : '▸'}</span>
+  <button class="head" onclick={() => !change && (open = !shown)}>
+    {#if !change}<span class="arrow" class:open={shown}>{shown ? '▾' : '▸'}</span>{/if}
     {#if data.state === 'running'}
       <span class="spinner"></span>
     {:else if data.state === 'building'}
@@ -58,19 +65,27 @@
       <span class="err-tag">error</span>
     {/if}
   </button>
+  {#if data.state === 'running' && data.live}
+    <div class="live">
+      <span class="live-label">实时输出</span>
+      <pre class="live-body" bind:this={liveEl}>{data.live}</pre>
+    </div>
+  {/if}
   {#if data.state === 'building'}
     <div class="dwrap" class:closed={!shown || !tail}>
       <div class="detail">
         <pre class="stream">{tail}</pre>
       </div>
     </div>
+  {:else if change}
+    <MemoryFace change={change} state={data.state} err={data.err} />
   {:else}
     <div class="dwrap" class:closed={!shown}>
       <div class="detail">
         {#if data.args}
           <div class="section">
             <span class="label">args</span>
-            <pre>{prettyArgs(data.args)}</pre>
+            <ToolFace name={data.name || 'tool'} raw={data.args} />
           </div>
         {/if}
         {#if data.result || data.err}
@@ -103,7 +118,7 @@
     background: transparent;
     padding: 5px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     text-align: left;
     transition: background var(--dur-fast) var(--ease-out);
   }
@@ -113,7 +128,7 @@
   .arrow {
     flex: none;
     color: var(--faint);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     transition: transform var(--dur-fast) var(--ease-out);
   }
   .name {
@@ -157,7 +172,7 @@
     }
   }
   .dec-tag {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -173,7 +188,7 @@
   }
   .building-tag {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     font-variant-numeric: tabular-nums;
   }
@@ -184,15 +199,38 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .preview + .err-tag {
     margin-left: 8px;
   }
+  /* 实时输出：固定高度，增量只在内滚，不推动时间线 */
+  .live {
+    border-top: 1px solid var(--line);
+    background: var(--bg-soft);
+  }
+  .live-label {
+    display: block;
+    padding: 3px 10px 0;
+    font-size: var(--font-size-small);
+    color: var(--faint);
+  }
+  .live-body {
+    height: 140px;
+    margin: 0;
+    padding: 2px 10px 8px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--muted);
+  }
   pre.stream {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-all;
@@ -208,7 +246,7 @@
   }
   .err-tag {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--bg);
     background: var(--bg-invert);
     padding: 1px 6px;
@@ -238,7 +276,7 @@
   }
   .section .label {
     display: block;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--faint);
@@ -248,7 +286,7 @@
      （tail→pretty）不再跳高，配 max-height 过渡进一步抹平 */
   pre {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-all;

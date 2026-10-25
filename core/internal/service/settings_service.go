@@ -374,6 +374,47 @@ func (m *MemoryService) Config(ctx context.Context) MemoryConfigView {
 	return v
 }
 
+/* SkillContentView 是技能详情：清单字段 + SKILL.md 正文（已剥离 frontmatter）。 */
+type SkillContentView struct {
+	SkillEntryView
+	Content string `json:"content"`
+	Path    string `json:"path"`
+}
+
+/* SkillContent 读取单个技能的指令正文；内建优先，与 Config 的归置一致。 */
+func (m *MemoryService) SkillContent(ctx context.Context, id string) (SkillContentView, error) {
+	if !validSkillID(id) {
+		return SkillContentView{}, fmt.Errorf("非法技能名 %q", id)
+	}
+	disabled := m.Hub.SettingsSnapshot().DisabledSkills
+	view := func(s skill.Skill, builtin bool) SkillContentView {
+		return SkillContentView{
+			SkillEntryView: SkillEntryView{
+				ID:      hooks.SkillDirOf(s.Path),
+				Name:    s.Name,
+				Desc:    s.Description,
+				Enabled: !slices.Contains(disabled, hooks.SkillDirOf(s.Path)),
+				Builtin: builtin,
+			},
+			Content: s.Instructions,
+			Path:    s.Path,
+		}
+	}
+	for _, s := range builtinskill.Skills() {
+		if hooks.SkillDirOf(s.Path) == id {
+			return view(s, true), nil
+		}
+	}
+	if entries, err := skill.LoadDir(ctx, m.Hub.Fsys, hooks.SkillsDir); err == nil {
+		for _, s := range entries {
+			if hooks.SkillDirOf(s.Path) == id {
+				return view(s, false), nil
+			}
+		}
+	}
+	return SkillContentView{}, fmt.Errorf("技能 %q 不存在", id)
+}
+
 func fileMtime(path string) string {
 	if fi, err := os.Stat(path); err == nil {
 		return fi.ModTime().Format("2006-01-02 15:04")
@@ -767,6 +808,7 @@ func (s *SettingsService) ActivateMainModel(ctx context.Context, name string) (d
 	for i := range m.Main {
 		m.Main[i].Enabled = m.Main[i].Name == name
 		if m.Main[i].Enabled {
+			m.Main[i].Disabled = false
 			found = true
 		}
 	}

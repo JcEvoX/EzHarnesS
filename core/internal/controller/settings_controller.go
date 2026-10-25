@@ -206,6 +206,16 @@ func (c *SettingsController) CreateSkill(g *gin.Context) {
 	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+/* GetSkill GET /api/memory/skills/:id（清单字段 + SKILL.md 正文）。 */
+func (c *SettingsController) GetSkill(g *gin.Context) {
+	v, err := c.Memory.SkillContent(g.Request.Context(), g.Param("id"))
+	if err != nil {
+		g.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	g.JSON(http.StatusOK, v)
+}
+
 /* DeleteSkill DELETE /api/memory/skills/:id。 */
 func (c *SettingsController) DeleteSkill(g *gin.Context) {
 	if err := c.Memory.DeleteSkill(g.Request.Context(), g.Param("id")); err != nil {

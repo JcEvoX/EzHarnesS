@@ -3,6 +3,8 @@
   import { store, type Attachment, type FileRef } from '../lib/store.svelte'
   import { fileBaseName, isImagePath } from '../lib/textfile'
   import type { ReasoningEffort } from '../lib/api'
+  import PlanPanel from './PlanPanel.svelte'
+  import SessionStatus from './SessionStatus.svelte'
 
   let {
     attachments = [],
@@ -213,6 +215,7 @@
   {:else if store.lastStatus}
     <div class="status">{store.lastStatus}</div>
   {/if}
+  <PlanPanel />
   {#if attachments.length || fileRefs.length}
     <div class="attachments">
       {#each thumbnails as t, i (i)}
@@ -304,6 +307,36 @@
     {/if}
   </div>
   <div class="tools">
+    <!-- 工作区工具入口：终端/浏览器/资源（开着且为该页、或已弹出独立窗口时高亮） -->
+    <div class="ws-entries">
+      <button class="ws-btn"
+        class:active={(store.termDrawerOpen && store.drawerTool === 'term') || store.popoutTools.includes('term')}
+        onclick={() => store.toggleDrawerTool('term')} title="共享终端（用户与 AI 共写）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 8l4 4-4 4" />
+          <path d="M12 16.5h7" />
+        </svg>
+      </button>
+      {#if (window as any).ez?.browser}
+        <button class="ws-btn"
+          class:active={(store.termDrawerOpen && store.drawerTool === 'browser') || store.popoutTools.includes('browser')}
+          onclick={() => store.toggleDrawerTool('browser')} title="共享浏览器（AI 操控 · 实时共见）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
+          </svg>
+        </button>
+      {/if}
+      <button class="ws-btn"
+        class:active={(store.termDrawerOpen && store.drawerTool === 'file') || store.popoutTools.includes('file')}
+        onclick={() => store.toggleDrawerTool('file')} title="资源（查看 · 编辑 · 发给 AI——文本/图片/网页等）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+          <path d="M14 3v5h5" />
+          <path d="M9 13h6M9 17h6" />
+        </svg>
+      </button>
+    </div>
     <div class="reason-pick">
       <button class="model-btn" onclick={toggleReasonMenu} disabled={!store.activeId}
         title="思考强度（全局，即改即生效）">
@@ -366,6 +399,8 @@
         </div>
       {/if}
     </div>
+    <!-- 会话级运行状态（全局通知在顶栏） -->
+    <SessionStatus />
   </div>
   <p class="meta">Enter 发送 · Shift+Enter 换行</p>
 </div>
@@ -375,15 +410,16 @@
     flex: none;
     position: relative;
     max-width: 780px;
-    width: calc(100% - 96px);
+    /* 左右各留 58：与时间线内容列对齐（48 头像位 + 10 间隙） */
+    width: calc(100% - 116px);
     margin: 0 auto;
     padding-bottom: 22px;
   }
   /* 聊天记录滚到输入区后方的渐隐过渡 */
   .fade {
     position: absolute;
-    left: -48px;
-    right: -48px;
+    left: -58px;
+    right: -58px;
     bottom: 100%;
     height: 36px;
     background: linear-gradient(to top, color-mix(in srgb, var(--bg) 85%, transparent), transparent);
@@ -391,7 +427,7 @@
   }
   .status {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 0 4px 8px;
     text-align: right;
@@ -468,7 +504,7 @@
     height: 32px;
     border-radius: 6px;
     background: var(--bg-soft);
-    font-size: 15px;
+    font-size: var(--font-size-content);
   }
   /* 文件引用 chip（文件页「添加到对话」产物）：路径引用不复制内容 */
   .ref {
@@ -482,7 +518,7 @@
     color: var(--fg);
     padding: 5px 26px 5px 8px;
     max-width: 260px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     animation: rise var(--dur-fast) var(--ease-out) both;
     transition: background var(--dur-fast) var(--ease-out);
@@ -503,11 +539,11 @@
   }
   .ref-n {
     flex: none;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent, #2563eb);
   }
   .att-name {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     white-space: nowrap;
     overflow: hidden;
@@ -594,7 +630,7 @@
     outline: none;
     resize: none;
     font-family: inherit;
-    font-size: 15px;
+    font-size: var(--font-size-content);
     line-height: 24px;
     height: 24px;
     max-height: 200px;
@@ -683,8 +719,49 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 8px;
+    row-gap: 6px;
     padding: 6px 6px 0;
+    /* 容器查询：窄列下压缩设置按钮（见下） */
+    container-type: inline-size;
+  }
+  /* 窄列：思考/审批只留图标（悬停仍有说明），保证工具行单行不折行 */
+  @container (max-width: 500px) {
+    .reason-pick .model-name,
+    .approve-pick .model-name {
+      display: none;
+    }
+  }
+  /* 工具入口靠左、设置类按钮靠右 */
+  .ws-entries {
+    margin-right: auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .ws-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    color: var(--muted);
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .ws-btn:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .ws-btn.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .ws-btn svg {
+    width: 15px;
+    height: 15px;
   }
   .approve-pick,
   .reason-pick,
@@ -699,8 +776,7 @@
     border-radius: 9px;
     background: var(--glass);
     color: var(--muted);
-    font-size: 10.5px;
-    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
     padding: 4px 9px;
     max-width: 280px;
     transition:
@@ -727,7 +803,7 @@
   }
   .vis {
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     flex: none;
   }
   .vis.off {
@@ -759,7 +835,7 @@
     border: none;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     text-align: left;
     padding: 7px 9px;
@@ -778,7 +854,7 @@
     flex: 1;
   }
   .model-empty {
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin: 0;
     padding: 8px 9px;
@@ -787,7 +863,7 @@
     position: absolute;
     left: 6px;
     bottom: 4px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     font-family: var(--font-mono);
     opacity: 0;

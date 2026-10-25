@@ -72,6 +72,18 @@ export interface StatusPayload {
   suggestCompact: boolean
 }
 
+/* 会话任务计划（后端 hooks.SessionPlan；plan 工具维护，输入框上方展示） */
+export interface PlanProgress {
+  title: string
+  status: 'pending' | 'running' | 'completed'
+}
+
+export interface SessionPlan {
+  plan: string
+  progress: PlanProgress[]
+  updatedAt?: string
+}
+
 export interface AppEntry {
   name: string
   title: string
@@ -180,6 +192,7 @@ export interface ModelEntry {
   apiKey: string
   headers?: Record<string, string>
   enabled: boolean
+  disabled?: boolean // 关闭：不可被 model_call/task 选用,也不进可用模型清单
   vision?: boolean // 支持多模态视觉输入；false 时带图请求自动省略图片
   inTokens?: number // 累计输入 tokens（含缓存命中）
   outTokens?: number // 累计输出 tokens
@@ -193,6 +206,15 @@ export interface ModelsConfig {
   main: ModelEntry[]
   image: ModelEntry[]
   audio: ModelEntry[]
+}
+
+export interface HourStats {
+  start: number // 小时起点 UnixMilli
+  turns: number
+  in: number
+  out: number
+  cache: number
+  models?: Record<string, { in: number; out: number; cache: number; turns: number }>
 }
 
 export interface Status {
@@ -290,6 +312,11 @@ export interface MemorySkillEntry {
   enabled: boolean
   builtin?: boolean
 }
+/* 技能详情：清单字段 + SKILL.md 正文（已剥离 frontmatter） */
+export interface MemorySkillContent extends MemorySkillEntry {
+  content: string
+  path: string
+}
 export interface MemoryConfig {
   skills: { dir: string; items: MemorySkillEntry[] }
   topics: { dir: string }
@@ -370,6 +397,7 @@ export const api = {
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
+        plan?: SessionPlan | null
       }>,
     ),
 
@@ -501,6 +529,9 @@ export const api = {
 
   getModels: () => fetch('/api/models').then(json<ModelsConfig>),
 
+  /* 按小时用量序列（模型面板趋势图;近 30 天,升序） */
+  getHourlyStats: () => fetch('/api/stats/hourly').then(json<{ hours: HourStats[] }>).then((r) => r.hours || []),
+
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
 
   /* 激活主模型（输入框切换器）：唯一启用该条目并重建 agent，下一次输入生效 */
@@ -523,6 +554,9 @@ export const api = {
 
   /* 技能管理：zip(base64) 上传新建（名称自动推导） / 删除目录 / 启停（即时生效于 load_skill 与状态面板） */
   createSkill: (data: string) => post<{ ok: boolean }>('/api/memory/skills', { data }),
+
+  getSkill: (id: string) =>
+    fetch(`/api/memory/skills/${encodeURIComponent(id)}`).then(json<MemorySkillContent>),
 
   deleteSkill: (id: string) =>
     fetch(`/api/memory/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
@@ -565,7 +599,7 @@ export const api = {
 
   getTopic: (id: string) =>
     fetch(`/api/topics/${id}`).then(
-      json<{ entry: TopicEntry; messages: HistoryMessage[]; summary?: string }>,
+      json<{ entry: TopicEntry; messages: HistoryMessage[]; summary?: string; systemPrompt?: string }>,
     ),
 
   /* 回顾调用链：该会话的 otel span 列表（无 trace.jsonl 返回空数组） */

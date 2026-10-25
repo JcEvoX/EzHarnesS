@@ -121,6 +121,8 @@ func MapEvent(e event.Event) Event {
 		out.Data = raw(e.Data) // CompactInfo 原样透传
 	case hooks.EventTrim, hooks.EventTrimming:
 		out.Data = raw(e.Data) // TrimInfo / 提示文本原样透传
+	case "tool.output":
+		out.Data = raw(e.Data) // 工具执行中的实时输出增量（callId/text）原样透传
 	case hooks.EventStatus:
 		out.Data = raw(e.Data) // StatusData 原样透传
 	case hooks.EventResChange:

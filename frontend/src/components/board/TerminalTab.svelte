@@ -64,13 +64,14 @@
     term.loadAddon(fit)
     term.loadAddon(uni)
     term.unicode.activeVersion = '11'
-    /* Ctrl+V 放行给浏览器原生 paste：xterm 默认把 ctrl+字母转成控制字符
-       （V→0x16）并吞掉 keydown，原生粘贴永不触发；返回 false 不拦，
+    /* Ctrl/Cmd+V 放行给浏览器原生 paste：xterm 默认把 ctrl+字母转成控制
+       字符（V→0x16）并吞掉 keydown，原生粘贴永不触发；返回 false 不拦，
        helper textarea 上的 paste 监听会接手走 onData。
-       Ctrl+C 有选区时放行原生 copy（xterm 的 copy 监听写剪贴板），
+       Ctrl/Cmd+C 有选区时放行原生 copy（xterm 的 copy 监听写剪贴板），
        无选区维持 \x03 中断——Windows Terminal 同款语义 */
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type !== 'keydown' || !ev.ctrlKey || ev.altKey || ev.metaKey) return true
+      /* Ctrl（Windows/Linux）与 Cmd（macOS）都放行给原生复制粘贴 */
+      if (ev.type !== 'keydown' || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return true
       const k = ev.key.toLowerCase()
       if (k === 'v') return false
       if (k === 'c' && term.hasSelection()) return false
@@ -277,7 +278,7 @@
     background: var(--bg);
     border-radius: 9px;
     padding: 4px 6px 4px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -335,7 +336,7 @@
     background: transparent;
     border-radius: 9px;
     color: var(--muted);
-    font-size: 14px;
+    font-size: var(--font-size-body);
     line-height: 1;
   }
   .new:hover {
@@ -345,7 +346,7 @@
   }
   .conn {
     margin-left: auto;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     color: var(--faint);
   }
@@ -378,7 +379,7 @@
     justify-content: center;
     gap: 12px;
     color: var(--faint);
-    font-size: 13px;
+    font-size: var(--font-size-section);
   }
   .empty button {
     border: 1px solid var(--line-strong);
@@ -386,7 +387,7 @@
     color: var(--fg-invert);
     border-radius: 10px;
     padding: 8px 18px;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     font-weight: 600;
   }
 </style>

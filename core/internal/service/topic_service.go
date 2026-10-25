@@ -89,9 +89,10 @@ func (t *TopicService) List() []BranchView { return buildBranchViews(t.Hub) }
 
 /* TopicDetail 是话题完整存档（只读回顾）。 */
 type TopicDetail struct {
-	Entry    hooks.TopicEntry `json:"entry"`
-	Messages []types.Message  `json:"messages"`
-	Summary  string           `json:"summary,omitempty"` // compact 摘要段（压缩新叶几乎无消息，回顾靠它给上下文）
+	Entry        hooks.TopicEntry `json:"entry"`
+	Messages     []types.Message  `json:"messages"`
+	Summary      string           `json:"summary,omitempty"`      // compact 摘要段（压缩新叶几乎无消息，回顾靠它给上下文）
+	SystemPrompt string           `json:"systemPrompt,omitempty"` // 落盘时渲染后的完整 system（回顾查看）
 }
 
 /*
@@ -105,14 +106,20 @@ func (t *TopicService) Get(ctx context.Context, id string) (TopicDetail, error) 
 			leaf = id
 		}
 		if snap, err := hooks.LoadSnap(ctx, t.Hub.Fsys, leaf); err == nil {
-			return TopicDetail{Entry: entry, Messages: snap.Messages, Summary: snap.SummaryBlock}, nil
+			return TopicDetail{
+				Entry:        entry,
+				Messages:     snap.Messages,
+				Summary:      snap.SummaryBlock,
+				SystemPrompt: snap.SystemPrompt,
+			}, nil
 		}
 	}
 	if snap, err := hooks.LoadSnap(ctx, t.Hub.Fsys, id); err == nil {
 		return TopicDetail{
-			Entry:    hooks.TopicEntry{ID: id, Title: hooks.FirstUserTitle(snap.Messages), Msgs: len(snap.Messages)},
-			Messages: snap.Messages,
-			Summary:  snap.SummaryBlock,
+			Entry:        hooks.TopicEntry{ID: id, Title: hooks.FirstUserTitle(snap.Messages), Msgs: len(snap.Messages)},
+			Messages:     snap.Messages,
+			Summary:      snap.SummaryBlock,
+			SystemPrompt: snap.SystemPrompt,
 		}, nil
 	}
 	return TopicDetail{}, ErrTopicNotFound

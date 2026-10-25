@@ -4,8 +4,9 @@
   --bg-invert: #2e3138;
   --fg: #26272d;
   --fg-invert: #f7f8fa;
-  --muted: #6a7280;
-  --faint: #a6acba;
+  /* 辅助文字比纯灰更实一档：浅底上的小字号不再发虚 */
+  --muted: #626a78;
+  --faint: #98a1b0;
   --line: #e8eaf1;
   --line-strong: #43474f;
   --accent: #2563eb;
@@ -15,8 +16,18 @@
   --glass: color-mix(in srgb, var(--bg) 72%, transparent);
   --glass-blur: blur(18px) saturate(1.4);
 
-  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  /* 平台原生 UI 字体：Windows 用 Segoe UI + 雅黑 UI（ClearType 渲染最锐），
+     其余平台回退 system-ui。不引入未随包分发的网络字体，避免回退后字形漂移 */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Microsoft YaHei UI', ui-monospace, monospace;
+
+  /* 字号阶梯：页面标题 / 正文内容 / 界面正文 / 区块标题 / 常规界面 / 辅助信息 */
+  --font-size-page: 18px;
+  --font-size-content: 15px;
+  --font-size-body: 14px;
+  --font-size-section: 13px;
+  --font-size-ui: 12px;
+  --font-size-small: 11px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-in: 240ms;
@@ -37,12 +48,56 @@ body,
 
 body {
   font-family: var(--font-ui);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: var(--font-size-content);
+  line-height: 1.65;
   color: var(--fg);
   background: var(--bg);
-  -webkit-font-smoothing: antialiased;
+  /* 不设 -webkit-font-smoothing: antialiased：Windows 下它会关闭 ClearType，
+     小字号发虚；保持默认子像素渲染更锐利 */
   overflow-x: hidden; /* 页面级禁横滚：超宽内容一律换行/内滚 */
+}
+
+/* 管理页滚动容器是全宽的（滚动条贴窗口右缘），内容按原 720 列居中：
+   624 = 720 减去两侧 48 内边距 */
+.page > * {
+  width: 100%;
+  max-width: 624px;
+  margin-inline: auto;
+}
+
+/* 滚动容器（主时间线与各管理页）：滚动条贴容器右缘，细而淡，
+   不抢内容的视觉重心 */
+.page,
+.timeline {
+  scrollbar-gutter: stable;
+}
+.page::-webkit-scrollbar,
+.timeline::-webkit-scrollbar {
+  width: 6px;
+}
+.page::-webkit-scrollbar-track,
+.timeline::-webkit-scrollbar-track {
+  background: transparent;
+}
+.page::-webkit-scrollbar-thumb,
+.timeline::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.page::-webkit-scrollbar-thumb:hover,
+.timeline::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fg) 30%, transparent);
+}
+.page::-webkit-scrollbar-button,
+.timeline::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* 标题行高统一收紧：正文的 1.65 行距放在标题上会松散发虚 */
+h1,
+h2,
+h3 {
+  line-height: 1.35;
 }
 
 ::selection {

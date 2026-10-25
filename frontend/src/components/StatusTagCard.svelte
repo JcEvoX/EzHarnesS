@@ -51,7 +51,7 @@
     gap: 10px;
     flex-wrap: wrap;
     padding: 2px 10px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     border-left: 2px solid #d29922;
   }

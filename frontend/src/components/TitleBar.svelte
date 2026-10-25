@@ -1,11 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { isDesktop } from '../lib/desktop'
+  import TopSearch from './TopSearch.svelte'
+  import TopRail from './TopRail.svelte'
 
-  /* 桌面壳标题栏：?desktop 参数时渲染（桌面窗口 URL 带 ?desktop=1）。
-     三键/关闭流程走 desktop 壳的 preload IPC（window.ez），拖拽由
-     app-region 处理，浏览器访问不渲染 */
+  /* 顶部通栏：搜索框所有形态都渲染；三键/关闭流程仅桌面壳
+     （?desktop=1）渲染，走 preload IPC（window.ez）。拖拽由 app-region 处理 */
   const desktop = isDesktop
+  let {
+    onNavigate,
+    sidebarWidth = 0,
+  }: {
+    onNavigate: (v: string) => void
+    /* 侧栏当前宽度：搜索框在侧栏右侧的内容区里居中，而不是整窗居中 */
+    sidebarWidth?: number
+  } = $props()
 
   /* desktop 壳能力（web 端为 undefined，防御性判空） */
   function ezWindow(): any | undefined {
@@ -61,10 +70,14 @@
   }))
 </script>
 
-{#if desktop}
-  <div class="titlebar">
-    <span class="name">ezharness</span>
-    <div class="btns">
+<div class="titlebar" style="padding-left:{sidebarWidth}px">
+  <div class="search">
+    <TopSearch {onNavigate} />
+  </div>
+  <div class="right">
+    <TopRail />
+    {#if desktop}
+      <div class="btns">
       <button class="tbtn" onclick={() => ezWindow()?.minimize()} title="最小化">
         <svg viewBox="0 0 12 12"><path d="M1 6h10" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
@@ -83,9 +96,12 @@
       <button class="tbtn close" onclick={() => void onClose()} title="关闭">
         <svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
-    </div>
+      </div>
+    {/if}
   </div>
+</div>
 
+{#if desktop}
   {#if closePrompt}
     <div class="close-mask" role="presentation" onclick={() => cancelClose()}>
       <div class="close-dialog" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
@@ -105,23 +121,28 @@
 
 <style>
   .titlebar {
-    display: flex;
+    /* 三栏网格：左右 1fr 等宽，中间搜索框严格居中，不受右侧按钮组宽度影响 */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     height: 34px;
     flex: none;
-    background: var(--bg);
+    background: var(--bg-soft);
     user-select: none;
     app-region: drag;
+    transition: padding-left var(--dur-in) var(--ease-out);
   }
-  .name {
-    margin-left: 14px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--faint);
-    pointer-events: none;
+  .search {
+    grid-column: 2;
+  }
+  .right {
+    grid-column: 3;
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    height: 100%;
   }
   .btns {
-    margin-left: auto;
     display: flex;
     height: 100%;
     app-region: no-drag;
@@ -140,7 +161,7 @@
     height: 12px;
   }
   .tbtn:hover {
-    background: var(--bg-soft);
+    background: var(--bg);
     color: var(--fg);
   }
   .tbtn.close:hover {
@@ -169,7 +190,7 @@
   }
   .close-q {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 600;
     color: var(--fg);
   }
@@ -177,7 +198,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     cursor: pointer;
     user-select: none;
@@ -196,8 +217,8 @@
     color: var(--fg);
     border-radius: 8px;
     padding: 6px 18px;
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
     cursor: pointer;
   }
   .cb.ok {

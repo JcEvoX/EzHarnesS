@@ -181,7 +181,7 @@
     background: var(--bg);
     border-radius: 9px;
     padding: 4px 6px 4px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -239,7 +239,7 @@
     background: transparent;
     border-radius: 9px;
     color: var(--muted);
-    font-size: 14px;
+    font-size: var(--font-size-body);
     line-height: 1;
   }
   .new:hover {
@@ -265,7 +265,7 @@
     border: none;
     outline: none;
     background: transparent;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-family: var(--font-mono);
     color: var(--fg);
     padding: 7px 0;
@@ -300,7 +300,7 @@
     justify-content: center;
     gap: 12px;
     color: var(--faint);
-    font-size: 13px;
+    font-size: var(--font-size-section);
   }
   .empty button {
     border: 1px solid var(--line-strong);
@@ -308,20 +308,20 @@
     color: var(--fg-invert);
     border-radius: 10px;
     padding: 8px 18px;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     font-weight: 600;
   }
   .fallback {
     margin: auto;
     text-align: center;
     color: var(--muted);
-    font-size: 14px;
+    font-size: var(--font-size-body);
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
   .fallback .sub {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   @keyframes spin {

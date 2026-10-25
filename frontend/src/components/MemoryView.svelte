@@ -7,6 +7,7 @@
     type MemoryConfig,
     type MemoryItem,
     type MemoryProjectDetail,
+    type MemorySkillContent,
     type MemorySkillEntry,
     type SessionNode,
     type TraceSpan,
@@ -31,6 +32,7 @@
   let reviewTab = $state<'msgs' | 'trace'>('msgs')
   let reviewMsgs = $state<HistoryMessage[]>([])
   let reviewSummary = $state('')
+  let reviewSystem = $state('')
   let reviewSpans = $state<TraceSpan[]>([])
   let reviewLoading = $state(false)
   let pickedSpan = $state<TraceSpan | null>(null)
@@ -48,6 +50,15 @@
       message = '会话树加载失败（后端不可达）'
     }
   }
+
+  /* 顶栏搜索跳转：滚动到能力记忆分区（消费后清空锚点） */
+  $effect(() => {
+    const anchor = store.jumpAnchor
+    if (!anchor.startsWith('memory:')) return
+    store.jumpAnchor = ''
+    const el = document.getElementById(`mem-${anchor.slice('memory:'.length)}`)
+    requestAnimationFrame(() => el?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  })
 
   /* 三段数据互不依赖：并发拉取（串行时长期记忆要等会话树，进页面空等） */
   onMount(() => {
@@ -68,9 +79,14 @@
      + 项目卡片，直接编辑保存（整组回写）── */
 
   let longterm = $state<LongtermMemory | null>(null)
-  const panels: Array<{ target: 'user' | 'soul'; label: string }> = [
-    { target: 'user', label: '用户个人信息' },
-    { target: 'soul', label: 'agent 工作习惯' },
+  const panels: Array<{ target: 'user' | 'soul'; label: string; desc: string; empty: string }> = [
+    { target: 'user', label: '用户信息', desc: '关于用户：偏好、背景、工作环境与长期约定。', empty: '暂无条目——对话中 agent 会把值得保留的用户信息沉淀进来。' },
+    {
+      target: 'soul',
+      label: 'agent soul',
+      desc: '关于 agent 自己：性格、表达方式、工作方式与协作原则——用户对你的期望，不是项目知识。',
+      empty: '暂无条目——对话中 agent 会把用户对自己的要求沉淀进来。',
+    },
   ]
   let editing = $state<{ target: 'user' | 'soul'; index: number; text: string } | null>(null)
   let adding = $state<{ target: 'user' | 'soul'; text: string } | null>(null)
@@ -149,10 +165,52 @@
     void saveItems(target, [...itemsOf(target), { id: '', text, updatedAt: '' }])
   }
 
+  /* 条目正文默认收三行：超长记忆不再撑高面板，也不在行内出现滚动条。
+     展开态按条目 key 记忆；overflow 只在折叠态测量，展开时沿用上次结果 */
+  let expandedMem = $state<Set<string>>(new Set())
+  let overflowMem = $state<Record<string, boolean>>({})
+
+  function memKey(target: 'user' | 'soul', it: MemoryItem, i: number): string {
+    return `${target}:${it.id || `#${i}`}`
+  }
+
+  function toggleMem(key: string) {
+    const next = new Set(expandedMem)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    expandedMem = next
+  }
+
+  function trackOverflow(node: HTMLElement, p: { key: string; expanded: boolean }) {
+    let cur = p
+    const run = () => {
+      if (cur.expanded) return
+      const over = node.scrollHeight > node.clientHeight + 1
+      if (!!overflowMem[cur.key] !== over) overflowMem = { ...overflowMem, [cur.key]: over }
+    }
+    run()
+    const ro = new ResizeObserver(run)
+    ro.observe(node)
+    return {
+      update(next: typeof p) {
+        cur = next
+        run()
+      },
+      destroy() {
+        ro.disconnect()
+      },
+    }
+  }
+
   /* ── 项目记忆：卡片列表 + 展开编辑全文 ── */
 
   let projectDraft = $state<MemoryProjectDetail | null>(null)
   let projectNew = $state(false)
+
+  function closeProject() {
+    projectDraft = null
+    projectNew = false
+  }
 
   async function openProject(id: string) {
     if (projectDraft?.id === id) {
@@ -219,6 +277,7 @@
       ])
       reviewMsgs = d.messages || []
       reviewSummary = (d.summary || '').replace(/<\/?compact-summary>/g, '').trim()
+      reviewSystem = d.systemPrompt || ''
       reviewSpans = tr
     } catch (e) {
       message = `回顾失败：${(e as Error).message}`
@@ -231,6 +290,7 @@
     reviewNode = null
     reviewMsgs = []
     reviewSummary = ''
+    reviewSystem = ''
     reviewSpans = []
     pickedSpan = null
     openForks = new Set()
@@ -447,6 +507,29 @@
     return `${(n / 1024 / 1024).toFixed(1)} MB`
   }
 
+  /* 技能详情抽屉：点击卡片拉取 SKILL.md 正文（内建技能同样可看） */
+  let skillDetail = $state<MemorySkillContent | null>(null)
+  let skillLoading = $state(false)
+  let skillErr = $state('')
+
+  async function openSkillDetail(s: MemorySkillEntry) {
+    skillDetail = { ...s, content: '', path: '' }
+    skillLoading = true
+    skillErr = ''
+    try {
+      skillDetail = await api.getSkill(s.id)
+    } catch (e) {
+      skillErr = `技能内容读取失败：${errText(e)}`
+    } finally {
+      skillLoading = false
+    }
+  }
+
+  function closeSkillDetail() {
+    skillDetail = null
+    skillErr = ''
+  }
+
   /* 技能管理：启停（乐观更新，失败回滚）与删除（confirm 后物理删目录） */
   async function toggleSkill(s: MemorySkillEntry) {
     const next = !s.enabled
@@ -600,52 +683,57 @@
   <section>
     <header>
       <div>
-        <h2>长期记忆</h2>
-        <p class="hint">条目式数据库：agent 用 memory 工具读写（变更进通知栏），你也可以在这里直接增删改。</p>
+        <h2 title="条目式数据库：agent 用 memory 工具读写（变更进通知栏），你也可以在这里直接增删改。"
+          >长期记忆</h2
+        >
       </div>
     </header>
-    <div class="memgrid">
+    <div class="memstack">
       {#each panels as panel (panel.target)}
-        <div class="mempnel">
+        <div class="mempnel" class:soul={panel.target === 'soul'}>
           <div class="memhead">
-            <h3>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
+            <div class="memtitle">
+              <h3 title={panel.desc}><span class="memsig"></span>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
+            </div>
             <button class="memadd" onclick={() => (adding = { target: panel.target, text: '' })}>＋ 添加</button>
           </div>
           <div class="memlist">
             {#each itemsOf(panel.target) as it, i}
               <div class="memitem">
+                <span class="membadge">{it.id || '新'}</span>
                 {#if editing?.target === panel.target && editing.index === i}
                   <div class="memeditwrap">
-                    <textarea class="memedit" rows="2" value={editing.text} oninput={(e) => (editing!.text = e.currentTarget.value)}></textarea>
+                    <textarea class="memedit" rows="4" value={editing.text} oninput={(e) => (editing!.text = e.currentTarget.value)}></textarea>
                     <div class="memops">
                       <button class="mop primary" onclick={commitEdit} disabled={memBusy}>保存</button>
                       <button class="mop" onclick={() => (editing = null)}>取消</button>
                     </div>
                   </div>
                 {:else}
-                  <span class="membadge">{it.id || '新'}</span>
-                  <span class="memtext">{it.text}</span>
-                  <span class="memtime">{relTime(it.updatedAt)}</span>
-                  <span class="memacts">
-                    <button class="micon" title="编辑" onclick={() => (editing = { target: panel.target, index: i, text: it.text })}>✎</button>
-                    <button class="micon danger" title="删除" onclick={() => removeItem(panel.target, i)}>✕</button>
-                  </span>
+                  {@const mk = memKey(panel.target, it, i)}
+                  <div class="membody">
+                    <div
+                      class="memtext"
+                      class:expanded={expandedMem.has(mk)}
+                      class:more={overflowMem[mk] && !expandedMem.has(mk)}
+                      use:trackOverflow={{ key: mk, expanded: expandedMem.has(mk) }}>{it.text}</div
+                    >
+                    <div class="memmeta">
+                      <span class="memtime">{relTime(it.updatedAt)}</span>
+                      {#if overflowMem[mk]}
+                        <button class="memmore" onclick={() => toggleMem(mk)}>{expandedMem.has(mk) ? '收起' : '展开'}</button>
+                      {/if}
+                      <span class="memacts">
+                        <button class="micon" title="编辑" onclick={() => (editing = { target: panel.target, index: i, text: it.text })}>✎</button>
+                        <button class="micon danger" title="删除" onclick={() => removeItem(panel.target, i)}>✕</button>
+                      </span>
+                    </div>
+                  </div>
                 {/if}
               </div>
             {/each}
-            {#if adding?.target === panel.target}
-              <div class="memitem">
-                <span class="membadge">新</span>
-                <div class="memeditwrap">
-                  <textarea class="memedit" rows="2" placeholder="一条新记忆（自包含的一句话）" value={adding.text} oninput={(e) => (adding!.text = e.currentTarget.value)}></textarea>
-                  <div class="memops">
-                    <button class="mop primary" onclick={commitAdd} disabled={memBusy}>保存</button>
-                    <button class="mop" onclick={() => (adding = null)}>取消</button>
-                  </div>
-                </div>
-              </div>
-            {:else if !itemsOf(panel.target).length}
-              <div class="empty">暂无条目——对话中 agent 会把值得保留的信息沉淀进来。</div>
+            {#if !itemsOf(panel.target).length}
+              <div class="empty">{panel.empty}</div>
             {/if}
           </div>
         </div>
@@ -681,41 +769,28 @@
           <div class="empty">暂无项目——围绕明确项目的会话，agent 会建立项目记忆。</div>
         {/if}
       </div>
-      {#if projectDraft}
-        <div class="projedit">
-          <div class="prow">
-            <label>名称<input class="pin" bind:value={projectDraft.name} placeholder="项目名" /></label>
-            <label>描述<input class="pin" bind:value={projectDraft.description} placeholder="一句话描述" /></label>
-          </div>
-          <textarea class="pcontent" rows="10" bind:value={projectDraft.content} placeholder="项目记忆全文（背景/约定/关键路径…，markdown）" spellcheck="false"></textarea>
-          <div class="memops">
-            <button class="mop primary" onclick={() => void commitProject()} disabled={memBusy}>保存</button>
-            <button
-              class="mop"
-              onclick={() => {
-                projectDraft = null
-                projectNew = false
-              }}>取消</button
-            >
-          </div>
-        </div>
-      {/if}
     </div>
   </section>
 
   <!-- ── 能力记忆 ── -->
-  <section>
+  <section id="mem-skills">
     <header>
       <div>
-        <h2>能力记忆</h2>
-        <p class="hint">沉淀的 skill——做过一次的复杂操作固化为可复用的能力。</p>
+        <h2 title="沉淀的 skill——做过一次的复杂操作固化为可复用的能力。">能力记忆</h2>
       </div>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.skills.dir : '—'}</p>
     <div class="grid">
       {#if cfg}
         {#each cfg.skills.items as s (s.id)}
-          <div class="card" class:off={!s.enabled}>
+          <div
+            class="card"
+            class:off={!s.enabled}
+            role="button"
+            tabindex="0"
+            onclick={() => openSkillDetail(s)}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openSkillDetail(s)}
+          >
             <div class="card-top">
               <div class="glyph">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -724,7 +799,14 @@
               </div>
               <div class="card-ops">
                 {#if !s.builtin}
-                  <button class="del" title="删除技能" onclick={() => (delTarget = s)}>
+                  <button
+                    class="del"
+                    title="删除技能"
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      delTarget = s
+                    }}
+                  >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
                     </svg>
@@ -736,15 +818,23 @@
                   role="switch"
                   aria-checked={s.enabled}
                   tabindex="0"
-                  onclick={() => toggleSkill(s)}
-                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSkill(s)}
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    toggleSkill(s)
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation()
+                      toggleSkill(s)
+                    }
+                  }}
                   title={s.enabled ? '禁用技能' : '启用技能'}>
                   <i></i>
                 </span>
               </div>
             </div>
             <h3>{s.name}{#if s.builtin}<span class="bi" title="随应用分发，可禁用不可删">内建</span>{/if}</h3>
-            <p class="card-desc">{s.desc}</p>
+            {#if s.desc}<p class="card-desc" title={s.desc}>{s.desc}</p>{/if}
           </div>
         {/each}
         <button class="card ghost newskill" onclick={openSkillModal}>
@@ -755,8 +845,7 @@
               </svg>
             </div>
           </div>
-          <h3>新建技能</h3>
-          <p class="card-desc">上传 zip 压缩包，把重复性工作流沉淀为可复用的能力。</p>
+          <h3 title="上传 zip 压缩包，把重复性工作流沉淀为可复用的能力。">新建技能</h3>
         </button>
       {:else}
         <button class="card ghost newskill" onclick={openSkillModal}>
@@ -767,8 +856,7 @@
               </svg>
             </div>
           </div>
-          <h3>暂无技能</h3>
-          <p class="card-desc">上传 zip 新建技能，重复性工作流可沉淀为 skill。</p>
+          <h3 title="上传 zip 新建技能，重复性工作流可沉淀为 skill。">暂无技能</h3>
         </button>
       {/if}
     </div>
@@ -778,8 +866,9 @@
   <section>
     <header>
       <div>
-        <h2>话题记忆</h2>
-        <p class="hint">完整会话树：一级 = 分支（⑂ 为分叉新线），线内向下是压缩世代；已归档不再参与恢复。</p>
+        <h2 title="完整会话树：一级 = 分支（⑂ 为分叉新线），线内向下是压缩世代；已归档不再参与恢复。"
+          >话题记忆</h2
+        >
       </div>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.topics.dir : '—'}</p>
@@ -858,6 +947,12 @@
     </div>
 
     {#if reviewTab === 'msgs'}
+      {#if reviewSystem}
+        <details class="dsys">
+          <summary>系统提示词<span class="dsys-hint">{reviewSystem.length.toLocaleString()} 字符 · 点击展开</span></summary>
+          <pre class="dsys-text">{reviewSystem}</pre>
+        </details>
+      {/if}
       {#if reviewSummary}
         <div class="dsum">
           <div class="dsum-tag">⇪ 压缩摘要（本会话开始前的上下文）</div>
@@ -1018,7 +1113,72 @@
   </aside>
 {/if}
 
+<!-- 长期记忆添加：居中弹框，不再在条目列表内展开 -->
+{#if adding}
+  {@const targetLabel = panels.find((p) => p.target === adding!.target)?.label ?? ''}
+  <div class="drawer-mask" onclick={() => (adding = null)}></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="添加记忆条目">
+    <header>
+      <h3>添加到{targetLabel}</h3>
+      <button class="dclose" onclick={() => (adding = null)} title="关闭">✕</button>
+    </header>
+    <div class="fld">
+      <span>条目内容</span>
+      <textarea class="memedit" rows="4" placeholder="一条新记忆（自包含的一句话）" value={adding.text} oninput={(e) => (adding!.text = e.currentTarget.value)}></textarea>
+    </div>
+    <footer>
+      <button class="btn" disabled={memBusy} onclick={() => (adding = null)}>取消</button>
+      <button class="btn primary" disabled={memBusy} onclick={commitAdd}>保存</button>
+    </footer>
+  </div>
+{/if}
+
+<!-- 项目记忆：新建与编辑共用居中弹框 -->
+{#if projectDraft}
+  <div class="drawer-mask" onclick={closeProject}></div>
+  <div class="modal projmodal" role="dialog" aria-modal="true" aria-label={projectNew ? '新建项目' : '编辑项目'}>
+    <header>
+      <h3>{projectNew ? '新建项目' : '编辑项目'}</h3>
+      <button class="dclose" onclick={closeProject} title="关闭">✕</button>
+    </header>
+    <div class="prow">
+      <label>名称<input class="pin" bind:value={projectDraft.name} placeholder="项目名" /></label>
+      <label>描述<input class="pin" bind:value={projectDraft.description} placeholder="一句话描述" /></label>
+    </div>
+    <textarea class="pcontent" rows="10" bind:value={projectDraft.content} placeholder="项目记忆全文（背景/约定/关键路径…，markdown）" spellcheck="false"></textarea>
+    <footer>
+      <button class="btn" disabled={memBusy} onclick={closeProject}>取消</button>
+      <button class="btn primary" disabled={memBusy} onclick={() => void commitProject()}>保存</button>
+    </footer>
+  </div>
+{/if}
+
 <!-- 新建技能弹窗：选 zip 直接上传（技能名由后端从压缩包推导） -->
+<!-- 技能详情抽屉：SKILL.md 正文（含内建技能） -->
+{#if skillDetail}
+  <div class="drawer-mask" onclick={closeSkillDetail}></div>
+  <aside class="drawer skill">
+    <header>
+      <div class="dtitle">
+        <span class="name">{skillDetail.name}</span>
+        {#if skillDetail.builtin}<span class="kbadge">内建</span>{/if}
+      </div>
+      <button class="dclose" onclick={closeSkillDetail} title="关闭">✕</button>
+    </header>
+    <div class="skmeta">
+      {#if skillDetail.desc}<p>{skillDetail.desc}</p>{/if}
+      {#if !skillDetail.builtin && skillDetail.path}<span class="skpath">{skillDetail.path}</span>{/if}
+    </div>
+    {#if skillLoading}
+      <div class="skempty">加载中…</div>
+    {:else if skillErr}
+      <div class="skempty">{skillErr}</div>
+    {:else}
+      <pre class="skillmd">{skillDetail.content || '（SKILL.md 无正文）'}</pre>
+    {/if}
+  </aside>
+{/if}
+
 {#if skillModal}
   <div class="drawer-mask" onclick={() => (skillModal = false)}></div>
   <div class="modal">
@@ -1065,21 +1225,19 @@
   .page {
     flex: 1;
     min-height: 0;
+    /* 全宽滚动容器（滚动条贴窗口右缘）；内容由直接子项各自限宽居中 */
     overflow-y: auto;
-    max-width: 720px;
-    width: 100%;
-    margin: 0 auto;
     padding: 40px 48px 60px;
     display: flex;
     flex-direction: column;
     gap: 34px;
   }
   h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .lead {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--muted);
     margin-top: -24px;
   }
@@ -1090,6 +1248,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    scroll-margin-top: 28px;
   }
   header {
     display: flex;
@@ -1098,18 +1257,18 @@
     gap: 16px;
   }
   h2 {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--muted);
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: 2px;
   }
   .dir {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     display: flex;
     align-items: center;
@@ -1117,7 +1276,7 @@
     overflow-wrap: anywhere;
   }
   .dir span {
-    font-size: 11px;
+    font-size: var(--font-size-small);
   }
   .list {
     display: flex;
@@ -1129,7 +1288,7 @@
   .empty {
     padding: 22px 14px;
     text-align: center;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
 
@@ -1149,13 +1308,13 @@
   }
   .file .name {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     overflow-wrap: anywhere;
   }
   .file .badge {
     flex: none;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     background: var(--accent-soft);
     border-radius: 5px;
@@ -1164,7 +1323,7 @@
   .file .stat {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
   }
@@ -1173,9 +1332,11 @@
   }
 
   /* ── 长期记忆：条目面板与项目编辑 ── */
-  .memgrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(288px, 1fr));
+  /* 两块纵向全宽：各自按内容高度、列表限高内滚——条数再多也不撑长页面，
+     长文本也有整行宽度可读 */
+  .memstack {
+    display: flex;
+    flex-direction: column;
     gap: 12px;
     margin-bottom: 12px;
   }
@@ -1189,24 +1350,40 @@
   }
   .memhead {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 12px;
+    padding: 9px 14px 10px;
     background: var(--bg-soft);
     border-bottom: 1px solid var(--line);
+  }
+  .memtitle {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .memhead h3 {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
-    font-weight: 650;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--fg);
+  }
+  .memsig {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .mempnel.soul .memsig {
+    background: #7c3aed;
   }
   .memcnt {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 500;
     color: var(--faint);
     background: var(--bg);
@@ -1221,7 +1398,7 @@
     background: transparent;
     color: var(--accent);
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     border-radius: 6px;
     padding: 3px 8px;
@@ -1236,14 +1413,26 @@
     gap: 1px;
     padding: 6px;
     min-height: 52px;
+    max-height: 280px;
+    overflow-y: auto;
   }
   .memitem {
+    position: relative;
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    padding: 7px 8px;
+    padding: 8px;
     border-radius: 8px;
     transition: background var(--dur-fast) var(--ease-out);
+  }
+  .memitem + .memitem::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 8px;
+    right: 8px;
+    height: 1px;
+    background: var(--line);
   }
   .memitem:hover {
     background: var(--bg-soft);
@@ -1252,8 +1441,7 @@
     flex: none;
     min-width: 24px;
     text-align: center;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     background: var(--bg-soft);
     border: 1px solid var(--line);
@@ -1261,22 +1449,61 @@
     padding: 1px 5px;
     margin-top: 2px;
   }
-  .memtext {
+  .membody {
     flex: 1;
     min-width: 0;
-    font-size: 12.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  /* 正文默认三行截断（超长记忆不撑高面板），展开后放开 */
+  .memtext {
+    font-size: var(--font-size-section);
     line-height: 1.6;
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  /* 行内操作占位不塌（visibility 而非 display 切换），悬浮不引起布局抖动 */
+  .memtext.expanded {
+    display: block;
+    overflow: visible;
+  }
+  .memtext.more {
+    mask-image: linear-gradient(to bottom, #000 58%, transparent);
+  }
+  /* 元信息行：时间 + 展开钮在左，编辑/删除悬浮在右，不挤占正文宽度 */
+  .memmeta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 20px;
+  }
   .memtime {
     flex: none;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
-    margin-top: 3px;
+  }
+  .memmore {
+    flex: none;
+    padding: 0 2px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: var(--font-size-small);
+    color: var(--accent);
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .memmore:hover {
+    text-decoration: underline;
+  }
+  .memmeta .memacts {
+    margin-left: auto;
   }
   .memacts {
     flex: none;
@@ -1296,7 +1523,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1;
     cursor: pointer;
     border-radius: 6px;
@@ -1323,7 +1550,7 @@
     width: 100%;
     resize: vertical;
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     color: var(--fg);
     background: var(--bg);
@@ -1343,7 +1570,7 @@
   }
   .mop {
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     background: var(--bg);
     border: 1px solid var(--line-strong);
@@ -1385,8 +1612,8 @@
     gap: 8px;
   }
   .projhead h3 {
-    font-size: 12px;
-    font-weight: 650;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--muted);
   }
   .projwrap .list {
@@ -1415,7 +1642,7 @@
   }
   .projrow .pname {
     flex: none;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     font-weight: 600;
   }
   .projrow .stat {
@@ -1425,23 +1652,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .projrow .pid {
     flex: none;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     opacity: 0.75;
-  }
-  .projedit {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg);
   }
   .prow {
     display: flex;
@@ -1452,13 +1670,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .pin {
     width: 220px;
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
     background: var(--bg-soft);
     border: 1px solid var(--line);
@@ -1473,7 +1691,7 @@
     width: 100%;
     resize: vertical;
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     color: var(--fg);
     background: var(--bg-soft);
@@ -1499,6 +1717,10 @@
     flex-direction: column;
     gap: 8px;
     border: 1px solid var(--line);
+    cursor: pointer;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
     border-radius: 14px;
     background: var(--bg);
     padding: 16px;
@@ -1535,31 +1757,77 @@
     height: 16px;
   }
   .card h3 {
-    font-size: 13.5px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     margin-top: 2px;
+  }
+  .card:hover {
+    border-color: var(--line-strong);
+  }
+  /* 技能描述：展示但压缩两行，全文在详情抽屉与 title 里 */
+  .card-desc {
+    margin: 0;
+    font-size: var(--font-size-small);
+    line-height: 1.5;
+    color: var(--faint);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* 技能详情抽屉（复用回顾抽屉骨架） */
+  .drawer.skill {
+    width: min(560px, 94vw);
+  }
+  .skmeta {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .skmeta p {
+    margin: 0;
+    font-size: var(--font-size-ui);
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .skpath {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
+    color: var(--faint);
+    overflow-wrap: anywhere;
+  }
+  .skillmd {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0;
+    padding: 14px 16px 28px;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-ui);
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--fg);
+  }
+  .skempty {
+    padding: 24px 16px;
+    font-size: var(--font-size-ui);
+    color: var(--faint);
   }
   .card h3 .bi {
     display: inline-block;
     margin-left: 6px;
     padding: 1px 7px;
     border-radius: 6px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     font-weight: 500;
     vertical-align: 1px;
     color: var(--accent);
     background: var(--accent-soft);
-  }
-  .card-desc {
-    font-size: 11.5px;
-    line-height: 1.6;
-    color: var(--faint);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    flex: 1;
   }
   .card.ghost {
     border-style: dashed;
@@ -1664,7 +1932,7 @@
     justify-content: space-between;
   }
   .modal h3 {
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 700;
     color: var(--fg);
   }
@@ -1674,7 +1942,7 @@
     gap: 6px;
   }
   .fld > span {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .zipbtn {
@@ -1683,7 +1951,7 @@
     background: var(--bg-soft);
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 9px 10px;
     text-align: left;
     cursor: pointer;
@@ -1697,7 +1965,7 @@
     color: var(--fg);
   }
   .modal-hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--faint);
   }
@@ -1715,7 +1983,7 @@
     background: transparent;
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 7px 16px;
     cursor: pointer;
     transition:
@@ -1744,6 +2012,12 @@
     width: min(340px, 92vw);
     gap: 12px;
   }
+  /* 项目记忆弹框：两列名称/描述 + 全文，比确认框宽 */
+  .modal.projmodal {
+    width: min(560px, 92vw);
+    max-height: 86vh;
+    overflow-y: auto;
+  }
 
   /* 话题记忆：会话行 */
   .info {
@@ -1754,25 +2028,28 @@
     gap: 1px;
   }
   .skill .name {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
-    font-weight: 550;
+    font-weight: 500;
   }
   .desc {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     overflow-wrap: anywhere;
   }
 
   /* 话题记忆：目录式会话树。导轨列(guide)按祖先层级等宽排列，
      竖线贯穿同级节点——折叠的子树不渲染行，导轨天然连续不错位 */
+  /* 会话树限高内部滚动：条目再多也不把整页顶长 */
   .treelist {
     display: flex;
     flex-direction: column;
     border: 1px solid var(--line);
     border-radius: 12px;
-    padding: 4px 0;
-    overflow: hidden;
+    padding: 0 0 4px;
+    max-height: 50vh;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .trow {
     display: flex;
@@ -1787,10 +2064,14 @@
   .trow.cur {
     background: color-mix(in srgb, var(--accent) 7%, var(--bg));
   }
+  /* 根部行吸附在滚动区顶部，展开长树时始终可见 */
   .trow.root {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg);
     border-bottom: 1px solid var(--line);
     border-radius: 0;
-    margin-bottom: 2px;
   }
   .guide {
     flex: none;
@@ -1807,7 +2088,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     cursor: pointer;
     border-radius: 4px;
     padding: 0;
@@ -1829,16 +2110,16 @@
   .trow.root .name {
     color: var(--muted);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   /* 名称行 = flex：文本自然宽度、过长收缩出省略号，徽章紧跟其后不被挤走 */
   .trow .name {
     display: flex;
     align-items: center;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
-    font-weight: 550;
+    font-weight: 500;
   }
   .trow .name .n-text {
     flex: 0 1 auto;
@@ -1850,7 +2131,7 @@
   .kbadge {
     flex: none;
     margin-left: 8px;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 500;
     color: var(--accent);
     background: var(--accent-soft);
@@ -1882,7 +2163,7 @@
     border: none;
     background: transparent;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 4px 8px;
     border-radius: 6px;
     opacity: 0;
@@ -1948,8 +2229,8 @@
     min-width: 0;
   }
   .dtitle .name {
-    font-size: 13px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     overflow-wrap: anywhere;
   }
@@ -1985,7 +2266,7 @@
     border: none;
     background: transparent;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     padding: 8px 10px;
     margin-bottom: -1px;
@@ -2003,8 +2284,44 @@
   .dtab-hint {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
+  }
+  /* 系统提示词：默认折叠（通常很长），展开后限高内部滚动 */
+  .dsys {
+    flex: none;
+    margin: 12px 16px 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-soft);
+  }
+  .dsys summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: var(--font-size-small);
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    user-select: none;
+  }
+  .dsys-hint {
+    font-size: var(--font-size-small);
+    font-weight: 400;
+    color: var(--faint);
+  }
+  .dsys-text {
+    margin: 0;
+    padding: 0 12px 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
+    line-height: 1.65;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .dsum {
     flex: none;
@@ -2016,13 +2333,13 @@
     background: var(--bg-soft);
   }
   .dsum-tag {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     font-weight: 600;
     margin-bottom: 6px;
   }
   .dsum-text {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     color: var(--muted);
     white-space: pre-wrap;
@@ -2061,17 +2378,17 @@
     flex: 1 1 100%;
   }
   .tsk {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tsv {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
   .tsm {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 400;
     color: var(--faint);
   }
@@ -2094,7 +2411,7 @@
     background: transparent;
     color: inherit;
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     text-align: left;
     cursor: pointer;
   }
@@ -2154,7 +2471,7 @@
   }
   .tname {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -2204,7 +2521,7 @@
     cursor: pointer;
   }
   .thint {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tspan.root .tname {
@@ -2250,7 +2567,7 @@
   }
   .tms {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     text-align: right;
   }
@@ -2274,12 +2591,12 @@
   }
   .tdet-name {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
   .tdet-kind {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     background: var(--accent-soft);
     border-radius: 5px;
@@ -2288,14 +2605,14 @@
   .tdet-dur {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tdet-x {
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     padding: 2px 5px;
     border-radius: 5px;
     cursor: pointer;
@@ -2317,7 +2634,7 @@
     flex: none;
     width: 96px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     padding-top: 1px;
   }
@@ -2325,7 +2642,7 @@
     flex: 1;
     min-width: 0;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--muted);
     white-space: pre-wrap;
@@ -2334,7 +2651,7 @@
   .rv {
     display: flex;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.5;
   }
   .rv.me .rtext {
@@ -2344,7 +2661,7 @@
     flex: none;
     width: 44px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     text-transform: uppercase;
     padding-top: 2px;
@@ -2361,12 +2678,12 @@
     border-radius: 6px;
     background: var(--bg-soft);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--fg);
   }
   .rcall em {
     font-style: normal;
-    font-size: 9.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
 </style>

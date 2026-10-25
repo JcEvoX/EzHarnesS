@@ -4,14 +4,12 @@
   import { fileBaseName, normFileKey } from '../../lib/textfile'
   import { store } from '../../lib/store.svelte'
   import { filePane } from '../../lib/filePaneState'
-  import { kindOf, MAX_BYTES, type ResTab } from './registry'
+  import { kindOf, VIEWERS, MAX_BYTES, type ResTab } from './registry'
   import KindIcon from './KindIcon.svelte'
   import TextViewer from './viewers/TextViewer.svelte'
   import ImageViewer from './viewers/ImageViewer.svelte'
   import HtmlViewer from './viewers/HtmlViewer.svelte'
   import MarkdownViewer from './viewers/MarkdownViewer.svelte'
-  import PdfViewer from './viewers/PdfViewer.svelte'
-  import FallbackViewer from './viewers/FallbackViewer.svelte'
 
   /*
   工作区抽屉·资源查看器（file:// 的消费端，通用框架）：多 tab 按扩展名
@@ -37,6 +35,8 @@
   const dirty = $derived(!!tab && tab.kind !== 'image' && tab.content !== tab.saved)
   const textish = $derived(!!tab && ['text', 'markdown', 'html'].includes(tab.kind))
   const imageTabs = $derived(tabs.filter((t) => t.kind === 'image'))
+  /* 二进制类(pdf/媒体/表格/文档/幻灯片/兜底)统一从 VIEWERS 表取组件即挂 */
+  const binViewer = $derived(tab && !textish && tab.kind !== 'image' ? VIEWERS[tab.kind] : undefined)
 
   function blankTab(part: Partial<ResTab>): ResTab {
     return {
@@ -269,10 +269,9 @@
       {:else if tab.kind === 'html'}
         <HtmlViewer {tab} {active} onSave={() => void saveTab(tab)} />
       {/if}
-    {:else if tab && tab.kind === 'pdf'}
-      <PdfViewer {tab} />
-    {:else if tab && tab.kind === 'fallback'}
-      <FallbackViewer {tab} />
+    {:else if tab && binViewer}
+      {@const Viewer = binViewer}
+      <Viewer {tab} {active} />
     {:else if !imageTabs.length}
       <div class="empty">
         <p>还没有打开的资源</p>
@@ -363,7 +362,7 @@
     background: var(--bg);
     border-radius: 9px;
     padding: 4px 6px 4px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -382,7 +381,7 @@
   }
   .kind {
     flex: none;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   .name {
     max-width: 140px;
@@ -448,7 +447,7 @@
     border: 1px solid #f0883e;
     border-radius: 9px;
     background: color-mix(in srgb, #f0883e 8%, var(--bg));
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
   }
   .confirm button {
@@ -457,7 +456,7 @@
     color: var(--fg);
     border-radius: 7px;
     padding: 3px 10px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
   }
   .confirm button.ghost {
@@ -472,10 +471,10 @@
     justify-content: center;
     gap: 6px;
     color: var(--faint);
-    font-size: 13px;
+    font-size: var(--font-size-section);
   }
   .empty .hint {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
   }
   .empty code {
     font-family: var(--font-mono);
@@ -490,7 +489,7 @@
     align-items: center;
     gap: 8px;
     min-height: 24px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .savebtn {
@@ -546,8 +545,8 @@
     color: var(--accent, #2563eb);
     border-radius: 7px;
     padding: 3px 10px;
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),

@@ -80,8 +80,8 @@ func ArchiveSession(ctx context.Context, p provider.ModelProvider, fsys fs.FileS
 		base = b
 	}
 	summaryBlock := "<compact-summary>\n上一会话已归档：原始记录在 " + prevPath +
-		"/trace.jsonl（可读取全文）；值得长期保留的用户信息与工作习惯已沉淀进长期记忆" +
-		"（user.md/soul.md 随上下文常驻，见 <memory> 段；项目记忆索引在 project.md）。\n" +
+		"/trace.jsonl（可读取全文）；值得长期保留的用户信息、以及用户对你的要求已沉淀进长期记忆" +
+		"（user/soul 条目随上下文常驻，见 <memory> 段；项目记忆索引在同段）。\n" +
 		"本会话开始前的交接摘要：\n" + summaryText + "\n</compact-summary>"
 
 	sys.Set(base, summaryBlock) // 新 system 两段生效（sys 是会话持有的热更实例）

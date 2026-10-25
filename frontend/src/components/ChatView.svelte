@@ -5,8 +5,6 @@
   import FindBar from './FindBar.svelte'
   import TabBar from './TabBar.svelte'
   import ChatEmpty from './ChatEmpty.svelte'
-  import StatusCard from './StatusCard.svelte'
-  import NoticePanel from './NoticePanel.svelte'
   import ForkPanel from './ForkPanel.svelte'
   import BranchPanel from './BranchPanel.svelte'
   import { api } from '../lib/api'
@@ -166,48 +164,6 @@
       <ChatEmpty />
     {/if}
   </div>
-  <aside class="side">
-    <StatusCard />
-    <!-- 全局通知栏（数据跨分支轮询）：保持侧栏一列布局 -->
-    <NoticePanel
-      notices={store.notices}
-      onResolve={(id, action, input) => {
-        const n = store.notices.find((x) => x.id === id)
-        if (n) void store.resolveNoticeGlobal(n, action, input)
-      }}
-      onJump={(n) => void store.jumpToNotice(n)}
-      onDismiss={(id) => store.dismissNotice(id)}
-    />
-    <div class="entries">
-      <!-- 工具入口：每类资源一个独立 mini 钮（开着且为该工具页、或已弹出
-           为独立窗口时高亮；已弹出时点击 = 聚焦窗口） -->
-      <button class="entry" class:active={(store.termDrawerOpen && store.drawerTool === 'term') || store.popoutTools.includes('term')}
-        onclick={() => store.toggleDrawerTool('term')} title="共享终端（用户与 AI 共写）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 8l4 4-4 4" />
-          <path d="M12 16.5h7" />
-        </svg>
-      </button>
-      {#if (window as any).ez?.browser}
-        <!-- 共享浏览器：desktop 资产，抽屉页（AI start 自动展开）；web 端不显示 -->
-        <button class="entry" class:active={(store.termDrawerOpen && store.drawerTool === 'browser') || store.popoutTools.includes('browser')}
-          onclick={() => store.toggleDrawerTool('browser')} title="共享浏览器（AI 操控 · 实时共见）">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
-          </svg>
-        </button>
-      {/if}
-      <button class="entry" class:active={(store.termDrawerOpen && store.drawerTool === 'file') || store.popoutTools.includes('file')}
-        onclick={() => store.toggleDrawerTool('file')} title="资源（查看 · 编辑 · 发给 AI——文本/图片/网页等）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-          <path d="M14 3v5h5" />
-          <path d="M9 13h6M9 17h6" />
-        </svg>
-      </button>
-    </div>
-  </aside>
   <ForkPanel />
   {#if dragging}    <div class="dropzone">
       <div class="hint-box">
@@ -229,14 +185,11 @@
     min-height: 0;
     display: flex;
   }
-  /* 主列：聊天记录 + 输入框。最大宽对齐消息流/输入框自身的 780——
-  收窄主列不缩内容（inner 本就 780 封顶），却能在侧栏与右侧悬浮列
-  之间留出等宽留白；时间线滚动条贴内容右缘而非窗口最右 */
+  /* 主列占满内容区：时间线滚动条贴窗口最右；内容自身（inner/输入框/标签
+  条）各自 780 居中，留白由它们处理 */
   .main-col {
     flex: 1;
     min-width: 0;
-    max-width: 780px;
-    margin: 0 auto;
     display: flex;
     flex-direction: column;
   }
@@ -263,69 +216,6 @@
     min-height: 0;
     width: 100%;
   }
-  /* 右侧悬浮列：状态卡 + 通知栏浮在内容之上。容器点击穿透，
-  卡片自身可交互；bottom 留出右下角 brand-foot 的位置 */
-  .side {
-    position: absolute;
-    top: calc(var(--tabbar-h, 36px) + 12px); /* 同 side-left */
-    right: 16px;
-    bottom: 30px;
-    width: 260px;
-    z-index: 5;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    pointer-events: none;
-  }
-  .chat > .side > :global(*) {
-    pointer-events: auto;
-  }
-  /* 阴影只给卡片；entries 容器透明无背景，容器级阴影会把整组按钮
-     连同间隙圈成一块白色长条，视觉上黏成一个控件 */
-  .chat > .side > :global(*:not(.entries)) {
-    box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
-  }
-  .side > :global(.panel) {
-    min-height: 0; /* 通知过多时收缩，列表内部滚动 */
-  }
-  /* 工具抽屉入口：右列通知下方，方形图标钮（与卡片同视觉语言）；
-  当前工具页展开时高亮对应钮 */
-  .entries {
-    align-self: flex-end;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .entry {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border: 1px solid var(--line);
-    background: var(--glass);
-    backdrop-filter: var(--glass-blur);
-    color: var(--muted);
-    border-radius: 10px;
-    box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
-    transition:
-      background var(--dur-fast) var(--ease-out),
-      color var(--dur-fast) var(--ease-out),
-      border-color var(--dur-fast) var(--ease-out);
-  }
-  .entry:hover {
-    background: var(--bg-soft);
-    color: var(--fg);
-    border-color: var(--line-strong);
-  }
-  .entry.active {
-    border-color: var(--accent-soft, var(--accent));
-    color: var(--accent, #2563eb);
-    background: var(--accent-soft, color-mix(in srgb, #2563eb 8%, var(--bg)));
-  }
-  .entry svg {
-    width: 16px;
-    height: 16px;
-  }
   .dropzone {
     position: absolute;
     inset: 10px;
@@ -343,8 +233,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 14px;
-    font-weight: 550;
+    font-size: var(--font-size-body);
+    font-weight: 500;
     color: var(--accent);
     background: var(--glass);
     backdrop-filter: var(--glass-blur);

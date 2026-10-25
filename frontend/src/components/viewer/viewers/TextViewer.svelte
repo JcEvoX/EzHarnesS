@@ -68,7 +68,7 @@
     height: 100%;
     padding: 10px 12px;
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     tab-size: 4;
     white-space: pre-wrap;
@@ -88,7 +88,7 @@
     place-items: center;
     background: var(--bg);
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     z-index: 3;
   }
   .veil.err {

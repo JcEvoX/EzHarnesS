@@ -208,7 +208,7 @@
     border-radius: 12px;
     background: var(--bg);
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .veil.err {
     color: #e74c3c;
@@ -223,7 +223,7 @@
     border-radius: 8px;
     background: var(--bg-soft);
     color: var(--fg);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 4px 14px;
     cursor: pointer;
   }
@@ -237,7 +237,7 @@
     align-items: center;
     gap: 8px;
     min-height: 24px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .savebtn {

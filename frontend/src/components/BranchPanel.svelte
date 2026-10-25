@@ -190,8 +190,8 @@
     padding: 8px 10px;
   }
   .head h2 {
-    font-size: 11.5px;
-    font-weight: 700;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--muted);
     flex: 1;
   }
@@ -235,8 +235,8 @@
     border-radius: 10px;
     background: var(--bg);
     color: var(--fg);
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
     cursor: pointer;
     transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
       background var(--dur-fast) var(--ease-out);
@@ -253,7 +253,7 @@
   .glabel {
     flex: none;
     padding: 8px 8px 3px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     user-select: none;
   }
@@ -275,9 +275,9 @@
   .branch .t-text {
     flex: 0 1 auto;
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
-    font-weight: 550;
+    font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -309,7 +309,7 @@
   }
   .kbadge {
     flex: none;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-style: normal;
     color: var(--accent);
     background: var(--accent-soft);
@@ -319,7 +319,7 @@
   .flag {
     flex: none;
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: #f0883e;
   }
   .arc-ing {
@@ -329,7 +329,7 @@
   .tm {
     flex: none;
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     font-variant-numeric: tabular-nums;
     user-select: none;
@@ -345,7 +345,7 @@
     border-radius: 6px;
     background: transparent;
     color: var(--faint);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     opacity: 0;
     transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
@@ -366,7 +366,7 @@
   .empty {
     padding: 18px 12px;
     text-align: center;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
 </style>

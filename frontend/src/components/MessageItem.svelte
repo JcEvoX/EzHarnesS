@@ -167,7 +167,40 @@
 
   /* 无流式头缓存的重建消息的全文渲染（XSS 消毒）；mermaid 在流结束后由 effect 替换渲染 */
   const mdHtml = $derived(text && !streaming ? DOMPurify.sanitize(marked.parse(text) as string) : '')
+
+  /* 超长全文一次性 parse+innerHTML 会长时间占死主线程（历史重建时全部
+     消息同帧全量渲染,表现为卡死后突然全部涌出）——超过阈值只渲染
+     头尾两段+折叠提示,点击才展开全文(用户自选承担这次开销) */
+  const FULL_LIMIT = 48 * 1024
+  const HEAD_KEEP = 24 * 1024
+  const TAIL_KEEP = 12 * 1024
+  let expanded = $state(false)
+  const clipped = $derived(!streaming && !streamView && !expanded && text.length > FULL_LIMIT)
+  const clipHtml = $derived.by(() => {
+    if (!clipped) return null
+    let cut = text.lastIndexOf('\n\n', HEAD_KEEP)
+    if (cut <= 0) cut = HEAD_KEEP
+    let tailStart = text.indexOf('\n\n', text.length - TAIL_KEEP)
+    if (tailStart < cut) tailStart = text.length
+    return {
+      hidden: tailStart - cut,
+      head: DOMPurify.sanitize(marked.parse(text.slice(0, cut)) as string),
+      tail: DOMPurify.sanitize(marked.parse(text.slice(tailStart)) as string),
+    }
+  })
   const reasoningClipped = $derived(streaming && reasoning.length > 1200)
+
+  /* 用户气泡：超过高度折叠，按内容实际高度判断（与字号/换行无关） */
+  const USER_BUBBLE_MAX_HEIGHT = 280
+  let userBubbleEl = $state<HTMLDivElement>()
+  let userExpanded = $state(false)
+  let userClipped = $state(false)
+  $effect(() => {
+    text
+    const bubbleEl = userBubbleEl
+    if (!bubbleEl || userExpanded) return
+    userClipped = bubbleEl.scrollHeight > USER_BUBBLE_MAX_HEIGHT + 1
+  })
 
   let bodyEl: HTMLDivElement | undefined = $state()
   let mmdSeq = 0
@@ -220,7 +253,9 @@
 
 {#if role === 'user'}
   <div class="user enter-rise">
-    <span class="avph"></span>
+    {#if onFork}
+      <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
+    {/if}
     <div class="ucontent">
       {#if files?.length}
         <div class="fchips">
@@ -262,12 +297,18 @@
         </div>
       {/if}
       {#if text}
-        <div class="bubble">{text}</div>
+        <div
+          class="bubble"
+          class:clipped={userClipped && !userExpanded}
+          class:unfolded={userExpanded}
+          bind:this={userBubbleEl}>{text}</div>
+        {#if userClipped}
+          <button class="more" onclick={() => (userExpanded = !userExpanded)}>
+            {userExpanded ? '收起' : '展开全文'}
+          </button>
+        {/if}
       {/if}
     </div>
-    {#if onFork}
-      <button class="forkbtn" onclick={onFork} title="从这条消息分叉：复制到此为止的对话，开一条新分支继续">⑂ 分叉</button>
-    {/if}
   </div>
 {:else}
   <div class="assistant" class:bare>
@@ -281,10 +322,16 @@
         </details>
       {/if}
       {#if text}
-        <div class="md" bind:this={bodyEl} onclick={onBodyClick}>
+        <div class="md" class:live={streaming} bind:this={bodyEl} onclick={onBodyClick}>
           {#if streamView}
             <!-- 头/尾分节点：cut 不变时头段 DOM 不重建，delta 只重排尾段 -->
             {#if streamView.head}{@html streamView.head}{/if}{@html streamView.tail}
+          {:else if clipHtml}
+            {@html clipHtml.head}
+            <button class="clipbtn" onclick={() => (expanded = true)}>
+              …中间 {Math.max(1, Math.round(clipHtml.hidden / 1000))}k 字已折叠，点击展开全文（共 {Math.round(text.length / 1000)}k 字）
+            </button>
+            {@html clipHtml.tail}
           {:else}
             {@html mdHtml}
           {/if}
@@ -316,10 +363,15 @@
     gap: 14px;
     align-items: flex-start;
   }
+  /* 用户消息右对齐：自己的话靠右，与助手内容左右分列 */
+  .user {
+    position: relative;
+    justify-content: flex-end;
+  }
   /* 分叉按钮：与复制按钮同款弱化样式，hover 显形 */
   .forkbtn {
     flex: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 2px 8px;
     border-radius: 6px;
@@ -328,7 +380,7 @@
       opacity var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out);
   }
-  /* 用户行分叉钮贴消息底缘（助手卡 foot 行内与复制同走 align-items: center） */
+  /* 用户行分叉钮：排在气泡左侧、随气泡走（右对齐时紧贴气泡），贴行底 */
   .user > .forkbtn {
     align-self: flex-end;
   }
@@ -360,12 +412,6 @@
     color: var(--accent);
     background: var(--bg-soft);
   }
-  /* 用户行头像占位：宽度与所在上下文的助手头像列一致（--av-size
-     由容器设，回复组 48px、分身面板回落 36px），气泡与助手正文对齐 */
-  .avph {
-    flex: none;
-    width: var(--av-size, 36px);
-  }
   /* 非组内助手（分身面板）的「ez」徽章 */
   .tag {
     flex: none;
@@ -374,27 +420,39 @@
     width: 36px;
     height: 36px;
     margin-top: 1px;
-    font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 700;
     border: 1px solid var(--line-strong);
     border-radius: 8px;
     background: var(--bg);
     color: var(--fg);
   }
-  /* 黑底气泡保留；全局 ::selection 是黑底，在黑气泡上选中态隐形——
-     气泡内覆盖为白色半透明，复制范围清晰可见 */
+  /* 用户气泡：带蓝调的浅色卡片（比灰底更轻），高度超过阈值折叠 */
   .bubble {
-    background: var(--bg-invert);
-    color: var(--fg-invert);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+    color: var(--fg);
     padding: 10px 14px;
-    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+    border-radius: 14px;
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 280px;
+    overflow: hidden;
   }
-  .bubble::selection {
-    background: rgb(255 255 255 / 32%);
-    color: var(--fg-invert);
+  .bubble.unfolded {
+    max-height: none;
+  }
+  /* 折叠态底部渐隐，提示还有内容 */
+  .bubble.clipped {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+  }
+  .more {
+    font-size: var(--font-size-small);
+    color: var(--accent);
+    padding: 2px 4px;
+  }
+  .more:hover {
+    text-decoration: underline;
   }
   /* 多模态图片：缩略网格（点击原生放大交给浏览器，保持零依赖）。
      宽度上限挂这里（参照 .user 的确定宽度）——bubble 的百分比若参照
@@ -405,7 +463,8 @@
     align-items: flex-start;
     gap: 6px;
     min-width: 0;
-    max-width: 86%;
+    /* 与助手输出同宽：气泡最大占满内容列 */
+    max-width: 100%;
   }
   .imgs {
     display: flex;
@@ -459,11 +518,11 @@
     height: 26px;
     border-radius: 5px;
     background: var(--bg);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     flex: none;
   }
   .fname {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     white-space: nowrap;
     overflow: hidden;
@@ -496,18 +555,18 @@
     border-left: 2px solid var(--line);
     padding-left: 10px;
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .reasoning summary {
     cursor: pointer;
     user-select: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
   }
   .rclip {
     margin-top: 5px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .reasoning-text {
@@ -528,7 +587,7 @@
     height: 22px;
   }
   .copy {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 2px 8px;
     border-radius: 6px;
@@ -552,6 +611,28 @@
     white-space: pre 不受影响，横向滚动由其自身 overflow-x 承担） */
     overflow-wrap: anywhere;
   }
+  /* 屏外消息跳过布局与绘制：历史重建时成百条长消息不再同帧全量渲染。
+     流式中的消息除外（高度连续变化,虚拟化会让吸底/滚动跳动） */
+  .md:not(.live) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
+  .md .clipbtn {
+    display: block;
+    width: 100%;
+    margin: 6px 0;
+    border: 1px dashed var(--line-strong);
+    border-radius: 8px;
+    background: transparent;
+    padding: 6px 10px;
+    font-size: var(--font-size-ui);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .md .clipbtn:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
   .md :global(p) {
     margin: 6px 0;
   }
@@ -566,7 +647,7 @@
   .md :global(h3),
   .md :global(h4) {
     margin: 14px 0 6px;
-    font-weight: 650;
+    font-weight: 600;
     line-height: 1.4;
   }
   .md :global(h1) {
@@ -605,7 +686,7 @@
     background: none;
     border: none;
     padding: 0;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
   }
   .md :global(blockquote) {
@@ -628,7 +709,7 @@
   }
   .md :global(th) {
     border-bottom: 2px solid var(--line-strong);
-    font-weight: 650;
+    font-weight: 600;
     background: none;
   }
   .md :global(td) {
@@ -649,7 +730,7 @@
   .md :global(span.supper-url) {
     display: inline-block;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.4;
     padding: 2px 10px;
     margin: 2px 0;
