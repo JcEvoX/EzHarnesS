@@ -29,7 +29,7 @@ func (memoryTool) Name() string { return "memory" }
 
 func (memoryTool) Description() string {
 	return "长期记忆的唯一读写通道（记忆文件不可用文件工具读写）。记忆是条目式数据库：" +
-		"user=用户个人信息（偏好/背景/约定）、soul=你自己的工作习惯（顺手做法/验证方式）。" +
+		"user=用户个人信息（偏好/背景/约定）、soul=你的灵魂（用户对你的期望：性格、表达方式、工作方式与协作原则；不是项目知识）。" +
 		"action=add|update|remove 增删改条目（target=user|soul，id 见 system <memory> 段标注）；" +
 		"action=project-save 保存项目记忆（name/description/content，id 缺省由 name 生成；" +
 		"名称与描述默认随索引加载进上下文——写项目的基本描述，content 详情是关于项目的具体记忆（坑点/约束这类），按需读取）；" +

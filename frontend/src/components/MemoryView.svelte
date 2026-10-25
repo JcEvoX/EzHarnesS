@@ -69,9 +69,14 @@
      + 项目卡片，直接编辑保存（整组回写）── */
 
   let longterm = $state<LongtermMemory | null>(null)
-  const panels: Array<{ target: 'user' | 'soul'; label: string }> = [
-    { target: 'user', label: '用户个人信息' },
-    { target: 'soul', label: 'agent 工作习惯' },
+  const panels: Array<{ target: 'user' | 'soul'; label: string; desc: string; empty: string }> = [
+    { target: 'user', label: '用户信息', desc: '关于用户：偏好、背景、工作环境与长期约定。', empty: '暂无条目——对话中 agent 会把值得保留的用户信息沉淀进来。' },
+    {
+      target: 'soul',
+      label: 'agent soul',
+      desc: '关于 agent 自己：性格、表达方式、工作方式与协作原则——用户对你的期望，不是项目知识。',
+      empty: '暂无条目——对话中 agent 会把用户对自己的要求沉淀进来。',
+    },
   ]
   let editing = $state<{ target: 'user' | 'soul'; index: number; text: string } | null>(null)
   let adding = $state<{ target: 'user' | 'soul'; text: string } | null>(null)
@@ -649,11 +654,14 @@
         <p class="hint">条目式数据库：agent 用 memory 工具读写（变更进通知栏），你也可以在这里直接增删改。</p>
       </div>
     </header>
-    <div class="memgrid">
+    <div class="memstack">
       {#each panels as panel (panel.target)}
-        <div class="mempnel">
+        <div class="mempnel" class:soul={panel.target === 'soul'}>
           <div class="memhead">
-            <h3>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
+            <div class="memtitle">
+              <h3><span class="memsig"></span>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
+              <p class="memdesc">{panel.desc}</p>
+            </div>
             <button class="memadd" onclick={() => (adding = { target: panel.target, text: '' })}>＋ 添加</button>
           </div>
           <div class="memlist">
@@ -692,7 +700,7 @@
               </div>
             {/each}
             {#if !itemsOf(panel.target).length}
-              <div class="empty">暂无条目——对话中 agent 会把值得保留的信息沉淀进来。</div>
+              <div class="empty">{panel.empty}</div>
             {/if}
           </div>
         </div>
@@ -1247,9 +1255,11 @@
   }
 
   /* ── 长期记忆：条目面板与项目编辑 ── */
-  .memgrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(288px, 1fr));
+  /* 两块纵向全宽：各自按内容高度、列表限高内滚——条数再多也不撑长页面，
+     长文本也有整行宽度可读 */
+  .memstack {
+    display: flex;
+    flex-direction: column;
     gap: 12px;
     margin-bottom: 12px;
   }
@@ -1263,12 +1273,18 @@
   }
   .memhead {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 12px;
+    padding: 9px 14px 10px;
     background: var(--bg-soft);
     border-bottom: 1px solid var(--line);
+  }
+  .memtitle {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .memhead h3 {
     display: flex;
@@ -1277,6 +1293,21 @@
     font-size: 12px;
     font-weight: 650;
     color: var(--fg);
+  }
+  .memsig {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .mempnel.soul .memsig {
+    background: #7c3aed;
+  }
+  .memdesc {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--faint);
   }
   .memcnt {
     font-family: var(--font-mono);
@@ -1310,6 +1341,8 @@
     gap: 1px;
     padding: 6px;
     min-height: 52px;
+    max-height: 280px;
+    overflow-y: auto;
   }
   .memitem {
     position: relative;

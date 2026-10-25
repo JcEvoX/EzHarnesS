@@ -639,12 +639,12 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		"与当前时间（每轮见 <agent_status> 的「当前时间」）比对，间隔过久的当作可能已漂移的旧信息；" +
 		"项目详情按 id 用 memory 工具 project-read 读取）\n" +
 		"# user（用户个人信息）\n" + renderMemoryItems(userItems) +
-		"\n# soul（agent 工作习惯）\n" + renderMemoryItems(soulItems) +
+		"\n# soul（你的灵魂：用户对你的期望——性格、表达方式、工作方式与协作原则；项目相关的硬性约束写项目记忆）\n" + renderMemoryItems(soulItems) +
 		"\n# project（项目索引：id — 名称 — 描述）\n" + strings.TrimSuffix(projLines.String(), "\n") +
 		"\n# 读写纪律（现行，优先级最高）\n" +
 		"# - 记忆只能用 memory 工具读写：条目 add/update/remove（target=user|soul，id 用上面的标注），项目 project-save/project-remove/project-read；不可用文件工具读写 memory/ 下任何文件\n" +
 		"# - 提交的变更先存待确认区，用户在通知栏确认后才生效（取消即丢弃）：同一条信息不要重复提交，生效与否以下一轮 resource_change 为准\n" +
-		"# - 发现值得长期保留的用户信息或工作习惯随手提交；过时条目随手提交 remove，宁精勿杂\n" +
+		"# - 发现值得长期保留的用户信息、或用户对你（soul）的要求随手提交；过时条目随手提交 remove，宁精勿杂\n" +
 		"# - 归档时系统也会自动生成记忆修改方案（同样待用户确认）\n" +
 		"\n</memory>")
 	skills := builtinskill.Skills()
