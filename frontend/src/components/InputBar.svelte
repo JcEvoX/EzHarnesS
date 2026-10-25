@@ -52,6 +52,21 @@
     if (lastTabId) store.drafts[lastTabId] = text
   })
 
+  /* 快速开始示例：填入输入框并聚焦（可改后再发），高度按内容重算 */
+  $effect(() => {
+    const p = store.pendingPrompt
+    if (!p) return
+    store.pendingPrompt = null
+    text = p
+    void tick().then(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(p.length, p.length)
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    })
+  })
+
   /* 附件缩略：真身路径走文件服务源（与聊天记录同源，带版本参数——
   画板写回后强制刷新）；path 空 = 拖入暂存中占位 */
   const thumbnails = $derived(

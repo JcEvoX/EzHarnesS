@@ -193,8 +193,8 @@ class AppStore {
      leafId = 当前叶 session ID（分身存档 owner、上翻游标起点） */
   activeId = $state('')
   leafId = $state('')
-  /* 打开的会话标签（rootId 身份；关闭仅摘除条目，会话与后台轮不受影响）；
-     空即空状态（activeId 同步为空）。drafts 是每标签输入框草稿 */
+  /* 打开的会话标签（rootId 身份；关闭会停掉该线正在跑的一轮，会话本身
+     留在列表）；空即空状态（activeId 同步为空）。drafts 是每标签输入框草稿 */
   tabs = $state<{ rootId: string }[]>([])
   drafts = $state<Record<string, string>>({})
   branches = $state<BranchView[]>([])
@@ -223,6 +223,8 @@ class AppStore {
   /* 文件页「添加到对话」的待回流引用（路径+标注片段，行号已算好）；
      ChatView 消费进输入框引用 chips（同 path 替换去重） */
   pendingFileRef = $state<FileRef | null>(null)
+  /* 快速开始示例的待填指令：输入框消费后清空并聚焦，不自动发送 */
+  pendingPrompt = $state<string | null>(null)
   /* 图片写回后的缩略图版本（按路径 bump：同 URL 的 img 立即换 src，
      含历史 chips——引用同一资源，处处显示最新；跨会话由 HTTP 304 兜底） */
   imgVer = $state<Record<string, number>>({})
