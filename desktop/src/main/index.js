@@ -380,6 +380,18 @@ function registerIpc() {
   ipcMain.on('ez:reveal', (_e, p) => {
     if (typeof p === 'string' && p) shell.showItemInFolder(p)
   })
+  /* 打开文件夹：是目录就在资源管理器直接打开,返回是否已处理 */
+  ipcMain.handle('ez:open-dir', async (_e, p) => {
+    if (typeof p !== 'string' || !p) return false
+    try {
+      const st = await fs.promises.stat(p)
+      if (!st.isDirectory()) return false
+      await shell.openPath(p)
+      return true
+    } catch {
+      return false
+    }
+  })
   /* 快应用子窗口：加载 core 同源页面，独立标题；右键可检查元素 */
   ipcMain.on('ez:open-app', (_e, url, title) => {
     if (typeof url !== 'string' || !url.startsWith('/')) return

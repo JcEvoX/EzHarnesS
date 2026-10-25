@@ -701,9 +701,10 @@ class AppStore {
   }
 
   /* openFileAt 拉开抽屉文件页并打开指定文件（supper_url file:// 点击）。
-     资源页已弹出则打开请求转发到窗口。 */
-  openFileAt(path: string) {
+     文件夹交给系统资源管理器直接打开;资源页已弹出则打开请求转发到窗口。 */
+  async openFileAt(path: string) {
     if (!path) return
+    if (await (window as any).ez?.window?.openDir?.(path)) return
     if (this.popoutTools.includes('file')) {
       ;(window as any).ez?.popout?.signal('file', 'file', path)
       this.yieldDrawer('file')
