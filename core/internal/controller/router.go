@@ -183,6 +183,12 @@ func serveStatic(r *gin.Engine, dist fs.FS) {
 				return
 			}
 		}
+		/* assets 是构建产物：缺失即 404。回退 index.html 会让模块请求拿到
+		   text/html，动态 import 只报模糊的 "Failed to fetch" */
+		if strings.HasPrefix(path, "assets/") {
+			g.Status(http.StatusNotFound)
+			return
+		}
 		g.Request.URL.Path = "/"
 		fileServer.ServeHTTP(g.Writer, g.Request)
 	})

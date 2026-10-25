@@ -10,7 +10,9 @@ import (
 	"io/fs"
 )
 
-//go:embed web/dist
+// all: 前缀：Vite 的共享 chunk 以 _ 开头（_commonjsHelpers 等），默认 embed 规则会跳过
+//
+//go:embed all:web/dist
 var dist embed.FS
 
 /* distFS 返回以 web/dist 为根的静态资源。 */
