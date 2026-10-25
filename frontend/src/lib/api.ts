@@ -578,7 +578,7 @@ export const api = {
 
   getTopic: (id: string) =>
     fetch(`/api/topics/${id}`).then(
-      json<{ entry: TopicEntry; messages: HistoryMessage[]; summary?: string }>,
+      json<{ entry: TopicEntry; messages: HistoryMessage[]; summary?: string; systemPrompt?: string }>,
     ),
 
   /* 回顾调用链：该会话的 otel span 列表（无 trace.jsonl 返回空数组） */

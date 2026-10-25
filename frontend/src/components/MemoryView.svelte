@@ -31,6 +31,7 @@
   let reviewTab = $state<'msgs' | 'trace'>('msgs')
   let reviewMsgs = $state<HistoryMessage[]>([])
   let reviewSummary = $state('')
+  let reviewSystem = $state('')
   let reviewSpans = $state<TraceSpan[]>([])
   let reviewLoading = $state(false)
   let pickedSpan = $state<TraceSpan | null>(null)
@@ -191,6 +192,11 @@
   let projectDraft = $state<MemoryProjectDetail | null>(null)
   let projectNew = $state(false)
 
+  function closeProject() {
+    projectDraft = null
+    projectNew = false
+  }
+
   async function openProject(id: string) {
     if (projectDraft?.id === id) {
       projectDraft = null
@@ -256,6 +262,7 @@
       ])
       reviewMsgs = d.messages || []
       reviewSummary = (d.summary || '').replace(/<\/?compact-summary>/g, '').trim()
+      reviewSystem = d.systemPrompt || ''
       reviewSpans = tr
     } catch (e) {
       message = `回顾失败：${(e as Error).message}`
@@ -268,6 +275,7 @@
     reviewNode = null
     reviewMsgs = []
     reviewSummary = ''
+    reviewSystem = ''
     reviewSpans = []
     pickedSpan = null
     openForks = new Set()
@@ -683,18 +691,7 @@
                 {/if}
               </div>
             {/each}
-            {#if adding?.target === panel.target}
-              <div class="memitem">
-                <span class="membadge">新</span>
-                <div class="memeditwrap">
-                  <textarea class="memedit" rows="2" placeholder="一条新记忆（自包含的一句话）" value={adding.text} oninput={(e) => (adding!.text = e.currentTarget.value)}></textarea>
-                  <div class="memops">
-                    <button class="mop primary" onclick={commitAdd} disabled={memBusy}>保存</button>
-                    <button class="mop" onclick={() => (adding = null)}>取消</button>
-                  </div>
-                </div>
-              </div>
-            {:else if !itemsOf(panel.target).length}
+            {#if !itemsOf(panel.target).length}
               <div class="empty">暂无条目——对话中 agent 会把值得保留的信息沉淀进来。</div>
             {/if}
           </div>
@@ -731,25 +728,6 @@
           <div class="empty">暂无项目——围绕明确项目的会话，agent 会建立项目记忆。</div>
         {/if}
       </div>
-      {#if projectDraft}
-        <div class="projedit">
-          <div class="prow">
-            <label>名称<input class="pin" bind:value={projectDraft.name} placeholder="项目名" /></label>
-            <label>描述<input class="pin" bind:value={projectDraft.description} placeholder="一句话描述" /></label>
-          </div>
-          <textarea class="pcontent" rows="10" bind:value={projectDraft.content} placeholder="项目记忆全文（背景/约定/关键路径…，markdown）" spellcheck="false"></textarea>
-          <div class="memops">
-            <button class="mop primary" onclick={() => void commitProject()} disabled={memBusy}>保存</button>
-            <button
-              class="mop"
-              onclick={() => {
-                projectDraft = null
-                projectNew = false
-              }}>取消</button
-            >
-          </div>
-        </div>
-      {/if}
     </div>
   </section>
 
@@ -908,6 +886,12 @@
     </div>
 
     {#if reviewTab === 'msgs'}
+      {#if reviewSystem}
+        <details class="dsys">
+          <summary>系统提示词<span class="dsys-hint">{reviewSystem.length.toLocaleString()} 字符 · 点击展开</span></summary>
+          <pre class="dsys-text">{reviewSystem}</pre>
+        </details>
+      {/if}
       {#if reviewSummary}
         <div class="dsum">
           <div class="dsum-tag">⇪ 压缩摘要（本会话开始前的上下文）</div>
@@ -1066,6 +1050,46 @@
       {/if}
     {/if}
   </aside>
+{/if}
+
+<!-- 长期记忆添加：居中弹框，不再在条目列表内展开 -->
+{#if adding}
+  {@const targetLabel = panels.find((p) => p.target === adding!.target)?.label ?? ''}
+  <div class="drawer-mask" onclick={() => (adding = null)}></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="添加记忆条目">
+    <header>
+      <h3>添加到{targetLabel}</h3>
+      <button class="dclose" onclick={() => (adding = null)} title="关闭">✕</button>
+    </header>
+    <div class="fld">
+      <span>条目内容</span>
+      <textarea class="memedit" rows="4" placeholder="一条新记忆（自包含的一句话）" value={adding.text} oninput={(e) => (adding!.text = e.currentTarget.value)}></textarea>
+    </div>
+    <footer>
+      <button class="btn" disabled={memBusy} onclick={() => (adding = null)}>取消</button>
+      <button class="btn primary" disabled={memBusy} onclick={commitAdd}>保存</button>
+    </footer>
+  </div>
+{/if}
+
+<!-- 项目记忆：新建与编辑共用居中弹框 -->
+{#if projectDraft}
+  <div class="drawer-mask" onclick={closeProject}></div>
+  <div class="modal projmodal" role="dialog" aria-modal="true" aria-label={projectNew ? '新建项目' : '编辑项目'}>
+    <header>
+      <h3>{projectNew ? '新建项目' : '编辑项目'}</h3>
+      <button class="dclose" onclick={closeProject} title="关闭">✕</button>
+    </header>
+    <div class="prow">
+      <label>名称<input class="pin" bind:value={projectDraft.name} placeholder="项目名" /></label>
+      <label>描述<input class="pin" bind:value={projectDraft.description} placeholder="一句话描述" /></label>
+    </div>
+    <textarea class="pcontent" rows="10" bind:value={projectDraft.content} placeholder="项目记忆全文（背景/约定/关键路径…，markdown）" spellcheck="false"></textarea>
+    <footer>
+      <button class="btn" disabled={memBusy} onclick={closeProject}>取消</button>
+      <button class="btn primary" disabled={memBusy} onclick={() => void commitProject()}>保存</button>
+    </footer>
+  </div>
 {/if}
 
 <!-- 新建技能弹窗：选 zip 直接上传（技能名由后端从压缩包推导） -->
@@ -1533,15 +1557,6 @@
     color: var(--faint);
     opacity: 0.75;
   }
-  .projedit {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg);
-  }
   .prow {
     display: flex;
     gap: 12px;
@@ -1843,6 +1858,12 @@
     width: min(340px, 92vw);
     gap: 12px;
   }
+  /* 项目记忆弹框：两列名称/描述 + 全文，比确认框宽 */
+  .modal.projmodal {
+    width: min(560px, 92vw);
+    max-height: 86vh;
+    overflow-y: auto;
+  }
 
   /* 话题记忆：会话行 */
   .info {
@@ -1865,13 +1886,16 @@
 
   /* 话题记忆：目录式会话树。导轨列(guide)按祖先层级等宽排列，
      竖线贯穿同级节点——折叠的子树不渲染行，导轨天然连续不错位 */
+  /* 会话树限高内部滚动：条目再多也不把整页顶长 */
   .treelist {
     display: flex;
     flex-direction: column;
     border: 1px solid var(--line);
     border-radius: 12px;
-    padding: 4px 0;
-    overflow: hidden;
+    padding: 0 0 4px;
+    max-height: 50vh;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .trow {
     display: flex;
@@ -1886,10 +1910,14 @@
   .trow.cur {
     background: color-mix(in srgb, var(--accent) 7%, var(--bg));
   }
+  /* 根部行吸附在滚动区顶部，展开长树时始终可见 */
   .trow.root {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg);
     border-bottom: 1px solid var(--line);
     border-radius: 0;
-    margin-bottom: 2px;
   }
   .guide {
     flex: none;
@@ -2104,6 +2132,42 @@
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--faint);
+  }
+  /* 系统提示词：默认折叠（通常很长），展开后限高内部滚动 */
+  .dsys {
+    flex: none;
+    margin: 12px 16px 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-soft);
+  }
+  .dsys summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    user-select: none;
+  }
+  .dsys-hint {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--faint);
+  }
+  .dsys-text {
+    margin: 0;
+    padding: 0 12px 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.65;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .dsum {
     flex: none;

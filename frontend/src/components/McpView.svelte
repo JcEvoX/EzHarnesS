@@ -658,7 +658,21 @@
     {/if}
   </div>
 
-  {#if adding}
+  <button class="add" onclick={() => (adding = true)}>+ 添加服务器</button>
+</div>
+{/if}
+
+<!-- 添加服务器弹框：表单独立于卡片，不再把页面撑长 -->
+{#if adding}
+  <div class="drawer-mask" onclick={() => (adding = false)}></div>
+  <div class="modal add-modal" role="dialog" aria-modal="true" aria-label="添加 MCP 服务器">
+    <header class="add-head">
+      <div>
+        <h3>添加 MCP 服务器</h3>
+        <p class="modal-hint">接入后 agent 获得对应工具，保存即热加载。</p>
+      </div>
+      <button class="modal-x" onclick={() => (adding = false)} title="关闭">✕</button>
+    </header>
     <div class="add-form">
       <input type="text" placeholder="服务器名（如 github）" bind:value={draft.name} />
       <input type="text" placeholder="描述（供 agent 发现用，如 GitHub 仓库搜索）" bind:value={draft.desc} />
@@ -699,15 +713,12 @@
         {/each}
         <button class="hdr-add" onclick={() => (draft.pairs = [...draft.pairs, { key: '', value: '' }])}>+ 请求头</button>
       {/if}
-      <div class="add-actions">
-        <button class="add-ok" disabled={!draftValid()} onclick={addServer}>添加</button>
-        <button class="add-no" onclick={() => (adding = false)}>取消</button>
-      </div>
     </div>
-  {:else}
-    <button class="add" onclick={() => (adding = true)}>+ 添加服务器</button>
-  {/if}
-</div>
+    <footer>
+      <button class="btn" onclick={() => (adding = false)}>取消</button>
+      <button class="btn primary" disabled={!draftValid()} onclick={addServer}>添加</button>
+    </footer>
+  </div>
 {/if}
 
 <!-- MCP OAuth 授权弹窗（页面侧）：去授权 → 系统浏览器打开 → 轮询状态 -->
@@ -799,10 +810,9 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 16px;
-    max-width: 420px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
   .add-form input,
   .add-form select,
@@ -1362,6 +1372,43 @@
     font-weight: 700;
     color: var(--fg);
     margin: 0;
+  }
+  /* 添加服务器：比确认框宽，表单区独立滚动，长表单不撑破视口 */
+  .add-modal {
+    width: min(480px, 92vw);
+    max-height: 86vh;
+  }
+  .add-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .modal-x {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .modal-x:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .btn.primary {
+    background: var(--bg-invert);
+    border-color: var(--bg-invert);
+    color: var(--fg-invert);
+  }
+  .btn.primary:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .modal-hint {
     font-size: 11px;
