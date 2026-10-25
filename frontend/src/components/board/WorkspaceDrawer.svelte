@@ -12,7 +12,7 @@
   画布、浏览器标签条互不丢失）；入口是右侧悬浮列的 mini 钮
   （store.toggleDrawerTool）。宽度：中间线定主列宽（默认 42vw、保底
   480px），抽屉吃掉剩余全部——窗口缩放时抽屉跟着伸缩、主列不动；
-  余量不足抽屉保底 280px。
+  抽屉保底 PANE_MIN 640px（浏览器/终端/资源都要放得下，不允许压成细条）。
   动画 = width 展开（内层 .inner 恒宽 var(--pane-w)：过渡期间内容不
   重排、xterm 不反复 fit；窗口 resize 时宽度变化经 var 继承同步到
   inner，ResizeObserver 自动 fit）。
@@ -128,7 +128,7 @@
   }
 
   /* 左缘拖拽定主列宽：写入 store.chatWidth（0 = 跟随默认公式）。
-  主列保底 480、抽屉保底 280 */
+  主列保底 480、抽屉保底 640（主窗口 minWidth 与 desktop 壳同步） */
   let resizing = $state(false)
   let resize: { pointerId: number; startX: number; startChatW: number } | null = null
 
@@ -166,7 +166,7 @@
 
   function moveResize(e: PointerEvent) {
     if (!resize || e.pointerId !== resize.pointerId) return
-    const max = window.innerWidth - sidebarW() - 280
+    const max = window.innerWidth - sidebarW() - 640
     store.chatWidth = Math.round(Math.max(480, Math.min(max, resize.startChatW + (e.clientX - resize.startX))))
   }
 
@@ -194,7 +194,7 @@
   role="complementary"
   aria-label="工作区"
   bind:this={drawerEl}
-  style={store.chatWidth ? `--chat-w:${store.chatWidth}px` : ''}
+  style={store.chatWidth ? `--chat-w-pref:${store.chatWidth}px` : ''}
   onpointerdown={beginDrag}
   onpointermove={moveDrag}
   onpointerup={(e) => endDrag(e, true)}
@@ -221,8 +221,7 @@
           <circle cx="5" cy="13" r="1.25" /><circle cx="11" cy="13" r="1.25" />
         </svg>
       </span>
-      <h3>{title[0]}</h3>
-      <span class="hint">{title[1]}</span>
+      <h3 title={title[1]}>{title[0]}</h3>
       <button class="pop" onclick={() => popOut()} title="弹出为独立窗口（也可按住头部拖出）">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 4h5v5" />
@@ -253,9 +252,11 @@
 <style>
   /* 中间线定主列宽（--chat-w，默认 42vw 保底 480），抽屉吃掉剩余全部
   （100vw - 侧栏 - 主列）：窗口缩放时抽屉跟着伸缩、主列与中间线不动；
-  余量不足抽屉保底 280 */
+  抽屉保底 640：浏览器/终端/资源页都按这个下限布局，不允许再压 */
   .drawer {
-    --pane-w: max(280px, calc(100vw - var(--sidebar-w, 64px) - var(--chat-w, max(480px, 42vw))));
+    /* 主列优先让出宽度：窗口变窄时主列收缩，抽屉至少保留 640 */
+    --chat-w: min(var(--chat-w-pref, max(480px, 42vw)), calc(100vw - var(--sidebar-w, 64px) - 640px));
+    --pane-w: max(640px, calc(100vw - var(--sidebar-w, 64px) - var(--chat-w)));
     position: relative;
     flex: none;
     width: 0;
@@ -337,21 +338,13 @@
     border-radius: 10px;
     background: color-mix(in srgb, var(--bg) 80%, transparent);
     color: var(--accent, #2563eb);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
   }
   h3 {
-    font-size: 13px;
+    font-size: var(--font-size-section);
     font-weight: 700;
-  }
-  .hint {
-    flex: 1;
-    font-size: 11px;
-    color: var(--faint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .pop {
     display: grid;

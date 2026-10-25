@@ -70,7 +70,7 @@
     color: var(--muted);
     border-radius: 8px;
     padding: 3px 12px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -84,7 +84,7 @@
     font-weight: 600;
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .md-body,
@@ -96,7 +96,7 @@
     background: #fff;
     overflow: auto;
     padding: 12px 16px;
-    font-size: 13.5px;
+    font-size: var(--font-size-section);
     line-height: 1.7;
   }
   .md-body :global(pre) {
@@ -105,11 +105,11 @@
     padding: 10px 12px;
     overflow: auto;
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .md-body :global(code) {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     background: var(--bg-soft);
     border-radius: 4px;
     padding: 0 4px;
@@ -148,7 +148,7 @@
     height: 100%;
     padding: 10px 12px;
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     tab-size: 4;
     white-space: pre-wrap;
@@ -169,7 +169,7 @@
     border-radius: 12px;
     background: var(--bg);
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .veil.err {
     color: #e74c3c;

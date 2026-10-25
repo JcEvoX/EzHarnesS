@@ -59,7 +59,7 @@
     place-content: center;
     gap: 6px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     text-align: center;
     padding: 0 24px;
   }
@@ -67,7 +67,7 @@
     color: #e07a4f;
   }
   .veil .sub {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
 </style>

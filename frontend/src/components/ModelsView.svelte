@@ -378,8 +378,7 @@
   {:else if cfg}
     {#each kinds as k (k.key)}
       <section>
-        <h2>{k.title}</h2>
-        <p class="hint">{k.hint} · 每类启用一个。</p>
+        <h2 title={`${k.hint} · 每类启用一个。`}>{k.title}</h2>
         <div class="list">
           {#each cfg[k.key] as m, i (m.name + i)}
             <div class="model" class:enabled={m.enabled} class:closed={m.disabled}>
@@ -540,16 +539,16 @@
     justify-content: space-between;
   }
   h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .lead {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--muted);
     margin-top: 4px;
   }
   .msg {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: -20px;
   }
@@ -560,7 +559,7 @@
     gap: 10px;
   }
   .saving {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .stats-btn {
@@ -573,7 +572,7 @@
     background: var(--bg);
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     transition:
       border-color var(--dur-fast) var(--ease-out),
@@ -600,8 +599,7 @@
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
-    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
     padding: 3px 12px;
     border-radius: 999px;
     cursor: pointer;
@@ -627,14 +625,9 @@
     background: var(--bg-soft);
   }
   h2 {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--muted);
-  }
-  .hint {
-    font-size: 11px;
-    color: var(--faint);
-    margin-top: -4px;
   }
   .list {
     display: flex;
@@ -682,13 +675,13 @@
   }
   .name {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
     overflow-wrap: anywhere;
   }
   .meta {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     overflow-wrap: anywhere;
   }
@@ -700,7 +693,7 @@
   }
   .tokens {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     white-space: nowrap;
   }
@@ -708,7 +701,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 4px 8px;
     border-radius: 6px;
     opacity: 0;
@@ -722,7 +715,7 @@
     background: color-mix(in srgb, #c0392b 8%, transparent);
   }
   .none {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     padding: 16px 14px;
   }
@@ -731,7 +724,7 @@
     background: transparent;
     padding: 10px 14px;
     text-align: left;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .add:hover {
@@ -743,7 +736,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     outline: none;
     background: var(--bg);
     color: var(--fg);
@@ -757,7 +750,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     cursor: pointer;
     user-select: none;
@@ -805,7 +798,7 @@
     border: none;
     background: transparent;
     color: var(--accent);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 2px 0;
   }
   /* 上下文窗口快捷档：小 chip 一排，当前值高亮 */
@@ -815,14 +808,14 @@
     gap: 6px;
   }
   .cq-label {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .ctx-quick button {
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     padding: 2px 10px;
     border-radius: 999px;
@@ -847,8 +840,8 @@
     color: var(--fg-invert);
     border-radius: 8px;
     padding: 6px 16px;
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
   }
   .add-ok:disabled {
     opacity: 0.4;
@@ -860,7 +853,7 @@
     color: var(--muted);
     border-radius: 8px;
     padding: 6px 16px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
 
   /* ── 添加/编辑模型弹框 ── */
@@ -894,12 +887,12 @@
     padding: 18px 20px 12px;
   }
   .form-head h3 {
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 700;
     color: var(--fg);
   }
   .form-sub {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: 2px;
   }
@@ -913,7 +906,7 @@
     border-radius: 8px;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     cursor: pointer;
   }
   .form-close:hover {
@@ -943,7 +936,7 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .hdr-list {
@@ -955,7 +948,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .form-actions {
@@ -999,12 +992,12 @@
     gap: 16px;
   }
   .stats-head h3 {
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 700;
     color: var(--fg);
   }
   .stats-sub {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: 2px;
   }
@@ -1018,7 +1011,7 @@
     border-radius: 8px;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     cursor: pointer;
   }
   .stats-close:hover {
@@ -1041,12 +1034,12 @@
     background: var(--bg-soft);
   }
   .stat-k {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .stat-v {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     font-weight: 600;
     color: var(--fg);
   }
@@ -1055,12 +1048,12 @@
     border: 1px dashed var(--line);
     border-radius: 12px;
     text-align: center;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--muted);
   }
   .stats-empty .sub {
     margin-top: 4px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
 </style>

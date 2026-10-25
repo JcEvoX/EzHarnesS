@@ -70,8 +70,7 @@
   }
   .label {
     flex: none;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     letter-spacing: 0.08em;
     color: var(--faint);
   }
@@ -83,7 +82,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
   }
   .now.idle {
@@ -110,13 +109,13 @@
     flex: none;
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     font-variant-numeric: tabular-nums;
   }
   .arrow {
     flex: none;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .peek {
@@ -125,7 +124,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .goal {
@@ -133,7 +132,7 @@
     padding: 0 10px 8px;
     max-height: 200px;
     overflow-y: auto;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.55;
     color: var(--muted);
     white-space: pre-wrap;
@@ -152,7 +151,7 @@
     align-items: flex-start;
     gap: 7px;
     padding: 2px 0;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.45;
     color: var(--muted);
   }
@@ -170,7 +169,7 @@
     flex: none;
     width: 12px;
     text-align: center;
-    font-size: 11px;
+    font-size: var(--font-size-small);
   }
   li.running .ico {
     color: var(--accent);

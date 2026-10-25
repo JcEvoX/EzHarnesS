@@ -98,7 +98,8 @@ export type Block = { uid: number } & (
       msgIdx?: number
     }
   | { kind: 'assistant'; text: string; reasoning: string; streaming: boolean; owner?: string; msgIdx?: number }
-  | { kind: 'tool' } & ToolBlockData
+  /* hidden：task 调用一旦有分身入口卡，通用工具卡就让位（entry 卡是唯一呈现） */
+  | ({ kind: 'tool' } & ToolBlockData & { hidden?: boolean })
   | { kind: 'fork'; forkId: string }
   | { kind: 'decision' } & DecisionData
   | { kind: 'note'; text: string }
@@ -541,7 +542,7 @@ class AppStore {
         }
         // 展开工具调用：名称与参数来自 tool_calls（Args 序列化后是嵌套对象，非字符串）
         for (const tc of m.tool_calls || []) {
-          out.push({
+          const tb: Extract<Block, { kind: 'tool' }> = {
             kind: 'tool',
             uid: this.nuid(),
             id: tc.ID || '',
@@ -551,9 +552,12 @@ class AppStore {
             err: '',
             state: 'done',
             decision: dmap.get(tc.ID || ''),
-          })
+          }
           // task 调用紧随分身入口卡（真实启动的 fork 才有摘要：审批拒绝/失败的不插）
-          if (tc.Name === 'task' && forkQueue.length > 0) {
+          const started = tc.Name === 'task' && forkQueue.length > 0
+          if (started) tb.hidden = true
+          out.push(tb)
+          if (started) {
             const f = forkQueue.shift()!
             out.push({ kind: 'fork', uid: this.nuid(), forkId: f.id })
           }
@@ -1697,12 +1701,18 @@ class AppStore {
         const f = this.ensureFork(fid)
         f.task = d.task || ''
         f.status = 'running'
-        // 入口卡紧跟对应的 task 工具卡（callId 精确匹配，回退最后一张 task 卡）
+        // 入口卡紧跟对应的 task 工具卡（callId 精确匹配，回退最后一张未让位的 task 卡）；
+        // 工具卡随即让位——分身入口卡是 task 的唯一呈现，避免两行重复摘要
         let ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.id === d.callId)
-        if (ti < 0) ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.name === 'task')
+        if (ti < 0) {
+          ti = this.blocks.findLastIndex((b) => b.kind === 'tool' && b.name === 'task' && !b.hidden)
+        }
         const card: Block = { kind: 'fork', uid: this.nuid(), forkId: fid }
-        if (ti >= 0) this.blocks.splice(ti + 1, 0, card)
-        else this.blocks.push(card)
+        if (ti >= 0) {
+          const tb = this.blocks[ti]
+          if (tb.kind === 'tool') tb.hidden = true
+          this.blocks.splice(ti + 1, 0, card)
+        } else this.blocks.push(card)
         break
       }
       case 'task.end': {

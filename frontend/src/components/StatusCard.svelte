@@ -142,7 +142,7 @@
   }
   .mini-pct {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
   }
   .mini-pct.hot {
@@ -156,15 +156,14 @@
     margin-bottom: 2px;
   }
   h2 {
-    font-size: 12px;
-    font-weight: 700;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--muted);
   }
   .changes {
     flex: 1;
     min-width: 0;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: #3fb950;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -209,7 +208,7 @@
     gap: 16px;
   }
   .label {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
   }
@@ -218,7 +217,7 @@
   }
   .value {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     white-space: nowrap;
   }
@@ -258,7 +257,7 @@
     padding-top: 2px;
   }
   .none {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .chips {
@@ -269,7 +268,7 @@
   .chip {
     font-family: var(--font-mono);
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 4px;

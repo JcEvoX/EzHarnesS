@@ -65,7 +65,7 @@
   }
   .tf-path {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -73,7 +73,7 @@
   }
   pre {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-all;
@@ -141,7 +141,7 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.45;
     color: var(--muted);
   }
@@ -155,7 +155,7 @@
     flex: none;
     width: 12px;
     text-align: center;
-    font-size: 11px;
+    font-size: var(--font-size-small);
   }
   .tf-steps li.running .ico {
     color: var(--accent);
@@ -164,7 +164,7 @@
     color: #3fb950;
   }
   .tf-empty {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .tf-cmd :global(.tf-word) {

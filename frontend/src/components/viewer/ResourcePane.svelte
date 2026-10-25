@@ -362,7 +362,7 @@
     background: var(--bg);
     border-radius: 9px;
     padding: 4px 6px 4px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -381,7 +381,7 @@
   }
   .kind {
     flex: none;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   .name {
     max-width: 140px;
@@ -447,7 +447,7 @@
     border: 1px solid #f0883e;
     border-radius: 9px;
     background: color-mix(in srgb, #f0883e 8%, var(--bg));
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
   }
   .confirm button {
@@ -456,7 +456,7 @@
     color: var(--fg);
     border-radius: 7px;
     padding: 3px 10px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
   }
   .confirm button.ghost {
@@ -471,10 +471,10 @@
     justify-content: center;
     gap: 6px;
     color: var(--faint);
-    font-size: 13px;
+    font-size: var(--font-size-section);
   }
   .empty .hint {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
   }
   .empty code {
     font-family: var(--font-mono);
@@ -489,7 +489,7 @@
     align-items: center;
     gap: 8px;
     min-height: 24px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .savebtn {
@@ -545,8 +545,8 @@
     color: var(--accent, #2563eb);
     border-radius: 7px;
     padding: 3px 10px;
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),

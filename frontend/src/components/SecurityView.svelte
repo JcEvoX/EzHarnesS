@@ -207,10 +207,10 @@
 <!-- 名单编辑框（终端命令 / 文件路径 / mcp 共用） -->
 {#snippet listEditor(r: RuleRow)}
   {@const kind = kindOf(r.key) ?? 'command'}
-  <div class="list-edit">
-    <p class="list-hint">
-      {r.level === 'black' ? '黑名单' : '白名单'}（{listMeta[kind].label}）——{r.level === 'black' ? '命中才审批' : '命中即放行'}
-    </p>
+  <div
+    class="list-edit"
+    title={`${r.level === 'black' ? '黑名单' : '白名单'}（${listMeta[kind].label}）——${r.level === 'black' ? '命中才审批' : '命中即放行'}`}
+  >
     <div class="chips">
       {#each r.list as entry (entry)}
         <span class="chip">
@@ -244,9 +244,8 @@
 {#snippet ruleRow(r: RuleRow, label: string, sub: boolean)}
   <div class="rule-wrap" class:sub>
     <div class="rule">
-      <div class="info">
+      <div class="info" title={r.desc}>
         <span class="name">{label}</span>
-        <span class="desc">{r.desc}</span>
       </div>
       <div class="seg" role="radiogroup" aria-label={r.key}>
         {#each levelsOf(r.key) as lv (lv)}
@@ -266,17 +265,14 @@
 
   <section>
     <div class="section-head">
-      <h2>工具审批策略</h2>
+      <h2
+        title="多数工具两档：每次审批 / 全部免审。终端命令与 MCP 可配黑白名单（白名单按前缀命中放行，黑名单按包含命中拦下审批）；写文件可配路径前缀白名单。合并式工具（term_action、browser_action）先展开逐 action 单独配档，也可以直接用工具行右边的「全部审批 / 全部免审」一键定。变更自动保存。"
+        >工具审批策略</h2
+      >
       {#if saving}
         <span class="saving">保存中…</span>
       {/if}
     </div>
-    <p class="hint">
-      多数工具两档：每次审批 / 全部免审。终端命令与 MCP 可配黑白名单（白名单按前缀
-      命中放行，黑名单按包含命中拦下审批）；写文件可配路径前缀白名单。合并式工具
-      （term_action、browser_action）先点 ▸ 展开逐 action 单独配档，也可以直接用工具行
-      右边的「全部审批 / 全部免审」一键定。变更自动保存。
-    </p>
     {#if message}
       <p class="msg">{message}</p>
     {/if}
@@ -290,8 +286,7 @@
         {#if groupRules.length}
           <div class="group">
             <div class="group-head">
-              <h3>{g.label}</h3>
-              <span class="group-desc">{g.desc}</span>
+              <h3 title={g.desc}>{g.label}</h3>
             </div>
             <div class="list">
               {#each sectionsOf(groupRules) as sec (sec.simple ? `one:${sec.base}` : `actions:${sec.base}`)}
@@ -347,11 +342,11 @@
     gap: 30px;
   }
   h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .lead {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--muted);
     margin-top: -24px;
   }
@@ -361,12 +356,12 @@
     gap: 10px;
   }
   h2 {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--muted);
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: -4px;
   }
@@ -376,11 +371,11 @@
     justify-content: space-between;
   }
   .saving {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .msg {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: -2px;
   }
@@ -397,13 +392,9 @@
     padding: 0 2px;
   }
   .group-head h3 {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 700;
     color: var(--fg);
-  }
-  .group-desc {
-    font-size: 11px;
-    color: var(--faint);
   }
   .list {
     display: flex;
@@ -427,7 +418,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1;
     flex: none;
     align-self: center;
@@ -453,11 +444,11 @@
   }
   .name {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
   }
   .desc {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .seg {
@@ -471,7 +462,7 @@
     border: none;
     background: transparent;
     padding: 5px 11px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -505,11 +496,6 @@
       transform: translateY(0);
     }
   }
-  .list-hint {
-    font-size: 10.5px;
-    color: var(--faint);
-    font-family: var(--font-mono);
-  }
   .chips {
     display: flex;
     flex-wrap: wrap;
@@ -524,7 +510,7 @@
     border-radius: 7px;
     padding: 4px 6px 4px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     background: var(--bg);
     max-width: 100%;
@@ -562,7 +548,7 @@
     outline: none;
     background: transparent;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     width: 130px;
     min-width: 0;
@@ -574,7 +560,7 @@
     border: none;
     background: transparent;
     color: var(--accent);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     padding: 4px 8px;
   }
   .add-btn:disabled {

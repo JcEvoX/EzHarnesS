@@ -346,7 +346,7 @@
   /* 分叉按钮：与复制按钮同款弱化样式，hover 显形 */
   .forkbtn {
     flex: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 2px 8px;
     border-radius: 6px;
@@ -401,8 +401,7 @@
     width: 36px;
     height: 36px;
     margin-top: 1px;
-    font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 700;
     border: 1px solid var(--line-strong);
     border-radius: 8px;
@@ -486,11 +485,11 @@
     height: 26px;
     border-radius: 5px;
     background: var(--bg);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     flex: none;
   }
   .fname {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     white-space: nowrap;
     overflow: hidden;
@@ -523,18 +522,18 @@
     border-left: 2px solid var(--line);
     padding-left: 10px;
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .reasoning summary {
     cursor: pointer;
     user-select: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
   }
   .rclip {
     margin-top: 5px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .reasoning-text {
@@ -555,7 +554,7 @@
     height: 22px;
   }
   .copy {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 2px 8px;
     border-radius: 6px;
@@ -593,7 +592,7 @@
     border-radius: 8px;
     background: transparent;
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     cursor: pointer;
   }
@@ -615,7 +614,7 @@
   .md :global(h3),
   .md :global(h4) {
     margin: 14px 0 6px;
-    font-weight: 650;
+    font-weight: 600;
     line-height: 1.4;
   }
   .md :global(h1) {
@@ -654,7 +653,7 @@
     background: none;
     border: none;
     padding: 0;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
   }
   .md :global(blockquote) {
@@ -677,7 +676,7 @@
   }
   .md :global(th) {
     border-bottom: 2px solid var(--line-strong);
-    font-weight: 650;
+    font-weight: 600;
     background: none;
   }
   .md :global(td) {
@@ -698,7 +697,7 @@
   .md :global(span.supper-url) {
     display: inline-block;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.4;
     padding: 2px 10px;
     margin: 2px 0;

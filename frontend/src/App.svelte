@@ -182,8 +182,7 @@
     z-index: 50;
     display: flex;
     gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     user-select: none;
     opacity: 0.45;

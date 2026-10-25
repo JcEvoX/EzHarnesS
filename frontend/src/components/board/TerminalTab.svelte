@@ -278,7 +278,7 @@
     background: var(--bg);
     border-radius: 9px;
     padding: 4px 6px 4px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -336,7 +336,7 @@
     background: transparent;
     border-radius: 9px;
     color: var(--muted);
-    font-size: 14px;
+    font-size: var(--font-size-body);
     line-height: 1;
   }
   .new:hover {
@@ -346,7 +346,7 @@
   }
   .conn {
     margin-left: auto;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     color: var(--faint);
   }
@@ -379,7 +379,7 @@
     justify-content: center;
     gap: 12px;
     color: var(--faint);
-    font-size: 13px;
+    font-size: var(--font-size-section);
   }
   .empty button {
     border: 1px solid var(--line-strong);
@@ -387,7 +387,7 @@
     color: var(--fg-invert);
     border-radius: 10px;
     padding: 8px 18px;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     font-weight: 600;
   }
 </style>

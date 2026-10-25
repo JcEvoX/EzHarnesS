@@ -250,7 +250,7 @@
     outline: none;
     background: transparent;
     font-family: inherit;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
   }
   .box input::placeholder {
@@ -262,8 +262,8 @@
     border: 1px solid var(--line);
     border-radius: 4px;
     font-family: var(--font-mono);
-    font-size: 9px;
-    line-height: 15px;
+    font-size: var(--font-size-small);
+    line-height: 16px;
     color: var(--faint);
   }
   .clear {
@@ -302,8 +302,8 @@
   }
   .gtitle {
     padding: 6px 8px 3px;
-    font-size: 9.5px;
-    font-weight: 650;
+    font-size: var(--font-size-small);
+    font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--faint);
@@ -351,7 +351,7 @@
     line-height: 1.35;
   }
   .txt b {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -359,7 +359,7 @@
   }
   .txt i {
     font-style: normal;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
     overflow: hidden;
@@ -368,7 +368,7 @@
   .empty {
     padding: 18px 8px;
     text-align: center;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
 </style>

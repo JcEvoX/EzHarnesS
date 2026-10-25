@@ -111,7 +111,7 @@
   }
   .action {
     flex: none;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
@@ -121,13 +121,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tag {
     flex: none;
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -143,7 +143,7 @@
   }
   .desc {
     margin: 5px 0 0;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     word-break: break-word;
   }
@@ -153,7 +153,7 @@
     border-radius: 6px;
     background: var(--bg);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-all;
@@ -189,8 +189,8 @@
     color: var(--fg);
     border-radius: 7px;
     padding: 3px 12px;
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--font-size-small);
+    font-weight: 500;
   }
   .btn.ok {
     background: var(--bg-invert);
@@ -201,7 +201,7 @@
   }
   .hint {
     margin: 4px 0 0;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     text-align: right;
   }

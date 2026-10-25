@@ -68,7 +68,7 @@
     display: grid;
     place-items: center;
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     padding: 0 20px;
     text-align: center;
   }

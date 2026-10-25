@@ -79,6 +79,7 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.DELETE("/memory/project/:id", c.Settings.DeleteProject)            // 删除项目
 		api.POST("/memory/pending/:id/decide", c.Settings.DecideMemoryPending) // 待确认记忆操作：确认应用/取消丢弃
 		api.POST("/memory/skills", c.Settings.CreateSkill)                     // zip base64 新建技能
+		api.GET("/memory/skills/:id", c.Settings.GetSkill)                     // 技能详情（SKILL.md 正文）
 		api.DELETE("/memory/skills/:id", c.Settings.DeleteSkill)               // 删除技能目录
 		api.POST("/memory/skills/:id/enabled", c.Settings.ToggleSkill)         // 启停技能
 

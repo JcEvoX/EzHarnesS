@@ -7,6 +7,7 @@
     type MemoryConfig,
     type MemoryItem,
     type MemoryProjectDetail,
+    type MemorySkillContent,
     type MemorySkillEntry,
     type SessionNode,
     type TraceSpan,
@@ -506,6 +507,29 @@
     return `${(n / 1024 / 1024).toFixed(1)} MB`
   }
 
+  /* 技能详情抽屉：点击卡片拉取 SKILL.md 正文（内建技能同样可看） */
+  let skillDetail = $state<MemorySkillContent | null>(null)
+  let skillLoading = $state(false)
+  let skillErr = $state('')
+
+  async function openSkillDetail(s: MemorySkillEntry) {
+    skillDetail = { ...s, content: '', path: '' }
+    skillLoading = true
+    skillErr = ''
+    try {
+      skillDetail = await api.getSkill(s.id)
+    } catch (e) {
+      skillErr = `技能内容读取失败：${errText(e)}`
+    } finally {
+      skillLoading = false
+    }
+  }
+
+  function closeSkillDetail() {
+    skillDetail = null
+    skillErr = ''
+  }
+
   /* 技能管理：启停（乐观更新，失败回滚）与删除（confirm 后物理删目录） */
   async function toggleSkill(s: MemorySkillEntry) {
     const next = !s.enabled
@@ -659,8 +683,9 @@
   <section>
     <header>
       <div>
-        <h2>长期记忆</h2>
-        <p class="hint">条目式数据库：agent 用 memory 工具读写（变更进通知栏），你也可以在这里直接增删改。</p>
+        <h2 title="条目式数据库：agent 用 memory 工具读写（变更进通知栏），你也可以在这里直接增删改。"
+          >长期记忆</h2
+        >
       </div>
     </header>
     <div class="memstack">
@@ -668,8 +693,7 @@
         <div class="mempnel" class:soul={panel.target === 'soul'}>
           <div class="memhead">
             <div class="memtitle">
-              <h3><span class="memsig"></span>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
-              <p class="memdesc">{panel.desc}</p>
+              <h3 title={panel.desc}><span class="memsig"></span>{panel.label}<span class="memcnt">{itemsOf(panel.target).length}</span></h3>
             </div>
             <button class="memadd" onclick={() => (adding = { target: panel.target, text: '' })}>＋ 添加</button>
           </div>
@@ -752,15 +776,21 @@
   <section id="mem-skills">
     <header>
       <div>
-        <h2>能力记忆</h2>
-        <p class="hint">沉淀的 skill——做过一次的复杂操作固化为可复用的能力。</p>
+        <h2 title="沉淀的 skill——做过一次的复杂操作固化为可复用的能力。">能力记忆</h2>
       </div>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.skills.dir : '—'}</p>
     <div class="grid">
       {#if cfg}
         {#each cfg.skills.items as s (s.id)}
-          <div class="card" class:off={!s.enabled}>
+          <div
+            class="card"
+            class:off={!s.enabled}
+            role="button"
+            tabindex="0"
+            onclick={() => openSkillDetail(s)}
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openSkillDetail(s)}
+          >
             <div class="card-top">
               <div class="glyph">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -769,7 +799,14 @@
               </div>
               <div class="card-ops">
                 {#if !s.builtin}
-                  <button class="del" title="删除技能" onclick={() => (delTarget = s)}>
+                  <button
+                    class="del"
+                    title="删除技能"
+                    onclick={(e) => {
+                      e.stopPropagation()
+                      delTarget = s
+                    }}
+                  >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />
                     </svg>
@@ -781,15 +818,23 @@
                   role="switch"
                   aria-checked={s.enabled}
                   tabindex="0"
-                  onclick={() => toggleSkill(s)}
-                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleSkill(s)}
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    toggleSkill(s)
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation()
+                      toggleSkill(s)
+                    }
+                  }}
                   title={s.enabled ? '禁用技能' : '启用技能'}>
                   <i></i>
                 </span>
               </div>
             </div>
             <h3>{s.name}{#if s.builtin}<span class="bi" title="随应用分发，可禁用不可删">内建</span>{/if}</h3>
-            <p class="card-desc">{s.desc}</p>
+            {#if s.desc}<p class="card-desc" title={s.desc}>{s.desc}</p>{/if}
           </div>
         {/each}
         <button class="card ghost newskill" onclick={openSkillModal}>
@@ -800,8 +845,7 @@
               </svg>
             </div>
           </div>
-          <h3>新建技能</h3>
-          <p class="card-desc">上传 zip 压缩包，把重复性工作流沉淀为可复用的能力。</p>
+          <h3 title="上传 zip 压缩包，把重复性工作流沉淀为可复用的能力。">新建技能</h3>
         </button>
       {:else}
         <button class="card ghost newskill" onclick={openSkillModal}>
@@ -812,8 +856,7 @@
               </svg>
             </div>
           </div>
-          <h3>暂无技能</h3>
-          <p class="card-desc">上传 zip 新建技能，重复性工作流可沉淀为 skill。</p>
+          <h3 title="上传 zip 新建技能，重复性工作流可沉淀为 skill。">暂无技能</h3>
         </button>
       {/if}
     </div>
@@ -823,8 +866,9 @@
   <section>
     <header>
       <div>
-        <h2>话题记忆</h2>
-        <p class="hint">完整会话树：一级 = 分支（⑂ 为分叉新线），线内向下是压缩世代；已归档不再参与恢复。</p>
+        <h2 title="完整会话树：一级 = 分支（⑂ 为分叉新线），线内向下是压缩世代；已归档不再参与恢复。"
+          >话题记忆</h2
+        >
       </div>
     </header>
     <p class="dir"><span>📁</span>{cfg ? cfg.topics.dir : '—'}</p>
@@ -1110,6 +1154,31 @@
 {/if}
 
 <!-- 新建技能弹窗：选 zip 直接上传（技能名由后端从压缩包推导） -->
+<!-- 技能详情抽屉：SKILL.md 正文（含内建技能） -->
+{#if skillDetail}
+  <div class="drawer-mask" onclick={closeSkillDetail}></div>
+  <aside class="drawer skill">
+    <header>
+      <div class="dtitle">
+        <span class="name">{skillDetail.name}</span>
+        {#if skillDetail.builtin}<span class="kbadge">内建</span>{/if}
+      </div>
+      <button class="dclose" onclick={closeSkillDetail} title="关闭">✕</button>
+    </header>
+    <div class="skmeta">
+      {#if skillDetail.desc}<p>{skillDetail.desc}</p>{/if}
+      {#if !skillDetail.builtin && skillDetail.path}<span class="skpath">{skillDetail.path}</span>{/if}
+    </div>
+    {#if skillLoading}
+      <div class="skempty">加载中…</div>
+    {:else if skillErr}
+      <div class="skempty">{skillErr}</div>
+    {:else}
+      <pre class="skillmd">{skillDetail.content || '（SKILL.md 无正文）'}</pre>
+    {/if}
+  </aside>
+{/if}
+
 {#if skillModal}
   <div class="drawer-mask" onclick={() => (skillModal = false)}></div>
   <div class="modal">
@@ -1166,11 +1235,11 @@
     gap: 34px;
   }
   h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .lead {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--muted);
     margin-top: -24px;
   }
@@ -1190,18 +1259,18 @@
     gap: 16px;
   }
   h2 {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--muted);
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: 2px;
   }
   .dir {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     display: flex;
     align-items: center;
@@ -1209,7 +1278,7 @@
     overflow-wrap: anywhere;
   }
   .dir span {
-    font-size: 11px;
+    font-size: var(--font-size-small);
   }
   .list {
     display: flex;
@@ -1221,7 +1290,7 @@
   .empty {
     padding: 22px 14px;
     text-align: center;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
 
@@ -1241,13 +1310,13 @@
   }
   .file .name {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     overflow-wrap: anywhere;
   }
   .file .badge {
     flex: none;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     background: var(--accent-soft);
     border-radius: 5px;
@@ -1256,7 +1325,7 @@
   .file .stat {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
   }
@@ -1300,8 +1369,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
-    font-weight: 650;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--fg);
   }
   .memsig {
@@ -1314,14 +1383,9 @@
   .mempnel.soul .memsig {
     background: #7c3aed;
   }
-  .memdesc {
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--faint);
-  }
   .memcnt {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 500;
     color: var(--faint);
     background: var(--bg);
@@ -1336,7 +1400,7 @@
     background: transparent;
     color: var(--accent);
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     border-radius: 6px;
     padding: 3px 8px;
@@ -1379,8 +1443,7 @@
     flex: none;
     min-width: 24px;
     text-align: center;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     background: var(--bg-soft);
     border: 1px solid var(--line);
@@ -1397,7 +1460,7 @@
   }
   /* 正文默认三行截断（超长记忆不撑高面板），展开后放开 */
   .memtext {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     color: var(--fg);
     white-space: pre-wrap;
@@ -1423,7 +1486,7 @@
   }
   .memtime {
     flex: none;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     white-space: nowrap;
   }
@@ -1433,7 +1496,7 @@
     border: none;
     background: transparent;
     font: inherit;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     cursor: pointer;
     border-radius: 4px;
@@ -1462,7 +1525,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1;
     cursor: pointer;
     border-radius: 6px;
@@ -1489,7 +1552,7 @@
     width: 100%;
     resize: vertical;
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     color: var(--fg);
     background: var(--bg);
@@ -1509,7 +1572,7 @@
   }
   .mop {
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     background: var(--bg);
     border: 1px solid var(--line-strong);
@@ -1551,8 +1614,8 @@
     gap: 8px;
   }
   .projhead h3 {
-    font-size: 12px;
-    font-weight: 650;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--muted);
   }
   .projwrap .list {
@@ -1581,7 +1644,7 @@
   }
   .projrow .pname {
     flex: none;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     font-weight: 600;
   }
   .projrow .stat {
@@ -1591,12 +1654,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .projrow .pid {
     flex: none;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     opacity: 0.75;
   }
@@ -1609,13 +1672,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .pin {
     width: 220px;
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
     background: var(--bg-soft);
     border: 1px solid var(--line);
@@ -1630,7 +1693,7 @@
     width: 100%;
     resize: vertical;
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.6;
     color: var(--fg);
     background: var(--bg-soft);
@@ -1656,6 +1719,10 @@
     flex-direction: column;
     gap: 8px;
     border: 1px solid var(--line);
+    cursor: pointer;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
     border-radius: 14px;
     background: var(--bg);
     padding: 16px;
@@ -1692,31 +1759,77 @@
     height: 16px;
   }
   .card h3 {
-    font-size: 13.5px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     margin-top: 2px;
+  }
+  .card:hover {
+    border-color: var(--line-strong);
+  }
+  /* 技能描述：展示但压缩两行，全文在详情抽屉与 title 里 */
+  .card-desc {
+    margin: 0;
+    font-size: var(--font-size-small);
+    line-height: 1.5;
+    color: var(--faint);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* 技能详情抽屉（复用回顾抽屉骨架） */
+  .drawer.skill {
+    width: min(560px, 94vw);
+  }
+  .skmeta {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .skmeta p {
+    margin: 0;
+    font-size: var(--font-size-ui);
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .skpath {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
+    color: var(--faint);
+    overflow-wrap: anywhere;
+  }
+  .skillmd {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0;
+    padding: 14px 16px 28px;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-ui);
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--fg);
+  }
+  .skempty {
+    padding: 24px 16px;
+    font-size: var(--font-size-ui);
+    color: var(--faint);
   }
   .card h3 .bi {
     display: inline-block;
     margin-left: 6px;
     padding: 1px 7px;
     border-radius: 6px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     font-weight: 500;
     vertical-align: 1px;
     color: var(--accent);
     background: var(--accent-soft);
-  }
-  .card-desc {
-    font-size: 11.5px;
-    line-height: 1.6;
-    color: var(--faint);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    flex: 1;
   }
   .card.ghost {
     border-style: dashed;
@@ -1821,7 +1934,7 @@
     justify-content: space-between;
   }
   .modal h3 {
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 700;
     color: var(--fg);
   }
@@ -1831,7 +1944,7 @@
     gap: 6px;
   }
   .fld > span {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .zipbtn {
@@ -1840,7 +1953,7 @@
     background: var(--bg-soft);
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 9px 10px;
     text-align: left;
     cursor: pointer;
@@ -1854,7 +1967,7 @@
     color: var(--fg);
   }
   .modal-hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--faint);
   }
@@ -1872,7 +1985,7 @@
     background: transparent;
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 7px 16px;
     cursor: pointer;
     transition:
@@ -1917,12 +2030,12 @@
     gap: 1px;
   }
   .skill .name {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
-    font-weight: 550;
+    font-weight: 500;
   }
   .desc {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     overflow-wrap: anywhere;
   }
@@ -1977,7 +2090,7 @@
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     cursor: pointer;
     border-radius: 4px;
     padding: 0;
@@ -1999,16 +2112,16 @@
   .trow.root .name {
     color: var(--muted);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   /* 名称行 = flex：文本自然宽度、过长收缩出省略号，徽章紧跟其后不被挤走 */
   .trow .name {
     display: flex;
     align-items: center;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     color: var(--fg);
-    font-weight: 550;
+    font-weight: 500;
   }
   .trow .name .n-text {
     flex: 0 1 auto;
@@ -2020,7 +2133,7 @@
   .kbadge {
     flex: none;
     margin-left: 8px;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 500;
     color: var(--accent);
     background: var(--accent-soft);
@@ -2052,7 +2165,7 @@
     border: none;
     background: transparent;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 4px 8px;
     border-radius: 6px;
     opacity: 0;
@@ -2118,8 +2231,8 @@
     min-width: 0;
   }
   .dtitle .name {
-    font-size: 13px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     overflow-wrap: anywhere;
   }
@@ -2155,7 +2268,7 @@
     border: none;
     background: transparent;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     padding: 8px 10px;
     margin-bottom: -1px;
@@ -2173,7 +2286,7 @@
   .dtab-hint {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   /* 系统提示词：默认折叠（通常很长），展开后限高内部滚动 */
@@ -2189,14 +2302,14 @@
     align-items: baseline;
     gap: 8px;
     padding: 8px 12px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-weight: 600;
     color: var(--accent);
     cursor: pointer;
     user-select: none;
   }
   .dsys-hint {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 400;
     color: var(--faint);
   }
@@ -2206,7 +2319,7 @@
     max-height: 320px;
     overflow-y: auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.65;
     color: var(--muted);
     white-space: pre-wrap;
@@ -2222,13 +2335,13 @@
     background: var(--bg-soft);
   }
   .dsum-tag {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     font-weight: 600;
     margin-bottom: 6px;
   }
   .dsum-text {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     color: var(--muted);
     white-space: pre-wrap;
@@ -2267,17 +2380,17 @@
     flex: 1 1 100%;
   }
   .tsk {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tsv {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
   .tsm {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     font-weight: 400;
     color: var(--faint);
   }
@@ -2300,7 +2413,7 @@
     background: transparent;
     color: inherit;
     font: inherit;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     text-align: left;
     cursor: pointer;
   }
@@ -2360,7 +2473,7 @@
   }
   .tname {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -2410,7 +2523,7 @@
     cursor: pointer;
   }
   .thint {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tspan.root .tname {
@@ -2456,7 +2569,7 @@
   }
   .tms {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     text-align: right;
   }
@@ -2480,12 +2593,12 @@
   }
   .tdet-name {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
   .tdet-kind {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     background: var(--accent-soft);
     border-radius: 5px;
@@ -2494,14 +2607,14 @@
   .tdet-dur {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .tdet-x {
     border: none;
     background: transparent;
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     padding: 2px 5px;
     border-radius: 5px;
     cursor: pointer;
@@ -2523,7 +2636,7 @@
     flex: none;
     width: 96px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     padding-top: 1px;
   }
@@ -2531,7 +2644,7 @@
     flex: 1;
     min-width: 0;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--muted);
     white-space: pre-wrap;
@@ -2540,7 +2653,7 @@
   .rv {
     display: flex;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.5;
   }
   .rv.me .rtext {
@@ -2550,7 +2663,7 @@
     flex: none;
     width: 44px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     text-transform: uppercase;
     padding-top: 2px;
@@ -2567,12 +2680,12 @@
     border-radius: 6px;
     background: var(--bg-soft);
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--fg);
   }
   .rcall em {
     font-style: normal;
-    font-size: 9.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
 </style>

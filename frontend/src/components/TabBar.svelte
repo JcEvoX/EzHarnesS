@@ -111,7 +111,7 @@
     background: transparent;
     border-radius: 8px;
     padding: 4px 5px 4px 9px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     max-width: 190px;
     transition:
@@ -145,7 +145,7 @@
     animation: breathe 1.6s ease-in-out infinite;
   }
   .wait {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: #e67e22;
     flex: none;
   }
@@ -176,7 +176,7 @@
     background: transparent;
     border-radius: 7px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     line-height: 1;
   }
   .new:hover {
@@ -200,7 +200,7 @@
     background: transparent;
     text-align: left;
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     border-radius: 6px;
   }

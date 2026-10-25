@@ -33,6 +33,10 @@ let corePort = 5260
 let petWindow = null
 let noticeWindow = null
 const PET_SIZE = 288
+/* 工作区 pane（浏览器 / 终端 / 资源）共用的最小内容尺寸。抽屉底宽、
+   主窗口与弹出窗的最小尺寸都以它为基准——pane 被压成细条后页面会错位 */
+const PANE_MIN_WIDTH = 640
+const PANE_MIN_HEIGHT = 480
 let petHoverTimer = null
 let petDrag = null // { dx, dy }：拖拽中光标与窗口左上角的偏移（JS 拖拽替代 app-region）
 /* API 令牌：每次启动随机生成，env 注入 core、URL query 带入页面。 */
@@ -278,7 +282,9 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: cfg.windowWidth || 1280,
     height: cfg.windowHeight || 800,
-    minWidth: 840,
+    /* 侧栏 64 + 聊天主列 480 + 抽屉 pane 底宽；高度 = 标题栏 + pane 头部 + 内容 */
+    minWidth: 64 + 480 + PANE_MIN_WIDTH,
+    minHeight: PANE_MIN_HEIGHT + 120,
     frame: false,
     /* 不可全屏：共享浏览器标签里的页面 requestFullscreen（双击视频/图片常见）
        会把承载它的窗口整个拉成全屏——主窗本就无边框、独立窗全屏后框也没了，
@@ -588,6 +594,9 @@ function registerIpc() {
     const win = new BrowserWindow({
       width: 1100,
       height: 760,
+      /* 最小窗口 = pane 最小内容 + 系统边框/标题栏余量 */
+      minWidth: PANE_MIN_WIDTH + 40,
+      minHeight: PANE_MIN_HEIGHT + 80,
       title: POPOUT_TITLES[view],
       autoHideMenuBar: true,
       fullscreenable: false, // 弹出窗里的浏览器页全屏只铺满视图框，不拉整窗（同主窗）

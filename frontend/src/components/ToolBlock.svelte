@@ -118,7 +118,7 @@
     background: transparent;
     padding: 5px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     text-align: left;
     transition: background var(--dur-fast) var(--ease-out);
   }
@@ -128,7 +128,7 @@
   .arrow {
     flex: none;
     color: var(--faint);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     transition: transform var(--dur-fast) var(--ease-out);
   }
   .name {
@@ -172,7 +172,7 @@
     }
   }
   .dec-tag {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     border: 1px solid var(--line);
     border-radius: 999px;
@@ -188,7 +188,7 @@
   }
   .building-tag {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     font-variant-numeric: tabular-nums;
   }
@@ -199,7 +199,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .preview + .err-tag {
@@ -213,8 +213,7 @@
   .live-label {
     display: block;
     padding: 3px 10px 0;
-    font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .live-body {
@@ -223,7 +222,7 @@
     padding: 2px 10px 8px;
     overflow-y: auto;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-all;
@@ -231,7 +230,7 @@
   }
   pre.stream {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-all;
@@ -247,7 +246,7 @@
   }
   .err-tag {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--bg);
     background: var(--bg-invert);
     padding: 1px 6px;
@@ -277,7 +276,7 @@
   }
   .section .label {
     display: block;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--faint);
@@ -287,7 +286,7 @@
      （tail→pretty）不再跳高，配 max-height 过渡进一步抹平 */
   pre {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     line-height: 1.55;
     white-space: pre-wrap;
     word-break: break-all;

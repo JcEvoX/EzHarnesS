@@ -149,7 +149,7 @@
   .fold-arrow {
     margin-left: auto;
     color: var(--faint);
-    font-size: 10px;
+    font-size: var(--font-size-small);
   }
   .icon {
     display: grid;
@@ -157,7 +157,7 @@
     width: 18px;
     height: 18px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-weight: 700;
     border: 1px solid var(--line-strong);
     border-radius: 5px;
@@ -171,17 +171,17 @@
     border-color: color-mix(in srgb, var(--accent) 40%, var(--line-strong));
   }
   .title {
-    font-size: 13px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
   }
   .from {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent);
   }
   .resolution {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     font-family: var(--font-mono);
     max-width: 320px;
@@ -193,7 +193,7 @@
     padding: 12px 14px;
   }
   .question {
-    font-size: 14.5px;
+    font-size: var(--font-size-body);
     white-space: pre-wrap;
   }
   .question b {
@@ -202,7 +202,7 @@
   }
   .err {
     margin-top: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: #dc2626;
     word-break: break-word;
   }
@@ -218,8 +218,8 @@
     border-radius: 999px;
     background: transparent;
     padding: 6px 16px;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--font-size-section);
+    font-weight: 500;
     cursor: pointer;
     transition:
       background var(--dur-fast) var(--ease-out),
@@ -236,7 +236,7 @@
   }
   .tool-name {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     font-weight: 700;
   }
   .actions {
@@ -259,7 +259,7 @@
     border-radius: 8px;
     padding: 7px 10px;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     outline: none;
     transition: border-color var(--dur-fast) var(--ease-out);
   }
@@ -271,8 +271,8 @@
     background: transparent;
     border-radius: 8px;
     padding: 7px 14px;
-    font-size: 13px;
-    font-weight: 550;
+    font-size: var(--font-size-section);
+    font-weight: 500;
     transition:
       background var(--dur-fast) var(--ease-out),
       color var(--dur-fast) var(--ease-out);

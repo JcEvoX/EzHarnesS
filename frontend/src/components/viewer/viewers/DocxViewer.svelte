@@ -60,7 +60,7 @@
     min-height: 0;
     overflow-y: auto;
     padding: 28px 32px;
-    font-size: 13.5px;
+    font-size: var(--font-size-section);
     line-height: 1.75;
     color: var(--fg);
   }
@@ -84,14 +84,14 @@
   .doc :global(th) {
     border: 1px solid var(--line);
     padding: 4px 10px;
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .veil {
     flex: 1;
     display: grid;
     place-items: center;
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     padding: 0 20px;
     text-align: center;
   }

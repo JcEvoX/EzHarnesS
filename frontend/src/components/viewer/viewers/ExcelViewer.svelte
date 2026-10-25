@@ -97,7 +97,7 @@
   table {
     border-collapse: collapse;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   td {
     border: 1px solid var(--line);
@@ -118,12 +118,12 @@
   }
   tr:first-child td {
     background: var(--bg-soft);
-    font-weight: 650;
+    font-weight: 600;
   }
   .cap {
     flex: none;
     padding: 4px 12px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     border-top: 1px solid var(--line);
   }
@@ -140,7 +140,7 @@
     background: transparent;
     border-radius: 999px;
     padding: 2px 12px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     font-family: var(--font-mono);
     color: var(--muted);
     cursor: pointer;
@@ -156,7 +156,7 @@
     display: grid;
     place-items: center;
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .veil.err {
     color: #e07a4f;

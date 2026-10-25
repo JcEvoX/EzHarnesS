@@ -611,7 +611,7 @@
           </div>
           <h2>{s.name}</h2>
           {#if s.description && s.description !== s.name}
-            <p class="card-desc">{s.description}</p>
+            <p class="card-desc" title={s.description}>{s.description}</p>
           {/if}
           <p class="endpoint">
             <i>{s.transport}</i>{s.endpoint}
@@ -781,7 +781,7 @@
     gap: 16px;
   }
   .head h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
   }
   .head {
@@ -790,16 +790,16 @@
     justify-content: space-between;
   }
   .lead {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: 4px;
   }
   .saving {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
   }
   .msg {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-top: -10px;
   }
@@ -810,7 +810,7 @@
     color: var(--faint);
     border-radius: 10px;
     padding: 8px 18px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   .add:hover {
     border-color: var(--line-strong);
@@ -831,7 +831,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     outline: none;
     background: var(--bg);
     color: var(--fg);
@@ -854,7 +854,7 @@
     background: var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 10px center;
   }
   .form-sec {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin-top: 2px;
   }
@@ -868,8 +868,8 @@
     color: var(--fg-invert);
     border-radius: 8px;
     padding: 6px 16px;
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
   }
   .add-ok:disabled {
     opacity: 0.4;
@@ -881,7 +881,7 @@
     color: var(--muted);
     border-radius: 8px;
     padding: 6px 16px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
   }
   .grid {
     display: grid;
@@ -941,7 +941,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     color: var(--faint);
     border: 1px solid var(--line);
@@ -983,26 +983,29 @@
     align-self: flex-start;
   }
   h2 {
-    font-size: 14px;
-    font-weight: 650;
+    font-size: var(--font-size-section);
+    font-weight: 600;
     color: var(--fg);
     margin-top: 3px;
   }
+  /* 卡片描述：展示但压缩两行，全文见 title 与详情页 */
   .card-desc {
-    font-size: 11px;
-    color: var(--muted);
-    white-space: nowrap;
+    margin: 0;
+    font-size: var(--font-size-small);
+    line-height: 1.5;
+    color: var(--faint);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    margin-top: -2px;
   }
   .detail-desc {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .endpoint {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--faint);
     display: -webkit-box;
@@ -1013,7 +1016,7 @@
   }
   .endpoint i {
     font-style: normal;
-    font-size: 9.5px;
+    font-size: var(--font-size-small);
     font-weight: 600;
     text-transform: uppercase;
     color: var(--muted);
@@ -1032,7 +1035,7 @@
     padding-top: 2px;
   }
   .tools {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     white-space: nowrap;
   }
@@ -1073,7 +1076,7 @@
   .back {
     align-self: flex-start;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 2px 0;
   }
   .back:hover {
@@ -1100,7 +1103,7 @@
     min-width: 0;
   }
   .detail-title h1 {
-    font-size: 18px;
+    font-size: var(--font-size-page);
     font-weight: 700;
     line-height: 1.3;
     overflow-wrap: anywhere;
@@ -1112,7 +1115,7 @@
   }
   .hdr-line {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     overflow-wrap: anywhere;
   }
@@ -1132,7 +1135,7 @@
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 5px 12px;
     border-radius: 8px;
   }
@@ -1148,7 +1151,7 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     margin-left: auto;
   }
@@ -1156,8 +1159,8 @@
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--font-size-small);
+    font-weight: 500;
     padding: 3.5px 11px;
     border-radius: 99px;
   }
@@ -1185,7 +1188,7 @@
     cursor: default;
   }
   .detail-ops .conn {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 5px 14px;
   }
   .tools-sec {
@@ -1210,12 +1213,12 @@
   }
   .tool-name {
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     font-weight: 600;
     color: var(--fg);
   }
   .tool-desc {
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--faint);
     display: -webkit-box;
@@ -1234,7 +1237,7 @@
   }
   .param {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--muted);
     overflow-wrap: anywhere;
@@ -1244,7 +1247,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     outline: none;
     background: var(--bg);
@@ -1263,7 +1266,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--fg);
     white-space: pre-wrap;
@@ -1285,7 +1288,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.6;
     outline: none;
     background: var(--bg);
@@ -1301,7 +1304,7 @@
     border-radius: 8px;
     padding: 8px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     outline: none;
     background: var(--bg);
     color: var(--fg);
@@ -1340,7 +1343,7 @@
     border: none;
     background: transparent;
     color: var(--accent);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     padding: 2px 0;
   }
   .card.ghost {
@@ -1378,7 +1381,7 @@
     padding: 18px 20px;
   }
   .modal h3 {
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 700;
     color: var(--fg);
     margin: 0;
@@ -1404,7 +1407,7 @@
     border-radius: 8px;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     cursor: pointer;
   }
   .modal-x:hover {
@@ -1421,7 +1424,7 @@
     cursor: default;
   }
   .modal-hint {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     line-height: 1.6;
     color: var(--faint);
     margin: 0;
@@ -1440,7 +1443,7 @@
     background: transparent;
     color: var(--muted);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     padding: 7px 16px;
     cursor: pointer;
   }

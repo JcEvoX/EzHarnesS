@@ -7,12 +7,8 @@
   行模型/吸底/活动指示与 Timeline 同构（lib/rows 共用组装）。
   */
   import { store } from '../lib/store.svelte'
-  import { buildRows, TOOL_GROUP_MIN } from '../lib/rows'
-  import MessageItem from './MessageItem.svelte'
-  import ToolBlock from './ToolBlock.svelte'
-  import ToolGroup from './ToolGroup.svelte'
-  import DecisionCard from './DecisionCard.svelte'
-  import EzAvatar from './EzAvatar.svelte'
+  import { buildRows } from '../lib/rows'
+  import ThreadRows from './ThreadRows.svelte'
 
   let body: HTMLDivElement | undefined = $state()
   let stick = $state(true) // 贴底才跟随流式（上翻看历史时不拽回）
@@ -114,46 +110,14 @@
           {/if}
         </div>
       {/if}
-      {#each rows as row (row.key)}
-        {#if row.kind === 'user'}
-          <MessageItem text={row.b.text} images={row.b.images} role="user" />
-        {:else}
-          <div class="grp" class:leader={row.kind === 'leader'}>
-            {#if row.kind === 'group'}
-              {@const live = rows[rows.length - 1] === row}
-              <span class="tag">
-                <EzAvatar size={36} kind="task" run={live && fork.status === 'running'} animate={live}>ez</EzAvatar>
-              </span>
-            {/if}
-            <div class="gbody">
-              {#each row.segs as seg}
-                {#if seg.type === 'tools'}
-                  {@const key = seg.blocks[0].uid}
-                  {#if seg.blocks.length >= TOOL_GROUP_MIN}
-                    <ToolGroup blocks={seg.blocks} open={openGroups.has(key)} onToggle={() => toggleGroup(key)} />
-                  {:else}
-                    {#each seg.blocks as b (b.uid)}
-                      <ToolBlock data={b} />
-                    {/each}
-                  {/if}
-                {:else if seg.b.kind === 'assistant'}
-                  <MessageItem text={seg.b.text} reasoning={seg.b.reasoning} streaming={seg.b.streaming} role="assistant" bare />
-                {:else if seg.b.kind === 'decision'}
-                  <div id={`decision-${seg.b.id}`}>
-                    <DecisionCard data={seg.b} />
-                  </div>
-                {:else if seg.b.kind === 'note'}
-                  <div class="note">
-                    <span class="line"></span>
-                    {seg.b.text}
-                    <span class="line"></span>
-                  </div>
-                {/if}
-              {/each}
-            </div>
-          </div>
-        {/if}
-      {/each}
+      <ThreadRows
+        {rows}
+        avatarSize={36}
+        avatarKind="task"
+        liveBusy={fork.status === 'running'}
+        {openGroups}
+        onToggleGroup={toggleGroup}
+      />
       {#if phase}
         <div class="thinking">
           <span class="tdot"></span>{phase === 'gen' ? '模型输出中…' : '模型思考中…'}
@@ -237,13 +201,13 @@
   }
   .fid {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     font-weight: 700;
     color: var(--accent);
     flex: none;
   }
   .task {
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     line-height: 1.5;
     color: var(--muted);
     overflow: hidden;
@@ -253,7 +217,7 @@
   .state {
     margin-left: auto;
     flex: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     color: var(--faint);
   }
@@ -265,7 +229,7 @@
     border: none;
     background: transparent;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     cursor: pointer;
     padding: 2px 6px;
     border-radius: 6px;
@@ -284,7 +248,6 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    --av-size: 36px; /* 头像列宽：MessageItem 用户行占位与本组件头像共用 */
   }
   /* 子项不压缩：flex 列容器溢出时默认 shrink 会把消息块挤扁（伪乱序） */
   .body > :global(*) {
@@ -292,7 +255,7 @@
   }
   .placeholder {
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
     text-align: center;
     padding: 24px 0;
   }
@@ -309,54 +272,12 @@
       opacity: 0;
     }
   }
-  /* 回复组（与 Timeline 同构，头像 36px 适配抽屉窄列） */
-  .grp {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-  }
-  .grp .tag {
-    flex: none;
-    display: grid;
-    place-items: center;
-  }
-  .grp .tag:has(> :global(img)) {
-    border-color: transparent;
-    background: transparent;
-  }
-  .gbody {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    padding-top: 2px;
-    --proc-indent: 0px; /* 组内过程卡对齐正文（Timeline 同规则） */
-  }
-  /* 引导组：首 user 之前的记录，无头像平铺 */
-  .grp.leader .gbody {
-    gap: 10px;
-  }
-  .note {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    font-size: 11.5px;
-    color: var(--faint);
-    font-family: var(--font-mono);
-    padding: 4px 0;
-  }
-  .note .line {
-    flex: 1;
-    height: 1px;
-    background: var(--line);
-  }
   /* 活动指示（与 Timeline 的 thinking 同款） */
   .thinking {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     padding: 2px 0;
   }
@@ -385,13 +306,13 @@
     background: var(--bg-soft);
   }
   .answer .label {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     letter-spacing: 0.08em;
     color: var(--accent);
     margin-bottom: 4px;
   }
   .answer .text {
-    font-size: 13px;
+    font-size: var(--font-size-section);
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.65;

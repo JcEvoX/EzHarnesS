@@ -343,8 +343,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 14px;
-    font-weight: 550;
+    font-size: var(--font-size-body);
+    font-weight: 500;
     color: var(--accent);
     background: var(--glass);
     backdrop-filter: var(--glass-blur);

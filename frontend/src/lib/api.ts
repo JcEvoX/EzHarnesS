@@ -312,6 +312,11 @@ export interface MemorySkillEntry {
   enabled: boolean
   builtin?: boolean
 }
+/* 技能详情：清单字段 + SKILL.md 正文（已剥离 frontmatter） */
+export interface MemorySkillContent extends MemorySkillEntry {
+  content: string
+  path: string
+}
 export interface MemoryConfig {
   skills: { dir: string; items: MemorySkillEntry[] }
   topics: { dir: string }
@@ -549,6 +554,9 @@ export const api = {
 
   /* 技能管理：zip(base64) 上传新建（名称自动推导） / 删除目录 / 启停（即时生效于 load_skill 与状态面板） */
   createSkill: (data: string) => post<{ ok: boolean }>('/api/memory/skills', { data }),
+
+  getSkill: (id: string) =>
+    fetch(`/api/memory/skills/${encodeURIComponent(id)}`).then(json<MemorySkillContent>),
 
   deleteSkill: (id: string) =>
     fetch(`/api/memory/skills/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),

@@ -249,7 +249,7 @@
     outline: none;
     background: transparent;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     color: var(--fg);
   }
   input::placeholder {
@@ -258,7 +258,7 @@
   .cnt {
     flex: none;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
     white-space: nowrap;
   }
@@ -272,7 +272,7 @@
     border-radius: 7px;
     background: transparent;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-size-section);
     line-height: 1;
     cursor: pointer;
     transition:

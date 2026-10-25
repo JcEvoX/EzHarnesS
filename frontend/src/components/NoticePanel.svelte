@@ -212,12 +212,12 @@
     gap: 8px;
   }
   h2 {
-    font-size: 12px;
-    font-weight: 700;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
     color: var(--muted);
   }
   .badge {
-    font-size: 10px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     background: var(--accent-soft);
     border-radius: 5px;
@@ -284,7 +284,7 @@
     height: 11px;
   }
   .empty {
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 4px 0 6px;
   }
@@ -369,8 +369,8 @@
     gap: 5px;
     min-width: 0;
     overflow: hidden;
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
     color: var(--fg);
   }
   .title .t {
@@ -384,7 +384,7 @@
   .src {
     flex: none;
     font-style: normal;
-    font-size: 9px;
+    font-size: var(--font-size-small);
     line-height: 1.5;
     color: var(--muted);
     border: 1px solid var(--line);
@@ -394,7 +394,7 @@
   }
   .detail {
     min-width: 0;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     line-height: 1.4;
     max-height: 2.8em;
     overflow: hidden;
@@ -405,7 +405,7 @@
     min-width: 34px;
     text-align: right;
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .close {
@@ -467,7 +467,7 @@
     max-height: 220px;
     overflow: auto;
     font-family: inherit;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     line-height: 1.65;
     color: var(--muted);
     background: var(--bg-soft);
@@ -483,7 +483,7 @@
     border: 1px solid var(--line);
     border-radius: 7px;
     padding: 4px 8px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     outline: none;
     background: var(--bg);
     color: var(--fg);
@@ -497,8 +497,8 @@
     color: var(--fg);
     border-radius: 7px;
     padding: 4px 12px;
-    font-size: 11px;
-    font-weight: 550;
+    font-size: var(--font-size-small);
+    font-weight: 500;
   }
   .btn.ok {
     background: var(--bg-invert);
@@ -512,14 +512,14 @@
     border: none;
     background: transparent;
     color: var(--accent);
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     padding: 4px 2px;
   }
   .resolved {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
   }
   .resolved svg {

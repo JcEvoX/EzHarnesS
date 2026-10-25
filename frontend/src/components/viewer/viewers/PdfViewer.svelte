@@ -42,7 +42,7 @@
     display: grid;
     place-items: center;
     color: var(--faint);
-    font-size: 12.5px;
+    font-size: var(--font-size-section);
   }
   .veil.err {
     color: #e74c3c;

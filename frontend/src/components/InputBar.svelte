@@ -393,7 +393,7 @@
   }
   .status {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     padding: 0 4px 8px;
     text-align: right;
@@ -470,7 +470,7 @@
     height: 32px;
     border-radius: 6px;
     background: var(--bg-soft);
-    font-size: 15px;
+    font-size: var(--font-size-content);
   }
   /* 文件引用 chip（文件页「添加到对话」产物）：路径引用不复制内容 */
   .ref {
@@ -484,7 +484,7 @@
     color: var(--fg);
     padding: 5px 26px 5px 8px;
     max-width: 260px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     cursor: pointer;
     animation: rise var(--dur-fast) var(--ease-out) both;
     transition: background var(--dur-fast) var(--ease-out);
@@ -505,11 +505,11 @@
   }
   .ref-n {
     flex: none;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--accent, #2563eb);
   }
   .att-name {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--fg);
     white-space: nowrap;
     overflow: hidden;
@@ -596,7 +596,7 @@
     outline: none;
     resize: none;
     font-family: inherit;
-    font-size: 15px;
+    font-size: var(--font-size-content);
     line-height: 24px;
     height: 24px;
     max-height: 200px;
@@ -701,8 +701,7 @@
     border-radius: 9px;
     background: var(--glass);
     color: var(--muted);
-    font-size: 10.5px;
-    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
     padding: 4px 9px;
     max-width: 280px;
     transition:
@@ -729,7 +728,7 @@
   }
   .vis {
     font-style: normal;
-    font-size: 10px;
+    font-size: var(--font-size-small);
     flex: none;
   }
   .vis.off {
@@ -761,7 +760,7 @@
     border: none;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-family: var(--font-mono);
     text-align: left;
     padding: 7px 9px;
@@ -780,7 +779,7 @@
     flex: 1;
   }
   .model-empty {
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     margin: 0;
     padding: 8px 9px;
@@ -789,7 +788,7 @@
     position: absolute;
     left: 6px;
     bottom: 4px;
-    font-size: 10.5px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     font-family: var(--font-mono);
     opacity: 0;

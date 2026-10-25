@@ -85,7 +85,7 @@
   }
   .fid {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--font-size-small);
     font-weight: 700;
     color: var(--accent);
     flex: none;
@@ -96,7 +96,7 @@
   .task {
     flex: 1;
     min-width: 80px;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     color: var(--fg);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -104,7 +104,7 @@
   }
   .state {
     flex: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--accent);
     font-family: var(--font-mono);
   }
@@ -112,9 +112,10 @@
     color: var(--faint);
   }
   .ans {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     max-width: 260px;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -122,7 +123,7 @@
   }
   .go {
     flex: none;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
   }
   .entry:hover .go {

@@ -38,16 +38,16 @@
     margin-bottom: 6px;
   }
   h2 {
-    font-size: 15px;
-    font-weight: 650;
+    font-size: var(--font-size-content);
+    font-weight: 600;
   }
   p {
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
   }
   .hint {
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--font-size-small);
   }
   .cta {
     display: inline-flex;
@@ -59,8 +59,8 @@
     color: var(--fg-invert);
     border-radius: 9px;
     padding: 8px 18px;
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: var(--font-size-section);
+    font-weight: 500;
   }
   .cta svg {
     width: 12px;

@@ -39,6 +39,8 @@ export function buildRows(blocks: Block[]): Row[] {
       out.push({ kind: 'user', key: 'u' + b.uid, b })
       curKey = String(b.uid)
     } else if (b.kind === 'tool') {
+      // 被分身入口卡接管的 task 工具卡不参与组装
+      if (b.hidden) continue
       if (b.name === 'memory') {
         // 记忆变更卡常显：不折进工具组，避免 diff 被"N 个工具调用"盖住
         flushTools()

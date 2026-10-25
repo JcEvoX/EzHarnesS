@@ -52,7 +52,7 @@
     border-radius: 10px;
     background: transparent;
     padding: 5px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     text-align: left;
     color: var(--fg);
     transition: background var(--dur-fast) var(--ease-out);
@@ -92,18 +92,18 @@
     white-space: nowrap;
     color: var(--muted);
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
   }
   .active {
     flex: none;
     margin-left: auto;
-    font-size: 11px;
+    font-size: var(--font-size-small);
     color: var(--muted);
   }
   .fold {
     margin-left: var(--proc-indent, 40px);
     align-self: flex-start;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     padding: 2px 4px;
     text-align: left;

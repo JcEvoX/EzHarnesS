@@ -174,7 +174,7 @@
   }
   .close-q {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--font-size-body);
     font-weight: 600;
     color: var(--fg);
   }
@@ -182,7 +182,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--font-size-ui);
     color: var(--muted);
     cursor: pointer;
     user-select: none;
@@ -201,8 +201,8 @@
     color: var(--fg);
     border-radius: 8px;
     padding: 6px 18px;
-    font-size: 12px;
-    font-weight: 550;
+    font-size: var(--font-size-ui);
+    font-weight: 500;
     cursor: pointer;
   }
   .cb.ok {

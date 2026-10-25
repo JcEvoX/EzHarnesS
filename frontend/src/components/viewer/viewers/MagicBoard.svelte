@@ -704,7 +704,7 @@
     gap: 10px;
   }
   .sub {
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
     color: var(--faint);
     flex: 1;
   }
@@ -714,7 +714,7 @@
     color: var(--muted);
     border-radius: 8px;
     padding: 4px 12px;
-    font-size: 11.5px;
+    font-size: var(--font-size-ui);
   }
   .fit:hover {
     border-color: var(--line-strong);
@@ -839,7 +839,7 @@
     color: var(--fg-invert);
     border-radius: 10px;
     padding: 9px 20px;
-    font-size: 13px;
+    font-size: var(--font-size-section);
     font-weight: 600;
   }
 </style>
