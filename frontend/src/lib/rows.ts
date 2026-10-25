@@ -39,7 +39,13 @@ export function buildRows(blocks: Block[]): Row[] {
       out.push({ kind: 'user', key: 'u' + b.uid, b })
       curKey = String(b.uid)
     } else if (b.kind === 'tool') {
-      toolRun.push(b)
+      if (b.name === 'memory') {
+        // 记忆变更卡常显：不折进工具组，避免 diff 被"N 个工具调用"盖住
+        flushTools()
+        segs.push({ type: 'one', b })
+      } else {
+        toolRun.push(b)
+      }
     } else {
       flushTools()
       segs.push({ type: 'one', b })

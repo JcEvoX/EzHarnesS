@@ -65,26 +65,70 @@ func (t memoryTool) Invoke(ctx context.Context, args json.RawMessage) (string, e
 	case "project-save":
 		return t.submitProject(a)
 	case "project-remove":
-		return t.submit(hooks.PendingMemoryOp{
+		id := strings.TrimSpace(a.ID)
+		change := memoryChange{Action: a.Action, ID: id}
+		if projects, err := hooks.LoadProjects(ctx, t.fsys); err == nil {
+			for _, p := range projects {
+				if p.ID == id {
+					change.Name, change.Description = p.Name, p.Description
+					break
+				}
+			}
+		}
+		saved, err := t.submit(hooks.PendingMemoryOp{
 			Op:        hooks.PendingOpProjectRemove,
-			ProjectID: strings.TrimSpace(a.ID),
+			ProjectID: id,
 			Source:    "ai",
 		})
+		if err != nil {
+			return "", err
+		}
+		return pendingResult(saved, change)
 	case "project-read":
 		return t.projectRead(ctx, a.ID)
 	}
 	return "", fmt.Errorf("未知 action %q", a.Action)
 }
 
-/* submit 校验并落待确认区，返回统一文案。 */
-func (t memoryTool) submit(op hooks.PendingMemoryOp) (string, error) {
+/* submit 校验并落待确认区，返回落盘后的操作。 */
+func (t memoryTool) submit(op hooks.PendingMemoryOp) (*hooks.PendingMemoryOp, error) {
 	op.Source = "ai"
 	op.CreatedAt = time.Now()
 	saved, err := hooks.AppendPendingOp(context.Background(), t.fsys, op)
 	if err != nil {
+		return nil, err
+	}
+	return &saved, nil
+}
+
+/*
+memoryChange 是工具结果（前端记忆卡片按它渲染 diff：before 红、after 绿）。
+Action 与 memory 工具的 action 同值；项目类用 Name/Description 标识。
+*/
+type memoryChange struct {
+	Action      string `json:"action"`
+	Target      string `json:"target,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Before      string `json:"before,omitempty"`
+	After       string `json:"after,omitempty"`
+	Created     bool   `json:"created,omitempty"`
+	PendingID   string `json:"pendingId,omitempty"` // 待确认区操作 id（与通知栏同一份数据）
+	Status      string `json:"status"`
+	Message     string `json:"message"`
+}
+
+/* pendingResult 返回带对照内容的待确认结果 JSON。 */
+func pendingResult(saved *hooks.PendingMemoryOp, change memoryChange) (string, error) {
+	change.PendingID = saved.ID
+	change.Status = "pending"
+	change.Message = "记忆已存储，待用户确认后生效：" + saved.Describe()
+	b, err := json.Marshal(change)
+	if err != nil {
 		return "", err
 	}
-	return "记忆已存储，待用户确认后生效：" + saved.Describe(), nil
+	return string(b), nil
 }
 
 /* memoryArgs 是 memory 工具的参数集（action 决定哪些字段生效）。 */
@@ -108,39 +152,94 @@ func (t memoryTool) submitItem(a memoryArgs) (string, error) {
 	id := strings.TrimSpace(a.ID)
 	text := strings.TrimSpace(a.Text)
 	op := hooks.PendingMemoryOp{Target: a.Target, ItemID: id, Text: text}
+	change := memoryChange{Action: a.Action, Target: a.Target, ID: id}
 	switch a.Action {
 	case "add":
 		if text == "" {
 			return "", errors.New("add 需要 text")
 		}
 		op.Op = hooks.PendingOpAdd
+		change.After = text
 	case "update":
 		if id == "" || text == "" {
 			return "", errors.New("update 需要 id 与 text")
 		}
 		op.Op = hooks.PendingOpUpdate
+		change.Before = t.itemText(context.Background(), a.Target, id)
+		change.After = text
 	case "remove":
 		if id == "" {
 			return "", errors.New("remove 需要 id")
 		}
 		op.Op = hooks.PendingOpRemove
+		change.Before = t.itemText(context.Background(), a.Target, id)
 	}
-	return t.submit(op)
+	saved, err := t.submit(op)
+	if err != nil {
+		return "", err
+	}
+	return pendingResult(saved, change)
 }
 
-/* submitProject 项目保存入待确认区。 */
+/* itemText 取条目当前文本（不存在/读取失败返回空，仅供卡片对照）。 */
+func (t memoryTool) itemText(ctx context.Context, target, id string) string {
+	path := hooks.UserJson
+	if target == "soul" {
+		path = hooks.SoulJson
+	}
+	items, err := hooks.LoadItems(ctx, t.fsys, path)
+	if err != nil {
+		return ""
+	}
+	for _, it := range items {
+		if it.ID == id {
+			return it.Text
+		}
+	}
+	return ""
+}
+
+/* submitProject 项目保存入待确认区（before/after 为项目全文，供卡片 diff）。 */
 func (t memoryTool) submitProject(a memoryArgs) (string, error) {
 	name := strings.TrimSpace(a.Name)
 	if name == "" {
 		return "", errors.New("project-save 需要 name")
 	}
-	return t.submit(hooks.PendingMemoryOp{
-		Op:          hooks.PendingOpProjectSave,
-		ProjectID:   strings.TrimSpace(a.ID),
+	id := strings.TrimSpace(a.ID)
+	if id == "" {
+		id = hooks.ProjectSlug(name)
+	}
+	change := memoryChange{
+		Action:      a.Action,
+		ID:          id,
 		Name:        name,
 		Description: strings.TrimSpace(a.Description),
+		After:       a.Content,
+		Created:     true,
+	}
+	ctx := context.Background()
+	if projects, err := hooks.LoadProjects(ctx, t.fsys); err == nil {
+		for _, p := range projects {
+			if p.ID == id {
+				change.Created = false
+				break
+			}
+		}
+	}
+	if data, err := t.fsys.Read(ctx, hooks.ProjectContentPath(id)); err == nil {
+		change.Before = string(data)
+	}
+	saved, err := t.submit(hooks.PendingMemoryOp{
+		Op:          hooks.PendingOpProjectSave,
+		ProjectID:   id,
+		Name:        name,
+		Description: change.Description,
 		Content:     a.Content,
 	})
+	if err != nil {
+		return "", err
+	}
+	return pendingResult(saved, change)
 }
 
 /* projectRead 按项目 id 读记忆全文（只读，不需确认）。 */

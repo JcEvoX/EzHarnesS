@@ -72,6 +72,18 @@ export interface StatusPayload {
   suggestCompact: boolean
 }
 
+/* 会话任务计划（后端 hooks.SessionPlan；plan 工具维护，输入框上方展示） */
+export interface PlanProgress {
+  title: string
+  status: 'pending' | 'running' | 'completed'
+}
+
+export interface SessionPlan {
+  plan: string
+  progress: PlanProgress[]
+  updatedAt?: string
+}
+
 export interface AppEntry {
   name: string
   title: string
@@ -380,6 +392,7 @@ export const api = {
         forkedFrom?: ForkOrigin
         decisions?: DecisionRecord[]
         forks?: ForkSummary[]
+        plan?: SessionPlan | null
       }>,
     ),
 

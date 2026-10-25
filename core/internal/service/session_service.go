@@ -61,6 +61,7 @@ type HistoryData struct {
 	PrevTitle  string                 `json:"prevTitle,omitempty"` // 上一话题标题（压缩标记用）
 	Decisions  []hooks.DecisionRecord `json:"decisions,omitempty"` // 人机决策记录（工具卡徽标用）
 	Forks      []hooks.ForkSummary    `json:"forks,omitempty"`     // fork 分身摘要（入口卡重建，详情懒加载）
+	Plan       *hooks.SessionPlan     `json:"plan,omitempty"`      // 分支计划（输入框上方进度面板恢复）
 }
 
 /* Status 是右栏状态卡数据（命中率与用量为本会话口径，切会话/重启清零）。 */
@@ -165,6 +166,7 @@ func (s *SessionService) History(ctx context.Context, rootID string) HistoryData
 	}
 	h.Decisions = hooks.LoadDecisions(ctx, sess.Fsys, h.ID)
 	h.Forks = hooks.ListForks(ctx, sess.Fsys, h.ID)
+	h.Plan, _ = hooks.LoadPlan(ctx, sess.Fsys, sess.RootID)
 	return h
 }
 

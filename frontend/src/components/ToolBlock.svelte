@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ToolBlockData } from '../lib/store.svelte'
+  import { memoryChange } from '../lib/toolface'
   import ToolFace from './ToolFace.svelte'
+  import MemoryFace from './MemoryFace.svelte'
 
   let { data }: { data: ToolBlockData } = $props()
   /* 详情一律默认折叠（头部右侧的一行摘要已够辨识）；只有用户手动点开
@@ -22,8 +24,12 @@
     liveEl.scrollTop = liveEl.scrollHeight
   })
 
+  /* 记忆变更走专用卡片（diff 常显，不需要展开）；读写类 project-read 仍用通用块 */
+  const change = $derived(memoryChange(data.name || '', data.args, data.result))
+
   /* done 态折叠时结果首行摘要：不用展开即可大致知道干了什么 */
   const preview = $derived.by(() => {
+    if (change?.message) return change.message
     if (data.state !== 'done') return ''
     const src = (data.err || data.result || '').trim()
     if (!src) return ''
@@ -34,8 +40,8 @@
 </script>
 
 <div class="tool enter-rise" class:done={data.state === 'done'}>
-  <button class="head" onclick={() => (open = !shown)}>
-    <span class="arrow" class:open={shown}>{shown ? '▾' : '▸'}</span>
+  <button class="head" onclick={() => !change && (open = !shown)}>
+    {#if !change}<span class="arrow" class:open={shown}>{shown ? '▾' : '▸'}</span>{/if}
     {#if data.state === 'running'}
       <span class="spinner"></span>
     {:else if data.state === 'building'}
@@ -71,6 +77,8 @@
         <pre class="stream">{tail}</pre>
       </div>
     </div>
+  {:else if change}
+    <MemoryFace change={change} state={data.state} err={data.err} />
   {:else}
     <div class="dwrap" class:closed={!shown}>
       <div class="detail">

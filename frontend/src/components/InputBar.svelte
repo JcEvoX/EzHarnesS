@@ -3,6 +3,7 @@
   import { store, type Attachment, type FileRef } from '../lib/store.svelte'
   import { fileBaseName, isImagePath } from '../lib/textfile'
   import type { ReasoningEffort } from '../lib/api'
+  import PlanPanel from './PlanPanel.svelte'
 
   let {
     attachments = [],
@@ -213,6 +214,7 @@
   {:else if store.lastStatus}
     <div class="status">{store.lastStatus}</div>
   {/if}
+  <PlanPanel />
   {#if attachments.length || fileRefs.length}
     <div class="attachments">
       {#each thumbnails as t, i (i)}

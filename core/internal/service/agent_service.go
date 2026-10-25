@@ -271,6 +271,8 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	// 可选模型清单（与 skill/mcp 同构）：新增/移除随资源变更进上下文；
 	// 清单本体在 system 的 <models> 固定段（session 组装时存储）
 	remindHook.SetModelList(func() []hooks.StatusMcp { return modelStatusList(a.Hub.ModelsSnapshot()) })
+	// 计划按分支根持久化（compact 换代不丢），每轮注入 agent_status
+	remindHook.SetPlanRoot(s.RootID)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
 	trimHook := hooks.NewTrim(provider, traceHook,
 		window*st.TrimPercent/100,             // 水位=窗口百分比，随模型自适应（换模型 Reassemble 重算）
@@ -312,6 +314,19 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		OneShotInvoke))
 	// memory：长期记忆唯一写入通道（提案制，用户在记忆页审阅）
 	agentTools = append(agentTools, tools.Memory(s.Fsys))
+	// plan：会话级任务计划（落盘 + plan.update 事件驱动输入框上方进度面板）
+	agentTools = append(agentTools, tools.Plan(s.Fsys, s.RootID, func(p *hooks.SessionPlan) {
+		var data json.RawMessage
+		if p != nil {
+			if b, err := json.Marshal(p); err == nil {
+				data = b
+			}
+		}
+		if data == nil {
+			data = json.RawMessage("null")
+		}
+		s.Publish(domain.Event{Type: "plan.update", Ts: time.Now().UnixMilli(), Data: data})
+	}))
 	if a.Browser != nil {
 		a.Browser.SetVisionProbe(mainVision) // 截图返回形态随主模型视觉能力实时裁决
 	}
@@ -319,7 +334,7 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		"read_file", "write_file", "edit_file", "terminal", "save_app",
 		askuser.ToolName, task.ToolName,
 		"mcp_router", hooks.TrimTool, skilltool.ToolName,
-		"model_call", "memory", "term_tab", "term_action",
+		"model_call", "memory", "plan", "term_tab", "term_action",
 		"browser_tab", "browser_action",
 	}
 	mcpHook, mcpAuthCh := NewMcpHook(context.Background(), s.Fsys, a.McpRouter, a.McpAuth)

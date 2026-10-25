@@ -35,7 +35,7 @@
   >
     {#if data.dtype === 'approve'}
       <span class="icon approve">?</span>
-      <span class="title">审批请求</span>
+      <span class="title">{data.name === 'plan' ? '计划待批准' : '审批请求'}</span>
     {:else if data.dtype === 'mcp-auth'}
       <span class="icon auth">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">

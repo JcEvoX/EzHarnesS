@@ -36,6 +36,22 @@
   <div class="tf">
     <pre class="tf-cmd">{@html cmdHtml}</pre>
   </div>
+{:else if face?.kind === 'plan'}
+  <div class="tf">
+    {#if face.plan}<pre class="tf-plan">{face.plan}</pre>{/if}
+    {#if face.progress.length}
+      <ul class="tf-steps">
+        {#each face.progress as step, i (i)}
+          <li class={step.status}>
+            <span class="ico">{step.status === 'completed' ? '✓' : step.status === 'running' ? '●' : '○'}</span>
+            <span>{step.title}</span>
+          </li>
+        {/each}
+      </ul>
+    {:else if !face.plan}
+      <span class="tf-empty">清除当前计划</span>
+    {/if}
+  </div>
 {:else}
   <pre class="tf-json">{pretty(raw)}</pre>
 {/if}
@@ -108,6 +124,48 @@
   }
   .tf-cmd {
     color: var(--fg);
+  }
+  .tf-plan {
+    white-space: pre-wrap;
+    color: var(--fg);
+  }
+  .tf-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tf-steps li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+  .tf-steps li.running {
+    color: var(--fg);
+  }
+  .tf-steps li.completed {
+    color: var(--faint);
+  }
+  .tf-steps .ico {
+    flex: none;
+    width: 12px;
+    text-align: center;
+    font-size: 11px;
+  }
+  .tf-steps li.running .ico {
+    color: var(--accent);
+  }
+  .tf-steps li.completed .ico {
+    color: #3fb950;
+  }
+  .tf-empty {
+    font-size: 12px;
+    color: var(--muted);
   }
   .tf-cmd :global(.tf-word) {
     font-weight: 700;

@@ -61,6 +61,9 @@
     'browser_action:screenshot': '页面截图（只读）',
     'browser_action:upload': '给文件输入框传本机文件',
     task: 'fork 分身执行子任务（分身继承主 agent 策略）',
+    'plan:new': '提交任务方案（需用户批准后落盘）',
+    'plan:update': '同步任务进度',
+    'plan:clear': '清除当前计划',
     save_app: '保存快应用 html',
     sleep: '定时阻塞等待（等后端就绪/轮询间隔；用户停止即中断）',
     ask_user: '向用户提问收集信息（交互工具）',
@@ -95,10 +98,11 @@
   }
 
   /* 稳定排序：先按工具、再按 action，避免后端返回顺序抖动导致行乱跳 */
-  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'save_app', 'sleep', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
+  const BASE_ORDER = ['read_file', 'write_file', 'edit_file', 'terminal', 'term_tab', 'term_action', 'browser_tab', 'browser_action', 'task', 'plan', 'save_app', 'sleep', 'ask_user', 'trim_context', 'load_skill', 'mcp.*']
   const ACTION_ORDER: Record<string, string[]> = {
     term_action: ['send', 'read'],
     browser_action: ['navigate', 'read', 'eval', 'console', 'network', 'screenshot', 'upload'],
+    plan: ['new', 'update', 'clear'],
   }
   function orderOf(key: string): number {
     const base = baseOf(key)
@@ -289,7 +293,7 @@
               <span class="group-desc">{g.desc}</span>
             </div>
             <div class="list">
-              {#each sectionsOf(groupRules) as sec (sec.base)}
+              {#each sectionsOf(groupRules) as sec (sec.simple ? `one:${sec.base}` : `actions:${sec.base}`)}
                 {#if sec.simple}
                   {@render ruleRow(sec.simple, sec.simple.key, false)}
                 {:else}

@@ -18,6 +18,7 @@ func TestAllToolSchemasValidJSON(t *testing.T) {
 	var list []types.Tool
 	list = append(list, SaveApp(osfs.OS{})...)
 	list = append(list, Sleep(), ModelCall(osfs.OS{}, nil, nil, nil))
+	list = append(list, Memory(osfs.OS{}), Plan(osfs.OS{}, "t", nil))
 	list = append(list, SharedTerm(nil)...)
 	list = append(list, SharedBrowser(nil)...)
 	for _, tl := range list {

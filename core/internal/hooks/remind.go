@@ -74,6 +74,7 @@ type Remind struct {
 	tabs      func() []string // 不进 system 固定段，走每轮快照——与 skill/mcp 类持久资源分界
 	model     func() string     // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
 	modelList func() []StatusMcp // 可空：可选模型清单（名称+能力）；资源变更 diff + available 清单
+	planRoot  string             // 计划归属的分支根 ID（空=不注入计划）
 }
 
 /*
@@ -98,6 +99,9 @@ func (h *Remind) SetModelBrief(fn func() string) { h.model = fn }
 /* SetModelList 注入可选模型清单（名称+能力；实时读快照）——新增/移除走资源变更。 */
 func (h *Remind) SetModelList(fn func() []StatusMcp) { h.modelList = fn }
 
+/* SetPlanRoot 注入计划归属分支根（每轮若有计划则追加进 agent_status）。 */
+func (h *Remind) SetPlanRoot(rootID string) { h.planRoot = rootID }
+
 /* OnStart 轮首两段：变更段（有变化才说话）在前、快照段照旧每轮一条。 */
 func (h *Remind) OnStart(ctx context.Context, state *types.LoopState) error {
 	if items, skills, mcps, models := h.buildChanges(ctx); len(items) > 0 {
@@ -106,8 +110,9 @@ func (h *Remind) OnStart(ctx context.Context, state *types.LoopState) error {
 		state.EmitEvent(EventResChange, items)
 	}
 	data := h.buildSnapshot()
+	plan, _ := LoadPlan(ctx, h.fsys, h.planRoot)
 	h.insertBeforeLastUser(state, types.Message{Role: types.RoleUser,
-		Content: "<" + StatusTag + ">\n" + renderStatus(data) + "\n</" + StatusTag + ">"})
+		Content: "<" + StatusTag + ">\n" + renderStatus(data, plan) + "\n</" + StatusTag + ">"})
 	state.EmitEvent(EventStatus, data)
 	return nil
 }
@@ -158,7 +163,7 @@ renderStatus 把快照数据渲染成模型可读的中文文本（行格式是�
 前端历史重建按关键词"整理上下文"识别异常行进时间线，普通轮次只在
 右上角——改行格式须同步前端解析）。
 */
-func renderStatus(d StatusData) string {
+func renderStatus(d StatusData, plan *SessionPlan) string {
 	var b strings.Builder
 	b.WriteString("当前时间：" + d.Now)
 	if d.CtxWindow > 0 {
@@ -175,7 +180,31 @@ func renderStatus(d StatusData) string {
 	}
 	b.WriteString("\n当前运行中终端：" + namesOrNone(d.Terms))
 	b.WriteString("\n当前开启浏览器标签：" + namesOrNone(d.Tabs))
+	if plan != nil {
+		renderPlan(&b, plan)
+	}
 	return b.String()
+}
+
+/* renderPlan 把计划追加进快照（多行压平，防模型伪造状态行）。 */
+func renderPlan(b *strings.Builder, plan *SessionPlan) {
+	if plan.Plan != "" {
+		b.WriteString("\n当前任务计划：" + oneLine(plan.Plan, 1200))
+	}
+	for _, p := range plan.Progress {
+		b.WriteString("\n- [" + planStatusLabel(p.Status) + "] " + oneLine(p.Title, 160))
+	}
+}
+
+/* planStatusLabel 把进度状态渲染成中文。 */
+func planStatusLabel(status string) string {
+	switch status {
+	case PlanRunning:
+		return "执行中"
+	case PlanCompleted:
+		return "已完成"
+	}
+	return "待执行"
 }
 
 /*

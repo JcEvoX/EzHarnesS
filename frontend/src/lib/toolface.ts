@@ -7,6 +7,7 @@ export type ToolFace =
   | { kind: 'code'; path: string; content: string }
   | { kind: 'diff'; path: string; old: string; new: string }
   | { kind: 'cmd'; command: string }
+  | { kind: 'plan'; plan: string; progress: { title: string; status: string }[] }
 
 export function toolFace(name: string, raw: string): ToolFace | null {
   let a: any
@@ -24,8 +25,72 @@ export function toolFace(name: string, raw: string): ToolFace | null {
       return typeof a.command === 'string' ? { kind: 'cmd', command: a.command } : null
     case 'term_action':
       return a.action === 'send' && typeof a.command === 'string' ? { kind: 'cmd', command: a.command } : null
+    case 'plan': {
+      const plan = typeof a.plan === 'string' ? a.plan : ''
+      const progress = Array.isArray(a.progress)
+        ? a.progress
+            .filter((p: any) => p && typeof p.title === 'string')
+            .map((p: any) => ({ title: String(p.title), status: String(p.status || 'pending') }))
+        : []
+      return a.action === 'new' || plan || progress.length ? { kind: 'plan', plan, progress } : null
+    }
   }
   return null
+}
+
+/* 记忆变更视图：参数是意图，结果是后端 enrichment（before/after/created/status）。
+   结果未到（执行中）时按参数预演；project-read 是只读，不算变更卡。 */
+export interface MemoryChangeView {
+  action: string
+  target: string
+  id: string
+  name: string
+  description: string
+  before: string
+  after: string
+  created: boolean
+  pendingId: string
+  status: string
+  message: string
+  text: string
+}
+
+const MEMORY_ACTIONS = new Set(['add', 'update', 'remove', 'project-save', 'project-remove'])
+
+export function memoryChange(name: string, rawArgs: string, rawResult: string): MemoryChangeView | null {
+  if (name !== 'memory') return null
+  let a: any
+  try {
+    a = JSON.parse(rawArgs)
+  } catch {
+    return null
+  }
+  if (!a || !MEMORY_ACTIONS.has(a.action)) return null
+  let r: any = null
+  if (rawResult) {
+    try {
+      const parsed = JSON.parse(rawResult)
+      if (parsed && typeof parsed === 'object' && MEMORY_ACTIONS.has(parsed.action)) r = parsed
+    } catch {
+      /* 非 JSON 结果（执行失败等）按参数预演 */
+    }
+  }
+  const pick = (k: string) => (typeof r?.[k] === 'string' ? r[k] : typeof a[k] === 'string' ? a[k] : '')
+  const text = pick('after') || pick('text') || pick('content')
+  return {
+    action: String(r?.action || a.action),
+    target: pick('target'),
+    id: pick('id'),
+    name: pick('name'),
+    description: pick('description'),
+    before: pick('before'),
+    after: pick('after'),
+    created: !!r?.created,
+    pendingId: pick('pendingId'),
+    status: pick('status'),
+    message: pick('message'),
+    text,
+  }
 }
 
 export type DiffLine = { t: '-' | '+' | ' '; s: string }

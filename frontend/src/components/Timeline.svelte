@@ -270,6 +270,10 @@
                 </div>
               {/each}
             {/if}
+          {:else if seg.b.kind === 'tool'}
+            <div class:reveal={store.batchIds.has(seg.b.uid)}>
+              <ToolBlock data={seg.b} />
+            </div>
           {:else if seg.b.kind === 'assistant'}
             {@const ab = seg.b}
             <div class:reveal={store.batchIds.has(ab.uid)}>
