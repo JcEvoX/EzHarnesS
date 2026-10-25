@@ -2,8 +2,10 @@
 
 MCP 让 agent 接入外部工具服务器。ezharness 除了把 MCP 工具交给模型，也把同一批连接暴露为本机 API——页面、快应用、脚本可以直接调用。
 
-<!-- 截图占位：MCP 服务器列表与工具详情。放 docs/assets/mcp.png 后取消下一行注释 -->
-<!-- ![MCP 页](../assets/mcp.png) -->
+<figure>
+  <img src="../assets/mcp.png" alt="MCP 服务器详情与工具" loading="lazy">
+  <figcaption>一个 server 的连接状态、工具清单与参数说明</figcaption>
+</figure>
 
 ## 一、传输与配置
 

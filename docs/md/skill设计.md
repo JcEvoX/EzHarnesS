@@ -2,8 +2,10 @@
 
 技能（skill）是把「做过一次」变成「随时可复用」的方式。一个技能就是一个目录加一份 `SKILL.md`，不需要编译、不需要注册中心。
 
-<!-- 截图占位：能力记忆（技能库）页面。放 docs/assets/skills.png 后取消下一行注释 -->
-<!-- ![技能库](../assets/skills.png) -->
+<figure>
+  <img src="../assets/skills.png" alt="能力记忆（技能库）页面" loading="lazy">
+  <figcaption>能力记忆：内建与自建技能同列，开关即时作用于下一轮</figcaption>
+</figure>
 
 ## 一、目录即身份
 

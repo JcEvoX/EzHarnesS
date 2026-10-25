@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ezharness · 把 AI 放进真实电脑</title>
+<title>ezharness · 可持续进化的工作台</title>
 <style>
   :root {
     --bg: #fbfcfe;
@@ -55,6 +55,7 @@
   .site-nav { display: flex; gap: 20px; font-size: 13px; }
   .site-nav a { color: var(--muted); }
   .site-nav a:hover { color: var(--fg); }
+  .site-nav a.on { color: var(--fg); font-weight: 600; }
   .site-head .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
   .site-head .gh { font-size: 13px; color: var(--muted); }
   .site-head .gh:hover { color: var(--fg); }
@@ -112,24 +113,6 @@
   .winbar i { width: 8px; height: 8px; border-radius: 50%; background: #d9dee8; }
   .winbar span { margin-left: 10px; font-size: 11.5px; color: var(--faint); }
   .window .media { aspect-ratio: 16 / 10.5; border: 0; border-radius: 0; background: var(--bg); position: relative; overflow: hidden; }
-  .skeleton { position: absolute; inset: 0; }
-  .skeleton i { position: absolute; display: block; }
-  .skeleton .s-side { left: 0; top: 0; bottom: 0; width: 54px; background: var(--bg-soft); border-right: 1px solid var(--line); }
-  .skeleton .s-head { left: 54px; right: 0; top: 0; height: 28px; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
-  .skeleton .s-a, .skeleton .s-b, .skeleton .s-c {
-    left: 74px; height: 62px; border-radius: 8px;
-    background: var(--bg-soft); border: 1px solid var(--line);
-  }
-  .skeleton .s-a { top: 46px; right: 120px; }
-  .skeleton .s-b { top: 120px; right: 210px; }
-  .skeleton .s-c { top: 194px; right: 74px; }
-  .s-label {
-    position: relative; z-index: 1;
-    padding: 8px 14px; border-radius: 9px;
-    background: color-mix(in srgb, #fff 78%, transparent);
-    border: 1px solid var(--line);
-    backdrop-filter: blur(6px);
-  }
 
   .media {
     display: grid; place-items: center; text-align: center;
@@ -137,7 +120,6 @@
     background: var(--bg-soft);
     color: var(--faint); font-size: 12px; line-height: 1.8;
   }
-  .media .file { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
   .media img { width: 100%; height: 100%; object-fit: cover; }
 
   /* 通用区块 */
@@ -154,18 +136,6 @@
 
   .demo { margin-top: 34px; }
   .demo .media { aspect-ratio: 16 / 8.6; box-shadow: var(--shadow-md); }
-  .demo-inner { display: grid; place-items: center; gap: 12px; }
-  .play {
-    width: 48px; height: 48px; border-radius: 50%;
-    background: var(--accent); position: relative;
-    box-shadow: 0 10px 26px rgb(37 99 235 / 22%);
-  }
-  .play::after {
-    content: ""; position: absolute; left: 19px; top: 15px;
-    border-left: 13px solid #fff;
-    border-top: 9px solid transparent;
-    border-bottom: 9px solid transparent;
-  }
 
   .feature-grid {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
@@ -263,6 +233,7 @@
 
   #docview { max-width: 820px; margin: 0 auto; }
   .markdown { font-size: 14.5px; line-height: 1.85; color: #3a3d44; }
+  .philosophy { max-width: 820px; margin-top: 6px; }
   .markdown > :first-child { margin-top: 0; }
   .markdown h1 { font-size: 26px; line-height: 1.4; font-weight: 650; letter-spacing: -.3px; color: var(--fg); margin: 0 0 18px; }
   .markdown h2 {
@@ -299,6 +270,18 @@
   .markdown td:first-child { white-space: nowrap; }
   .markdown tr:last-child td { border-bottom: 0; }
   .markdown img { max-width: 100%; border-radius: 10px; }
+  .markdown figure { margin: 18px 0; }
+  .markdown figure + p { margin-top: 0; }
+  .markdown figure img {
+    display: block; width: 100%; height: auto;
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  .markdown figure.narrow img { width: 380px; margin: 0 auto; }
+  .markdown figure.tiny img { width: 260px; margin: 0 auto; }
+  .markdown figcaption {
+    margin-top: 8px; text-align: center;
+    font-size: 11.5px; color: var(--faint);
+  }
   .markdown .shot {
     margin: 18px 0; padding: 26px 16px;
     display: grid; gap: 5px; place-items: center; text-align: center;
@@ -336,9 +319,8 @@
   <div class="wrap">
     <a class="brand" href="#overview"><img src="assets/avatar.webp" alt=""><b>ezharness</b></a>
     <nav class="site-nav">
-      <a href="#feature">功能</a>
-      <a href="#how">怎么做的</a>
-      <a href="#docs">文档</a>
+      <a href="#overview" data-nav="home" class="on">主页</a>
+      <a href="#doc=模型配置" data-nav="docs">设计文档</a>
     </nav>
     <div class="right">
       <a class="gh" href="https://github.com/xuanlv2002/ezharness">GitHub</a>
@@ -353,8 +335,8 @@
     <div class="wrap">
       <div>
         <div class="eyebrow">Desktop agent harness</div>
-        <h1>模型已经足够聪明，缺的是一双能伸进真实电脑的手。</h1>
-        <p class="lede">ezharness 是跑在你电脑上的 AI 助手。它能读写整台设备的文件、操作真实终端与浏览器，同时把每一步摊开给你看——随时可以接手。</p>
+        <h1>不是聊天框，是一张可持续进化的工作台。</h1>
+        <p class="lede">对话只是入口。文件、终端、浏览器在同一张台面上，每一步都摊开给你看；每次交付的成果沉成快应用——能打开、能复用，也能被下一次对话里的 agent 自己找回来。</p>
         <div class="cta">
           <a class="btn primary" href="https://github.com/xuanlv2002/ezharness/releases">下载 ezharness</a>
           <a class="btn" href="#feature">看看它能做什么</a>
@@ -369,11 +351,7 @@
       <div class="window">
         <div class="winbar"><i></i><i></i><i></i><span>ezharness</span></div>
         <div class="media">
-          <div class="skeleton" aria-hidden="true">
-            <i class="s-side"></i><i class="s-head"></i>
-            <i class="s-a"></i><i class="s-b"></i><i class="s-c"></i>
-          </div>
-          <div class="s-label">主界面截图<br><span class="file">assets/hero.png</span></div>
+          <img src="assets/overview.png" alt="ezharness 主界面">
         </div>
       </div>
     </div>
@@ -383,11 +361,11 @@
     <div class="wrap">
       <div class="section-head">
         <div class="kicker">功能</div>
-        <h2>不是聊天框，是一张工作台</h2>
-        <p>对话只是入口。真正的工作发生在文件系统、终端和浏览器里——ezharness 把这三处都交给你和 AI 共用。</p>
+        <h2>真正的工作，发生在对话之外</h2>
+        <p>文件系统、终端、浏览器都是真的：你和 AI 共用同一套环境。每次交付的成果也留在台面上，而不是散在聊天记录里。</p>
       </div>
       <div class="demo">
-        <div class="media"><div class="demo-inner"><div class="play"></div><div>功能演示 GIF<br><span class="file">assets/demo.gif</span></div></div></div>
+        <div class="media"><img src="assets/demo.gif" alt="ezharness 功能演示" loading="lazy"></div>
       </div>
       <div class="feature-grid">
         <div class="feature">
@@ -428,7 +406,7 @@
           </ul>
           <a class="more" href="#doc=session设计">读 session 设计</a>
         </div>
-        <div class="shot"><div class="media"><div>会话树与分支面板<br><span class="file">assets/session-tree.png</span></div></div></div>
+        <div class="shot"><div class="media"><img src="assets/session-tree1.png" alt="会话树与分支面板" style="object-fit:contain;background:#fff" loading="lazy"></div></div>
       </div>
 
       <div class="split flip">
@@ -443,7 +421,7 @@
           </ul>
           <a class="more" href="#doc=协同设计">读协同设计</a>
         </div>
-        <div class="shot"><div class="media"><div>共享终端与浏览器<br><span class="file">assets/workspace.png</span></div></div></div>
+        <div class="shot"><div class="media"><img src="assets/workspace-browser.png" alt="共享终端与浏览器" loading="lazy"></div></div>
       </div>
 
       <div class="split">
@@ -458,7 +436,7 @@
           </ul>
           <a class="more" href="#doc=快应用">读快应用协议</a>
         </div>
-        <div class="shot"><div class="media"><div>快应用卡片与运行窗口<br><span class="file">assets/quick-app.png</span></div></div></div>
+        <div class="shot"><div class="media"><img src="assets/quick-app1.png" alt="快应用卡片与运行窗口" loading="lazy"></div></div>
       </div>
 
       <div class="numbers">
@@ -470,23 +448,35 @@
     </div>
   </section>
 
+  <section class="section" id="philosophy">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="kicker">设计理念</div>
+        <h2>把世界交给它，也把你留在旁边</h2>
+        <p>从隔阂的两面说起：为什么做成一张工作台，而不是又一个聊天框。</p>
+      </div>
+      <article class="markdown philosophy" id="philosophyBody">
+        <p class="doc-loading">加载中…</p>
+      </article>
+    </div>
+  </section>
+
   <section class="section" id="docs">
     <div class="wrap">
       <div class="section-head">
-        <div class="kicker">文档</div>
-        <h2>它为什么是这样设计的</h2>
-        <p>每个机制都写清了取舍与边界。点击即可在这里直接阅读。</p>
+        <div class="kicker">设计文档</div>
+        <h2>每个机制的取舍与边界</h2>
+        <p>八篇文档按主题拆开，需要时再深入。</p>
       </div>
       <div class="doc-grid">
-        <a class="doc-card" href="#doc=设计理念"><span class="n">02</span><span class="body"><div class="t">设计理念</div><div class="d">隔阂的两面与几个刻意的取舍</div></span></a>
-        <a class="doc-card" href="#doc=模型配置"><span class="n">03</span><span class="body"><div class="t">模型配置</div><div class="d">三槽、三协议、生效时机与用量</div></span></a>
-        <a class="doc-card" href="#doc=session设计"><span class="n">04</span><span class="body"><div class="t">session 管理</div><div class="d">节点与线、分叉、归档与不丢档</div></span></a>
-        <a class="doc-card" href="#doc=上下文设计"><span class="n">05</span><span class="body"><div class="t">上下文管理</div><div class="d">修剪、摘要、卸载与记忆分层</div></span></a>
-        <a class="doc-card" href="#doc=skill设计"><span class="n">06</span><span class="body"><div class="t">skill 设计</div><div class="d">目录即身份，正文按需加载</div></span></a>
-        <a class="doc-card" href="#doc=mcp设计"><span class="n">07</span><span class="body"><div class="t">MCP 设计</div><div class="d">传输、连接池与对外 API</div></span></a>
-        <a class="doc-card" href="#doc=协同设计"><span class="n">08</span><span class="body"><div class="t">协同工具</div><div class="d">终端、浏览器、资源与抽屉</div></span></a>
-        <a class="doc-card" href="#doc=快应用"><span class="n">09</span><span class="body"><div class="t">快应用</div><div class="d">协议契约、调用文档与生命周期</div></span></a>
-        <a class="doc-card" href="#doc=external"><span class="n">10</span><span class="body"><div class="t">工具快查</div><div class="d">19 个工具的边界与默认审批</div></span></a>
+        <a class="doc-card" href="#doc=模型配置"><span class="n">02</span><span class="body"><div class="t">模型配置</div><div class="d">三槽、三协议、生效时机与用量</div></span></a>
+        <a class="doc-card" href="#doc=session设计"><span class="n">03</span><span class="body"><div class="t">session 管理</div><div class="d">节点与线、分叉、归档与不丢档</div></span></a>
+        <a class="doc-card" href="#doc=上下文设计"><span class="n">04</span><span class="body"><div class="t">上下文管理</div><div class="d">修剪、摘要、卸载与记忆分层</div></span></a>
+        <a class="doc-card" href="#doc=skill设计"><span class="n">05</span><span class="body"><div class="t">skill 设计</div><div class="d">目录即身份，正文按需加载</div></span></a>
+        <a class="doc-card" href="#doc=mcp设计"><span class="n">06</span><span class="body"><div class="t">MCP 设计</div><div class="d">传输、连接池与对外 API</div></span></a>
+        <a class="doc-card" href="#doc=协同设计"><span class="n">07</span><span class="body"><div class="t">协同工具</div><div class="d">终端、浏览器、资源与抽屉</div></span></a>
+        <a class="doc-card" href="#doc=快应用"><span class="n">08</span><span class="body"><div class="t">快应用</div><div class="d">协议契约、调用文档与生命周期</div></span></a>
+        <a class="doc-card" href="#doc=external"><span class="n">09</span><span class="body"><div class="t">工具快查</div><div class="d">19 个工具的边界与默认审批</div></span></a>
       </div>
     </div>
   </section>
@@ -507,7 +497,6 @@
 <section id="docview" hidden>
   <div class="doc-wrap">
     <nav class="doc-tabs" id="docTabs">
-      <a href="#doc=设计理念" data-doc="设计理念">设计理念</a>
       <a href="#doc=模型配置" data-doc="模型配置">模型配置</a>
       <a href="#doc=session设计" data-doc="session设计">session 管理</a>
       <a href="#doc=上下文设计" data-doc="上下文设计">上下文管理</a>
@@ -531,15 +520,14 @@
 <script src="assets/marked.umd.js"></script>
 <script>
   const DOCS = {
-    设计理念: { n: '02', title: '设计理念' },
-    模型配置: { n: '03', title: '模型配置' },
-    session设计: { n: '04', title: 'session 管理' },
-    上下文设计: { n: '05', title: '上下文管理' },
-    skill设计: { n: '06', title: 'skill 设计' },
-    mcp设计: { n: '07', title: 'MCP 设计' },
-    协同设计: { n: '08', title: '协同工具' },
-    快应用: { n: '09', title: '快应用' },
-    external: { n: '10', title: '工具快查' },
+    模型配置: { n: '02', title: '模型配置' },
+    session设计: { n: '03', title: 'session 管理' },
+    上下文设计: { n: '04', title: '上下文管理' },
+    skill设计: { n: '05', title: 'skill 设计' },
+    mcp设计: { n: '06', title: 'MCP 设计' },
+    协同设计: { n: '07', title: '协同工具' },
+    快应用: { n: '08', title: '快应用' },
+    external: { n: '09', title: '工具快查' },
   };
 
   const homeEl = document.getElementById('home');
@@ -548,6 +536,8 @@
   const docnumEl = document.getElementById('docnum');
   const doctitleEl = document.getElementById('doctitle');
   const tabLinks = [...document.querySelectorAll('#docTabs a')];
+  const navLinks = [...document.querySelectorAll('.site-nav a')];
+  const philosophyEl = document.getElementById('philosophyBody');
   const cache = new Map();
 
   marked.setOptions({ gfm: true, breaks: false });
@@ -561,18 +551,25 @@
     return `\n<figure class="shot"><figcaption>截图占位 · ${escapeHtml(line)}</figcaption><code>${escapeHtml(path)}</code></figure>\n`;
   }
 
+  /* HTML 内联脚本直接写注释定界符会被编辑器按 HTML 注释误解析，用码点转义 */
+  const C_OPEN = '\\u003C!--';
+  const C_CLOSE = '--\\u003E';
+
   function renderMarkdown(text) {
     text = text.replace(
-      /<!--\s*截图占位[：:]([\s\S]*?)-->\s*<!--\s*!\[[^\]]*\]\(([^)]+)\)\s*-->/g,
+      new RegExp(
+        `${C_OPEN}\\s*截图占位[：:]([\\s\\S]*?)${C_CLOSE}\\s*${C_OPEN}\\s*!\\[[^\\]]*\\]\\(([^)]+)\\)\\s*${C_CLOSE}`,
+        'g',
+      ),
       (_, desc, src) => placeholder(desc, src),
     );
-    text = text.replace(/<!--[\s\S]*?-->/g, '');
+    text = text.replace(new RegExp(`${C_OPEN}[\\s\\S]*?${C_CLOSE}`, 'g'), '');
     return marked.parse(text);
   }
 
-  function decorate(html) {
-    docbodyEl.innerHTML = html;
-    docbodyEl.querySelectorAll('img').forEach((img) => {
+  function decorateInto(root, html) {
+    root.innerHTML = html;
+    root.querySelectorAll('img').forEach((img) => {
       const src = img.getAttribute('src') || '';
       if (src.startsWith('../assets/')) img.setAttribute('src', src.slice(3));
       img.addEventListener('error', () => {
@@ -582,7 +579,7 @@
         img.replaceWith(ph);
       });
     });
-    docbodyEl.querySelectorAll('a[href]').forEach((a) => {
+    root.querySelectorAll('a[href]').forEach((a) => {
       const href = a.getAttribute('href');
       if (/\.md$/i.test(href)) {
         const name = decodeURIComponent(href.split('/').pop().replace(/\.md$/i, ''));
@@ -592,7 +589,7 @@
         a.setAttribute('rel', 'noreferrer');
       }
     });
-    docbodyEl.querySelectorAll('table').forEach((table) => {
+    root.querySelectorAll('table').forEach((table) => {
       const wrap = document.createElement('div');
       wrap.className = 'table-wrap';
       table.parentNode.insertBefore(wrap, table);
@@ -600,14 +597,37 @@
     });
   }
 
+  function decorate(html) {
+    decorateInto(docbodyEl, html);
+  }
+
   function setTab(name) {
     tabLinks.forEach((a) => a.classList.toggle('on', a.dataset.doc === name));
+  }
+
+  function setNav(which) {
+    navLinks.forEach((a) => a.classList.toggle('on', a.dataset.nav === which));
+  }
+
+  /* 设计理念直接呈现在主页：去掉文档标题与底部上下篇导航后复用同一套渲染 */
+  async function loadPhilosophy() {
+    try {
+      const res = await fetch('md/' + encodeURIComponent('设计理念') + '.md', { cache: 'no-cache' });
+      if (!res.ok) throw new Error(String(res.status));
+      const text = (await res.text())
+        .replace(/^#\s.*\n+/, '')
+        .replace(/\n---\n+下一篇：[\s\S]*$/, '\n');
+      decorateInto(philosophyEl, renderMarkdown(text));
+    } catch (err) {
+      philosophyEl.innerHTML = '<p class="doc-loading">设计理念加载失败</p>';
+    }
   }
 
   function showHome(hash) {
     docviewEl.hidden = true;
     homeEl.hidden = false;
-    document.title = 'ezharness · 把 AI 放进真实电脑';
+    setNav('home');
+    document.title = 'ezharness · 可持续进化的工作台';
     if (hash && hash.length > 1 && hash !== '#overview') {
       const el = document.querySelector(hash);
       if (el) {
@@ -620,12 +640,14 @@
 
   async function openDoc(name) {
     const meta = DOCS[name];
-    if (!meta) return showHome('#overview');
+    /* 旧书签：设计理念已并入主页，跳到对应小节 */
+    if (!meta) return showHome(name === '设计理念' ? '#philosophy' : '#overview');
     homeEl.hidden = true;
     docviewEl.hidden = false;
     docnumEl.textContent = meta.n;
     doctitleEl.textContent = meta.title;
     setTab(name);
+    setNav('docs');
     document.title = meta.title + ' · ezharness 文档';
     window.scrollTo({ top: 0 });
 
@@ -653,6 +675,7 @@
   }
 
   window.addEventListener('hashchange', route);
+  void loadPhilosophy();
   route();
 </script>
 

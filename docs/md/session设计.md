@@ -2,8 +2,10 @@
 
 会话不是一条无限延伸的记录，而是一棵可生长、可回退、可沉淀的树。理解这套模型只需要两个词：**节点**和**线**。
 
-<!-- 截图占位：会话树与分支面板。放 docs/assets/session-tree.png 后取消下一行注释 -->
-<!-- ![会话树](../assets/session-tree.png) -->
+<figure class="narrow">
+  <img src="../assets/session-tree1.png" alt="分支面板" loading="lazy">
+  <figcaption>分支面板：每条线一个条目，当前线高亮，切换不打断后台轮次</figcaption>
+</figure>
 
 ## 一、节点与线
 
@@ -13,6 +15,11 @@
 | 线 | 从某个根节点开始、不断向下的路径，身份是 `RootID` | 侧栏里的一个会话、一个标签 |
 
 每次归档（compact）产生一个新节点，接在旧节点之后；线保持不变。用户切换分支，切换的是线的当前叶节点。
+
+<figure>
+  <img src="../assets/session-tree2.png" alt="话题记忆与调用链" loading="lazy">
+  <figcaption>话题记忆列出全部线；点开一条线可看到轮次、工具与 token 的调用链</figcaption>
+</figure>
 
 ## 二、分叉：复制语义
 
@@ -52,6 +59,11 @@
 
 含义是：**marker 之前的档案永远不被丢弃**。落盘时只向 trace 追加新尾部；如果内存中的历史发生回缩，落盘直接跳过，不会覆盖已有档案。
 
+<figure>
+  <img src="../assets/session-tree3.png" alt="调用链详情" loading="lazy">
+  <figcaption>调用链把 trace 展开成轮次与工具跨度：耗时、token、参数与返回值都在</figcaption>
+</figure>
+
 `progress.md` 是修剪的副产物：每次 trim 整体重写，包含会话 id、最近时间、原文 trace 位置和四节摘要。系统提示的 `<session>` 段会给出它的绝对路径，模型据此恢复现场。
 
 ## 五、归档时如何合并记忆
@@ -68,6 +80,11 @@
 - 每个线根对应一个常驻 `Session`，切换分支只改变 `SetActive`，不取消正在执行的轮次。
 - 切回某条线时重新订阅事件；服务端先用整轮聚合帧重建界面，再回放未决请求（审批、提问）。
 - 标签是纯前端外观，一个标签对应一条线的根。关闭标签会取消该线当前轮次——这是「关闭」应有的语义。
+
+<figure>
+  <img src="../assets/会话分叉.gif" alt="分支面板里开启新线" loading="lazy">
+  <figcaption>从分支面板开启新线，落成独立标签；新标签从空白工作台开始</figcaption>
+</figure>
 
 ## 七、目录示例
 

@@ -2,8 +2,6 @@
 
 这是 agent 实际可调用的工具、参数与默认审批速查。工具清单随内核装配生成；这里只记「怎么调、边界在哪」。
 
-<!-- 截图占位：审批卡。放 docs/assets/approval.png 后取消下一行注释 -->
-<!-- ![审批卡](../assets/approval.png) -->
 
 ## 一、文件与终端
 
@@ -79,6 +77,11 @@ __ezAll('.item .title').map((el) => el.textContent.trim())
 - 全局策略可以覆盖单工具的默认值。
 
 审批卡出现在时间线里，同时顶栏通知会提醒；切到任何分支都能看到属于那条线的待处理请求。
+
+<figure>
+  <img src="../assets/approval.png" alt="时间线里的审批卡" loading="lazy">
+  <figcaption>审批卡带着完整参数出现在时间线里：可批可拒，拒绝理由会回给模型</figcaption>
+</figure>
 
 ## 六、结果多大才会被卸载
 
