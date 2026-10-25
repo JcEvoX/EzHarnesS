@@ -8,7 +8,7 @@
 
 一个 exe · 三重角色 · 零配置 —— 为用户提供最简单交互方案的桌面智能体 harness
 
-[![Release](https://img.shields.io/badge/release-v0.2.6-blue?logo=github)](https://github.com/xuanlv2002/ezharness/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue?logo=github)](https://github.com/xuanlv2002/ezharness/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](https://github.com/xuanlv2002/ezharness/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-38bdf8?logo=readthedocs)](https://xuanlv2002.github.io/ezharness/)
