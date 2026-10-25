@@ -113,9 +113,12 @@ func findModelEntry(m domain.ModelsConfig, name string) *domain.ModelEntry {
 	return nil
 }
 
-/* modelFactoryOf 产出 task 分身的模型工厂：按名取条目（三槽任意）现造 provider，
+/*
+	modelFactoryOf 产出 task 分身的模型工厂：按名取条目（三槽任意）现造 provider，
+
 未知名字返回 nil（task 把"unknown model"作为工具结果回传，模型自纠）。
-包级函数而非内联闭包：Assemble 里 provider 是局部变量，会遮蔽 provider 包名。 */
+包级函数而非内联闭包：Assemble 里 provider 是局部变量，会遮蔽 provider 包名。
+*/
 func modelFactoryOf(hub *domain.Hub) func(string) provider.ModelProvider {
 	return func(name string) provider.ModelProvider {
 		if e := findModelEntry(hub.ModelsSnapshot(), name); e != nil {
@@ -145,8 +148,11 @@ func absSkillsDir() string {
 	return filepath.ToSlash(abs)
 }
 
-/* renderMemoryItems 渲染条目集合为 "- [id] text（更新于 YYYY-MM-DD）" 行
-（按更新时间新→旧排序；空集合给占位符）。 */
+/*
+	renderMemoryItems 渲染条目集合为 "- [id] text（更新于 YYYY-MM-DD）" 行
+
+（按更新时间新→旧排序；空集合给占位符）。
+*/
 func renderMemoryItems(items []hooks.MemoryItem) string {
 	if len(items) == 0 {
 		return "（暂无）"
@@ -163,9 +169,12 @@ func renderMemoryItems(items []hooks.MemoryItem) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-/* memoryUpdatedHint 渲染条目的更新日期（零值给空）。给绝对日期而非"距今
+/*
+	memoryUpdatedHint 渲染条目的更新日期（零值给空）。给绝对日期而非"距今
+
 X"：system 段每 session 组装一次并固化，相对时长会随对话进行越变越不准，
-绝对日期永不漂移，由模型自己与每轮 <agent_status> 的当前时间比对。 */
+绝对日期永不漂移，由模型自己与每轮 <agent_status> 的当前时间比对。
+*/
 func memoryUpdatedHint(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -271,6 +280,9 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 	// 可选模型清单（与 skill/mcp 同构）：新增/移除随资源变更进上下文；
 	// 清单本体在 system 的 <models> 固定段（session 组装时存储）
 	remindHook.SetModelList(func() []hooks.StatusMcp { return modelStatusList(a.Hub.ModelsSnapshot()) })
+	// 启停基线：停用名单与启用清单互补，区分「新增/移除」与「启用/停用」
+	remindHook.SetMcpOff(func() []string { return mcpOffList(s.Fsys) })
+	remindHook.SetModelOff(func() []string { return modelOffNames(a.Hub.ModelsSnapshot()) })
 	// 计划按分支根持久化（compact 换代不丢），每轮注入 agent_status
 	remindHook.SetPlanRoot(s.RootID)
 	traceHook := hooks.NewTrace(s.Fsys, s.Sess, func() string { return main.Name })
@@ -345,8 +357,8 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 		core.WithToolWarp(toolarg.Warp(s.Fsys), limit.Warp(4), safetool.Warp()),
 		core.WithTools(agentTools...),
 		core.WithHooks(
-			sys,                  // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
-			traceHook,            // toolStart 首位：task/ask_user/load_skill 等 OnToolStart 内干活的 hook 返回 Skip 会短路后续 hook，观测层必须排在它们前面才有 span
+			sys,                          // startHooks 首位：system base 唯一来源；后续 hook 在其 OnStart 里追加 tool-guide 说明段
+			traceHook,                    // toolStart 首位：task/ask_user/load_skill 等 OnToolStart 内干活的 hook 返回 Skip 会短路后续 hook，观测层必须排在它们前面才有 span
 			hooks.NewLoopGuard(maxIters), // 循环护栏：trace 后、Skip 型 hook 前——同签名重复先提醒后拦截,轮数压力线强收敛
 			contextfix.New(),
 			filetools.New(s.Fsys, filetools.WithWorkDir(ResolveWorkDir(st.WorkDir)), filetools.WithImageHandler(readImage)),
@@ -829,6 +841,35 @@ func mcpStatusList(fsys osfs.OS) []hooks.StatusMcp {
 			continue
 		}
 		out = append(out, hooks.StatusMcp{Name: srv.Name, Desc: srv.Description})
+	}
+	return out
+}
+
+/* mcpOffList 返回已停用 server 名（与 mcpStatusList 互补，启停基线 diff 用）。 */
+func mcpOffList(fsys osfs.OS) []string {
+	f := loadMcpFileOrNil(context.Background(), fsys)
+	if f == nil {
+		return nil
+	}
+	var out []string
+	for _, srv := range f.Servers {
+		if !srv.IsEnabled() {
+			out = append(out, srv.Name)
+		}
+	}
+	return out
+}
+
+/* modelOffNames 返回三槽中被关闭（disabled）的模型名（与 modelStatusList 互补）。 */
+func modelOffNames(mc domain.ModelsConfig) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range allModelEntries(mc) {
+		if e.Name == "" || !e.Disabled || seen[e.Name] {
+			continue
+		}
+		seen[e.Name] = true
+		out = append(out, e.Name)
 	}
 	return out
 }

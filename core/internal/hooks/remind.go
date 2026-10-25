@@ -5,7 +5,7 @@ remind 是系统提醒 hook：统一负责"系统→模型"的全部单向旁路
   - 快照段（每轮 OnStart）：<agent_status> 水位/时间快照 + status.snapshot
     SSE 事件（前端右上角水位条）——system 每 session 固定，水位与时间
     是轮内唯一需要同步的运行时状态；
-  - 变更段（每轮 OnStart，reschange.go）：skill/mcp 基线 diff，
+  - 变更段（每轮 OnStart，reschange.go）：skill/mcp/模型/快应用基线 diff，
     有变化才插一条 <resource_change> 消息（附变更后完整清单）+
     resource.change 事件（按需、零噪音）；基线持久化随 session
     （重启不重复报）；
@@ -57,7 +57,7 @@ type StatusData struct {
 	CtxTokens          int      `json:"ctxTokens"`
 	CtxWindow          int      `json:"ctxWindow"`
 	SuggestCompact     bool     `json:"suggestCompact"`
-	Model              string   `json:"model,omitempty"`    // 当前主模型摘要（名称+视觉能力）
+	Model              string   `json:"model,omitempty"` // 当前主模型摘要（名称+视觉能力）
 	Terms              []string `json:"terms,omitempty"` // 运行中终端名（非持久状态，每轮现查）
 	Tabs               []string `json:"tabs,omitempty"`  // 开启中的浏览器标签（同上）
 }
@@ -69,11 +69,13 @@ type Remind struct {
 	ctxTokens func() int
 	ctxWindow int
 	mcpList   func() []StatusMcp
-	disabled  func() []string // 可空：禁用技能目录名（实时读设置快照）
-	terms     func() []string // 可空：运行中终端名（终端/浏览器是进程生命周期态，重启即失，
-	tabs      func() []string // 不进 system 固定段，走每轮快照——与 skill/mcp 类持久资源分界
-	model     func() string     // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
+	mcpOff    func() []string    // 可空：已停用 MCP server 名（与启用清单互补，启停 diff 用）
+	disabled  func() []string    // 可空：禁用技能目录名（实时读设置快照）
+	terms     func() []string    // 可空：运行中终端名（终端/浏览器是进程生命周期态，重启即失，
+	tabs      func() []string    // 不进 system 固定段，走每轮快照——与 skill/mcp 类持久资源分界
+	model     func() string      // 可空：主模型摘要（名称+视觉）；快照行展示 + 变更基线 diff
 	modelList func() []StatusMcp // 可空：可选模型清单（名称+能力）；资源变更 diff + available 清单
+	modelOff  func() []string    // 可空：已关闭模型名（与可用清单互补，启停 diff 用）
 	planRoot  string             // 计划归属的分支根 ID（空=不注入计划）
 }
 
@@ -98,6 +100,12 @@ func (h *Remind) SetModelBrief(fn func() string) { h.model = fn }
 
 /* SetModelList 注入可选模型清单（名称+能力；实时读快照）——新增/移除走资源变更。 */
 func (h *Remind) SetModelList(fn func() []StatusMcp) { h.modelList = fn }
+
+/* SetMcpOff 注入已停用 MCP server 名（与启用清单互补）——启用/停用走资源变更。 */
+func (h *Remind) SetMcpOff(fn func() []string) { h.mcpOff = fn }
+
+/* SetModelOff 注入已关闭模型名（与可用清单互补）——启用/停用走资源变更。 */
+func (h *Remind) SetModelOff(fn func() []string) { h.modelOff = fn }
 
 /* SetPlanRoot 注入计划归属分支根（每轮若有计划则追加进 agent_status）。 */
 func (h *Remind) SetPlanRoot(rootID string) { h.planRoot = rootID }
