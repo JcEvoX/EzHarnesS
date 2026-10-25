@@ -57,6 +57,42 @@ body {
   overflow-x: hidden; /* 页面级禁横滚：超宽内容一律换行/内滚 */
 }
 
+/* 管理页滚动容器是全宽的（滚动条贴窗口右缘），内容按原 720 列居中：
+   624 = 720 减去两侧 48 内边距 */
+.page > * {
+  width: 100%;
+  max-width: 624px;
+  margin-inline: auto;
+}
+
+/* 滚动容器（主时间线与各管理页）：滚动条贴容器右缘，细而淡，
+   不抢内容的视觉重心 */
+.page,
+.timeline {
+  scrollbar-gutter: stable;
+}
+.page::-webkit-scrollbar,
+.timeline::-webkit-scrollbar {
+  width: 6px;
+}
+.page::-webkit-scrollbar-track,
+.timeline::-webkit-scrollbar-track {
+  background: transparent;
+}
+.page::-webkit-scrollbar-thumb,
+.timeline::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.page::-webkit-scrollbar-thumb:hover,
+.timeline::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fg) 30%, transparent);
+}
+.page::-webkit-scrollbar-button,
+.timeline::-webkit-scrollbar-button {
+  display: none;
+}
+
 /* 标题行高统一收紧：正文的 1.65 行距放在标题上会松散发虚 */
 h1,
 h2,

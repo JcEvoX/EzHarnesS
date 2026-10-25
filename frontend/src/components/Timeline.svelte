@@ -234,6 +234,7 @@
         {rows}
         liveBusy={store.busy}
         reveal={store.batchIds}
+        avatarOutside
         {openGroups}
         onToggleGroup={toggleGroup}
       />
@@ -290,17 +291,14 @@
     overflow-y: auto;
     overflow-x: hidden; /* 会话区不要横向滚动条（长串断行后此为兜底） */
     min-height: 0;
-    /* 滚动条槽位常驻且双侧对称（both-edges）：文本宽度恒定，
-    且消息流中心与下方输入框（居中于全宽）对齐——单侧槽会让内容
-    整体左偏半个槽宽，输入框看起来左宽右窄 */
-    scrollbar-gutter: stable both-edges;
     overscroll-behavior: contain;
   }
   /* 轮次导航：默认仅一列刻度线垂直居中贴右缘，悬浮展开文字卡片。
      高度封顶（约 20 条刻度），超出滚动——滚动条仅悬浮时显形 */
   .turnnav {
     position: absolute;
-    right: 10px;
+    /* 贴内容列右缘（主列已满宽，直接 right:10 会跑到窗口最右压住悬浮列） */
+    right: max(10px, calc(50% - 380px));
     top: 50%;
     transform: translateY(-50%);
     z-index: 4;

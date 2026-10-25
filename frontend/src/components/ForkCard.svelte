@@ -40,7 +40,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    width: calc(100% - 40px); /* 与 ToolBlock 等长：扣掉左缩进，不超出右缘 */
+    /* 块级 flex 容器随父宽自适应，左缩进交给 margin（与 ToolBlock 同宽）；
+       窄主列下内容必须能收缩，否则「查看」会被挤出卡片右缘 */
     margin-left: var(--proc-indent, 40px);
     padding: 6px 12px;
     border: 1px solid var(--line-strong);
@@ -48,6 +49,7 @@
     background: transparent;
     text-align: left;
     cursor: pointer;
+    overflow: hidden;
     transition: background var(--dur-fast) var(--ease-out);
   }
   .entry:hover {
@@ -94,8 +96,8 @@
     color: var(--muted);
   }
   .task {
-    flex: 1;
-    min-width: 80px;
+    flex: 1 1 0;
+    min-width: 0;
     font-size: var(--font-size-section);
     color: var(--fg);
     overflow: hidden;

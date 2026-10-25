@@ -17,6 +17,7 @@
     rows,
     avatarSize = 48,
     avatarKind = 'main',
+    avatarOutside = false,
     liveBusy = false,
     reveal,
     openGroups,
@@ -25,6 +26,7 @@
     rows: Row[]
     avatarSize?: number
     avatarKind?: 'main' | 'task'
+    avatarOutside?: boolean
     liveBusy?: boolean
     reveal?: Set<number>
     openGroups: Set<number>
@@ -47,7 +49,7 @@
         />
       </div>
     {:else}
-      <div class="grp" class:leader={row.kind === 'leader'}>
+      <div class="grp" class:leader={row.kind === 'leader'} class:avatar-out={avatarOutside}>
         {#if row.kind === 'group'}
           {@const live = i === rows.length - 1}
           <span class="tag">
@@ -177,6 +179,17 @@
     display: flex;
     gap: 14px;
     align-items: flex-start;
+  }
+  /* 主时间线：头像挂在内容列左侧的留白里，不占内容宽度——内容左缘因此
+     与输入框对齐；头像正好占满内容区左内边距（48px），窄窗也不越界 */
+  .grp.avatar-out {
+    position: relative;
+  }
+  .grp.avatar-out > .tag {
+    position: absolute;
+    top: 1px;
+    right: 100%;
+    margin-top: 0;
   }
   .grp .tag {
     flex: none;

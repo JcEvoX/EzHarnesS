@@ -229,14 +229,11 @@
     min-height: 0;
     display: flex;
   }
-  /* 主列：聊天记录 + 输入框。最大宽对齐消息流/输入框自身的 780——
-  收窄主列不缩内容（inner 本就 780 封顶），却能在侧栏与右侧悬浮列
-  之间留出等宽留白；时间线滚动条贴内容右缘而非窗口最右 */
+  /* 主列占满内容区：时间线滚动条贴窗口最右；内容自身（inner/输入框/标签
+  条）各自 780 居中，留白由它们处理 */
   .main-col {
     flex: 1;
     min-width: 0;
-    max-width: 780px;
-    margin: 0 auto;
     display: flex;
     flex-direction: column;
   }
