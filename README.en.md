@@ -1,9 +1,9 @@
-<!-- GIF checklist (auto-displays once added): docs/gif/overview.gif · first-chat.gif · fork.gif ·
+<!-- GIF checklist (auto-displays once added): docs/assets/overview.gif · first-chat.gif · fork.gif ·
      terminal.gif · browser.gif · board.gif · quickapp.gif · decision.gif -->
 
 <div align="center">
 
-<img src="docs/avatar.webp" width="150" alt="ezharness">
+<img src="docs/assets/avatar.webp" width="150" alt="ezharness">
 
 # ezharness
 
@@ -33,7 +33,7 @@ ezharness is an AI assistant that runs on your computer: it can read and write f
 | **Tool wrapping** | System capabilities (files, terminal, browser, whiteboard, MCP…) wrapped as safe, controllable, ready-to-use tools |
 | **Interaction design** | Human-agent surfaces beyond the chat: decision cards, global notifications, shared terminal and browser |
 
-![Overview demo](docs/gif/overview.gif)
+![Overview demo](docs/assets/overview.gif)
 
 ## Features
 
@@ -73,24 +73,24 @@ Run `ezharness-core.exe` directly and open `http://127.0.0.1:<port>` in a browse
 2. Head back to the chat and hand over a task — file organization, scripting, error triage, web operations;
 3. When the agent needs you (approval / question), a decision card shows up in the timeline and the notification corner.
 
-![First chat](docs/gif/first-chat.gif)
+![First chat](docs/assets/first-chat.gif)
 
 ## Core workflows
 
 | Scenario | How |
 |---|---|
-| [Session forking](docs/md/session.md) | Click "fork" on any message to copy the prefix into a new branch; "compact" distills a long session into memory and starts a fresh generation |
-| [Shared terminal](docs/interaction.md) | Open the terminal drawer: watch and take over the agent's shell; your keystrokes feed back into its context |
+| [Session forking](docs/md/session设计.md) | Click "fork" on any message to copy the prefix into a new branch; "compact" distills a long session into memory and starts a fresh generation |
+| [Shared terminal](docs/md/协同设计.md) | Open the terminal drawer: watch and take over the agent's shell; your keystrokes feed back into its context |
 | Shared browser | Ask the agent to "open and operate this page" — the browser window pops up for co-viewing; take over anytime |
 | Magic whiteboard | Drop a screenshot on the board, annotate what to change, send it back to the agent |
 | Quick apps | Ask the agent to "build a small tool page", then launch it as a child window |
 | MCP | Add MCP servers in settings; the agent discovers tools automatically; quick apps can call them too |
 
-![Session fork](docs/gif/fork.gif)
-![Shared terminal](docs/gif/terminal.gif)
-![Shared browser](docs/gif/browser.gif)
-![Magic whiteboard](docs/gif/board.gif)
-![Quick app](docs/gif/quickapp.gif)
+![Session fork](docs/assets/fork.gif)
+![Shared terminal](docs/assets/terminal.gif)
+![Shared browser](docs/assets/browser.gif)
+![Magic whiteboard](docs/assets/board.gif)
+![Quick app](docs/assets/quickapp.gif)
 
 ## Architecture at a glance
 
@@ -118,8 +118,7 @@ The **[docs site](https://xuanlv2002.github.io/ezharness/)** supports Chinese/En
 | Getting started | Install, models, first chat | This page + [Get started](https://xuanlv2002.github.io/ezharness/#start) |
 | User guide | Sessions / terminal / browser / whiteboard / quick apps / MCP | [User guide](https://xuanlv2002.github.io/ezharness/#guide) |
 | Core concepts | Session tree, context engineering, human-agent interaction | [Core concepts](https://xuanlv2002.github.io/ezharness/#concepts) |
-| Deep dives | Architecture, hook panorama, storage formats, context in action | [Architecture](https://xuanlv2002.github.io/ezharness/architecture.html) · [docs/md/](docs/md/) |
-| Reference | Build, dev memo | [build.md](docs/build.md) · [AGENTS.md](AGENTS.md) |
+| Deep dives | Sessions, context, MCP, collaboration, quick apps | [Design](docs/md/设计理念.md) · [docs/md/](docs/md/) |
 
 ## Building from source
 

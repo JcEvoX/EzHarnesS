@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/avatar.webp" width="140" alt="ezharness">
+<img src="docs/assets/avatar.webp" width="140" alt="ezharness">
 
 # ezharness
 
@@ -23,9 +23,9 @@
 ## 功能演示
 
 <p align="center">
-  <!-- 功能演示 GIF：录好后放到 docs/gif/demo.gif，取消下面这行注释即可 -->
-  <!-- <img src="docs/gif/demo.gif" alt="ezharness 功能演示" width="860"> -->
-  <sub>GIF 占位 · docs/gif/demo.gif</sub>
+  <!-- 功能演示 GIF：录好后放到 docs/assets/demo.gif，取消下面这行注释即可 -->
+  <!-- <img src="docs/assets/demo.gif" alt="ezharness 功能演示" width="860"> -->
+  <sub>GIF 占位 · docs/assets/demo.gif</sub>
 </p>
 
 ## 模型已经足够聪明，缺的是一双能伸进真实电脑的手
@@ -143,11 +143,11 @@ ezharness 在每轮对话里持续做三件事：**修剪**（按窗口水位就
 
 | 场景 | 怎么玩 |
 | --- | --- |
-| [会话分叉](docs/md/session.md) | 对任意消息点「分叉」开新线，多方案并行对比；「归档」把长对话沉淀为记忆并换代 |
-| [共享终端](docs/interaction.md) | 拉开工作区抽屉的终端：agent 正在跑的命令你能看见、能接管 |
+| [会话分叉](docs/md/session设计.md) | 对任意消息点「分叉」开新线，多方案并行对比；「归档」把长对话沉淀为记忆并换代 |
+| [共享终端](docs/md/协同设计.md) | 拉开工作区抽屉的终端：agent 正在跑的命令你能看见、能接管 |
 | 共享浏览器 | 让 agent 打开网页操作，浏览器窗口自动弹出共见；你在同一页面随时接管 |
-| [快应用](docs/quick-app.md) | 让 agent 做个小工具，生成后一键启动为独立窗口，下次还能被它自己调用 |
-| [MCP](docs/md/architecture.md) | 设置页添加 MCP server，agent 自动发现工具 |
+| [快应用](docs/md/快应用.md) | 让 agent 做个小工具，生成后一键启动为独立窗口，下次还能被它自己调用 |
+| [MCP](docs/md/mcp设计.md) | 设置页添加 MCP server，agent 自动发现工具 |
 
 ## 它由什么组成
 
@@ -172,11 +172,12 @@ flowchart TB
 
 | 层 | 内容 | 入口 |
 | --- | --- | --- |
-| 快速上手 | 安装、配置模型、第一轮对话 | 本页 + [快速上手](https://xuanlv2002.github.io/ezharness/#start) |
-| 用户指南 | 会话 / 终端 / 浏览器 / 画板 / 快应用 / MCP | [用户指南](https://xuanlv2002.github.io/ezharness/#guide) |
-| 核心概念 | 树状会话、上下文工程、人机协同交互 | [核心概念](https://xuanlv2002.github.io/ezharness/#concepts) · [interaction.md](docs/interaction.md) |
-| 深入设计 | 架构、hook 全景、存储格式、上下文全动作 | [架构深读](https://xuanlv2002.github.io/ezharness/architecture.html) · [docs/md/](docs/md/) |
-| 协议 | 快应用规范 | [quick-app.md](docs/quick-app.md) |
+| 快速上手 | 安装、配置模型、第一轮对话 | 本页 |
+| 模型与用量 | 槽位、协议、厂商预设、统计口径 | [模型配置](docs/md/模型配置.md) |
+| 会话与上下文 | 树状会话、归档换代、修剪与记忆 | [session 管理](docs/md/session设计.md) · [上下文管理](docs/md/上下文设计.md) |
+| 协同与交付 | 共享终端、浏览器、资源、快应用 | [协同工具](docs/md/协同设计.md) · [快应用](docs/md/快应用.md) |
+| 扩展面 | 技能、MCP 与对外 API、工具边界 | [skill 设计](docs/md/skill设计.md) · [MCP 设计](docs/md/mcp设计.md) · [工具快查](docs/md/external.md) |
+| 设计总述 | 取舍与边界 | [设计理念](docs/md/设计理念.md) |
 
 ## 从源码构建
 
@@ -193,7 +194,7 @@ script\build.bat         # 发布打包 -> release\v<版本>\ 安装包 + 绿色
 
 ## 贡献
 
-欢迎 issue 与 PR。深读设计见[在线文档](https://xuanlv2002.github.io/ezharness/)，构建与开发约定见 [build.md](docs/build.md)。
+欢迎 issue 与 PR。文档与设计说明见[在线文档](https://xuanlv2002.github.io/ezharness/)；构建流程见上节。
 
 ## 许可
 
