@@ -27,6 +27,9 @@ type TopicEntry struct {
 	Origin    *ForkOrigin `json:"origin,omitempty"` // fork 线的分叉源（展示）
 }
 
+/* TopicsJson 是分支索引文件名（数据目录相对）。 */
+const TopicsJson = "topics.json"
+
 /* Topics 管理分支索引（topics.json，工作目录）。 */
 type Topics struct {
 	fsys fs.FileSystem
@@ -44,7 +47,7 @@ func (t *Topics) Load() []TopicEntry {
 }
 
 func (t *Topics) loadLocked() []TopicEntry {
-	data, err := t.fsys.Read(context.Background(), "topics.json")
+	data, err := t.fsys.Read(context.Background(), TopicsJson)
 	if err != nil {
 		return nil
 	}
@@ -60,7 +63,7 @@ func (t *Topics) saveLocked(list []TopicEntry) error {
 	if err != nil {
 		return err
 	}
-	return t.fsys.Write(context.Background(), "topics.json", data)
+	return t.fsys.Write(context.Background(), TopicsJson, data)
 }
 
 /* Add 追加（或覆盖）一条分支索引并落盘。 */

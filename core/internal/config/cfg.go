@@ -102,7 +102,7 @@ func loadLocked() (Config, error) {
 	if os.IsNotExist(err) {
 		c := Config{Port: DefaultPort, DataDir: ResolveDataDir("data")}
 		if err := saveLocked(c); err != nil {
-			return c, err
+			return c, fmt.Errorf("创建配置文件 %s 失败（应用目录不可写？）: %w", path, err)
 		}
 		return c, nil
 	}

@@ -76,8 +76,17 @@ func NewStats(fsys osfs.OS) *Stats {
 			return s
 		}
 	}
-	s.saveLocked()
+	_ = s.saveLocked()
 	return s
+}
+
+/* EnsureStatsFile 缺失时写入初始 stats.json；已存在不动（返回是否新建）。 */
+func EnsureStatsFile(fsys osfs.OS) (bool, error) {
+	if data, err := fsys.Read(context.Background(), statsFile); err == nil && len(data) > 0 {
+		return false, nil
+	}
+	s := &Stats{fsys: fsys, firstSeen: time.Now(), hours: map[string]*HourStats{}}
+	return true, s.saveLocked()
 }
 
 /* AddTurn 累加一轮用量并落盘（model 为本轮主模型名,按小时按模型分桶）。 */
@@ -105,7 +114,7 @@ func (s *Stats) AddTurn(u *types.Usage, model string) {
 	hour.Turns++
 	s.turns++
 	s.pruneLocked()
-	s.saveLocked()
+	_ = s.saveLocked()
 }
 
 func (s *Stats) hourLocked() *HourStats {
@@ -188,7 +197,7 @@ func (s *Stats) CacheHitRate() float64 {
 	return float64(s.total.CachedTokens) / float64(s.total.PromptTokens)
 }
 
-func (s *Stats) saveLocked() {
+func (s *Stats) saveLocked() error {
 	data, err := json.MarshalIndent(statsFileLayout{
 		FirstSeen: s.firstSeen.UnixMilli(),
 		Turns:     s.turns,
@@ -196,7 +205,7 @@ func (s *Stats) saveLocked() {
 		Hours:     s.hours,
 	}, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = s.fsys.Write(context.Background(), statsFile, data)
+	return s.fsys.Write(context.Background(), statsFile, data)
 }

@@ -8,11 +8,13 @@ health.boot 与 restart 响应的 boot 匹配来判断新服务已就绪。
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,13 +47,20 @@ func (a *app) setTerm(t *service.TerminalService) {
 	a.mu.Unlock()
 }
 
-/* newApp 创建应用并切到数据目录（进程 cwd 即数据根）。 */
+/* newApp 创建应用、切到数据目录并把布局初始化完整，再允许开始监听。 */
 func newApp(c config.Config, token string) (*app, error) {
 	if err := os.MkdirAll(c.DataDir, 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("创建数据目录 %s 失败: %w", c.DataDir, err)
 	}
 	if err := os.Chdir(c.DataDir); err != nil {
+		return nil, fmt.Errorf("切换到数据目录 %s 失败: %w", c.DataDir, err)
+	}
+	created, err := service.EnsureLayout()
+	if err != nil {
 		return nil, err
+	}
+	if len(created) > 0 {
+		log.Printf("数据目录初始化：新建 %d 个配置文件（%s）", len(created), strings.Join(created, "、"))
 	}
 	return &app{cfg: c, token: token}, nil
 }
@@ -95,7 +104,12 @@ func (a *app) restart(port int, listen, dataDir string, ln net.Listener) {
 		syncDrained(dataDir, hub.ActiveSession().ID)
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err == nil {
-		_ = os.Chdir(dataDir)
+		if cerr := os.Chdir(dataDir); cerr == nil {
+			// 换到新目录后补齐布局（迁移只复制已知文件，缺的按默认补建）
+			if _, lerr := service.EnsureLayout(); lerr != nil {
+				log.Printf("数据目录初始化失败（%s）: %v", dataDir, lerr)
+			}
+		}
 	}
 	config.FollowDataDir(dataDir) // 日志文件跟随数据目录换代
 	engine := a.buildRouter()
