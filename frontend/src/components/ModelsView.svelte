@@ -53,9 +53,23 @@
     loaded = true
   })
 
-  /* 用量趋势（近 30 天,每模型一条折线 + 全部总量线;点图例显隐） */
+  /* 用量趋势（近 30 天,每模型一条折线 + 全部总量线;点图例显隐）：
+     入口是页头常驻按钮，弹窗展示——没有按天数据时也能看到入口与空态 */
   let daily = $state<DayStats[]>([])
+  let statsOpen = $state(false)
   let hiddenSeries = $state<string[]>([])
+  const statsWindow = $derived(daily.slice(-30))
+  const statsTotals = $derived.by(() => {
+    let inTok = 0
+    let outTok = 0
+    let cacheTok = 0
+    for (const d of statsWindow) {
+      inTok += d.in
+      outTok += d.out
+      cacheTok += d.cache
+    }
+    return { inTok, outTok, cacheTok, days: statsWindow.length }
+  })
   const PALETTE = ['#58a6ff', '#3fb950', '#d29a63', '#bc8cff', '#f85149', '#39c5cf', '#e3b341']
   const trend = $derived.by(() => {
     const days = daily.slice(-30)
@@ -227,38 +241,21 @@
       <h1>模型</h1>
       <p class="lead">主模型驱动 agent，能力槽按需兜底——每类启用一个，变更自动保存。</p>
     </div>
-    {#if saving}
-      <span class="saving">保存中…</span>
-    {/if}
+    <div class="head-right">
+      {#if saving}
+        <span class="saving">保存中…</span>
+      {/if}
+      <button class="stats-btn" onclick={() => (statsOpen = true)} title="查看按天用量趋势">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19V5M4 19h16" />
+          <path d="M8 16v-4M12 16V8M16 16v-6" />
+        </svg>
+        用量统计
+      </button>
+    </div>
   </div>
   {#if message}
     <p class="msg">{message}</p>
-  {/if}
-
-  {#if trend}
-    <section>
-      <h2>用量趋势（近 30 天）</h2>
-      <p class="hint">每天输入+输出 tokens（输入含缓存命中）;点图例显隐。</p>
-      <svg class="trend" viewBox="0 0 640 150" preserveAspectRatio="none">
-        {#each trend.gridY as y}
-          <line x1="6" x2="634" y1={y} y2={y} class="grid" />
-        {/each}
-        {#each trend.lines as l}
-          <path d={l.path} stroke={l.color} />
-        {/each}
-        <text x="6" y="148" class="axis">{trend.firstDate}</text>
-        <text x="634" y="148" text-anchor="end" class="axis">{trend.lastDate}</text>
-        <text x="634" y="{trend.gridY[3] - 3}" text-anchor="end" class="axis">{fmtTokens(trend.max)}</text>
-      </svg>
-      <div class="legend">
-        {#each trend.lines as l (l.key)}
-          <button class="lg" onclick={() => toggleSeries(l.key)}>
-            <span class="sw" style:background={l.color}></span>
-            {l.name}<span class="lg-v">{fmtTokens(l.total)}</span>
-          </button>
-        {/each}
-      </div>
-    </section>
   {/if}
 
   {#if !loaded}
@@ -375,6 +372,51 @@
   {/if}
 </div>
 
+{#if statsOpen}
+  <div class="stats-mask" onclick={() => (statsOpen = false)}></div>
+  <div class="stats-modal" role="dialog" aria-modal="true" aria-label="用量统计">
+    <header class="stats-head">
+      <div>
+        <h3>用量统计</h3>
+        <p class="stats-sub">近 30 天按天汇总输入/输出 tokens（输入含缓存命中），点图例显隐。</p>
+      </div>
+      <button class="stats-close" onclick={() => (statsOpen = false)} title="关闭">✕</button>
+    </header>
+    <div class="stats-sum">
+      <div class="stat"><span class="stat-k">活跃天数</span><span class="stat-v">{statsTotals.days}</span></div>
+      <div class="stat"><span class="stat-k">输入</span><span class="stat-v">↑{fmtTokens(statsTotals.inTok)}</span></div>
+      <div class="stat"><span class="stat-k">输出</span><span class="stat-v">↓{fmtTokens(statsTotals.outTok)}</span></div>
+      <div class="stat"><span class="stat-k">缓存命中</span><span class="stat-v">⚡{fmtTokens(statsTotals.cacheTok)}</span></div>
+    </div>
+    {#if trend}
+      <svg class="trend" viewBox="0 0 640 150" preserveAspectRatio="none">
+        {#each trend.gridY as y}
+          <line x1="6" x2="634" y1={y} y2={y} class="grid" />
+        {/each}
+        {#each trend.lines as l}
+          <path d={l.path} stroke={l.color} />
+        {/each}
+        <text x="6" y="148" class="axis">{trend.firstDate}</text>
+        <text x="634" y="148" text-anchor="end" class="axis">{trend.lastDate}</text>
+        <text x="634" y="{trend.gridY[3] - 3}" text-anchor="end" class="axis">{fmtTokens(trend.max)}</text>
+      </svg>
+      <div class="legend">
+        {#each trend.lines as l (l.key)}
+          <button class="lg" onclick={() => toggleSeries(l.key)}>
+            <span class="sw" style:background={l.color}></span>
+            {l.name}<span class="lg-v">{fmtTokens(l.total)}</span>
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <div class="stats-empty">
+        <p>{daily.length ? '至少需要两天的数据才能画出趋势线。' : '还没有按天用量记录。'}</p>
+        <p class="sub">发起几轮对话后，这里会自动按天汇总。</p>
+      </div>
+    {/if}
+  </div>
+{/if}
+
 <style>
   .page {
     flex: 1;
@@ -407,9 +449,39 @@
     color: var(--muted);
     margin-top: -20px;
   }
+  .head-right {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
   .saving {
     font-size: 11.5px;
     color: var(--faint);
+  }
+  .stats-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+      border-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
+  }
+  .stats-btn:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .stats-btn svg {
+    width: 14px;
+    height: 14px;
   }
   section {
     display: flex;
@@ -720,5 +792,102 @@
     border-radius: 8px;
     padding: 6px 16px;
     font-size: 12px;
+  }
+
+  /* ── 用量统计弹窗 ── */
+  .stats-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgb(0 0 0 / 18%);
+  }
+  .stats-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 61;
+    width: min(720px, 92vw);
+    max-height: 86vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 20px 20px;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgb(0 0 0 / 18%);
+  }
+  .stats-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .stats-head h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .stats-sub {
+    font-size: 11px;
+    color: var(--faint);
+    margin-top: 2px;
+  }
+  .stats-close {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .stats-close:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .stats-sum {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .stat {
+    flex: 1 1 110px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg-soft);
+  }
+  .stat-k {
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .stat-v {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .stats-empty {
+    padding: 30px 12px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .stats-empty .sub {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--faint);
   }
 </style>
