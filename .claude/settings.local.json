@@ -13,7 +13,8 @@
       "Bash(powershell -NoProfile -Command '$t = [IO.File]::ReadAllText\\(\"script\\\\release.bat\"\\); $t = $t -replace \"`r`n\", \"`n\" -replace \"`n\", \"`r`n\"; [IO.File]::WriteAllText\\(\"script\\\\release.bat\", $t\\)')",
       "Bash(node --check \"C:\\\\Users\\\\guy\\\\Desktop\\\\ai\\\\ezharness\\\\desktop\\\\src\\\\main\\\\browser\\\\index.js\")",
       "Bash(node --check \"C:\\\\Users\\\\guy\\\\Desktop\\\\ai\\\\ezharness\\\\desktop\\\\src\\\\main\\\\index.js\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(gofmt -w internal/domain/settings.go internal/service/config_service.go internal/service/settings_service.go)"
     ]
   }
 }
