@@ -17,7 +17,9 @@
   重排、xterm 不反复 fit；窗口 resize 时宽度变化经 var 继承同步到
   inner，ResizeObserver 自动 fit）。
   */
-  const open = $derived(store.termDrawerOpen)
+  let { visible = true }: { visible?: boolean } = $props()
+
+  const open = $derived(store.termDrawerOpen && visible)
   const tool = $derived(store.drawerTool)
   const TITLES: Record<string, [string, string]> = {
     term: ['共享终端', '用户与 AI 共写 · 收起不中断'],

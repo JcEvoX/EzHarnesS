@@ -132,11 +132,11 @@
     </main>
     <!-- 工作区抽屉（终端/文件/画板三工具页）：推挤式右布局列（.app flex
     行内，打开挤窄 main；pane 常驻挂载保活） -->
-    <WorkspaceDrawer />
+    <WorkspaceDrawer visible={view === 'chat'} />
   </div>
 </div>
 
-<footer class="brand-foot" class:away={store.termDrawerOpen}>
+<footer class="brand-foot" class:away={view === 'chat' && store.termDrawerOpen}>
   <a href="https://github.com/xuanlv2002/ezharness" target="_blank" rel="noreferrer">ezharness-{pkg.version}</a>
   <span>·</span>
   <a href="https://github.com/xuanlv2002/ezloop" target="_blank" rel="noreferrer">powered by ezloop</a>
