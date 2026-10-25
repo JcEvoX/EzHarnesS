@@ -512,7 +512,7 @@ export const api = {
   getModels: () => fetch('/api/models').then(json<ModelsConfig>),
 
   /* 按天用量序列（模型面板趋势图;近 120 天,升序） */
-  getDailyStats: () => fetch('/api/stats/daily').then(json<{ days: DayStats[] }>()).then((r) => r.days || []),
+  getDailyStats: () => fetch('/api/stats/daily').then(json<{ days: DayStats[] }>).then((r) => r.days || []),
 
   saveModels: (m: ModelsConfig) => post<{ ok: boolean }>('/api/models', m),
 
