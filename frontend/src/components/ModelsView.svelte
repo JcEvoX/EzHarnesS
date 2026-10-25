@@ -26,8 +26,12 @@
   let loaded = $state(false)
   let saving = $state(false)
   let message = $state('')
-  let adding = $state<SlotKey | null>(null)
-  let draft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] as HeaderPair[] })
+
+  /* 添加/编辑共用同一个弹框与草稿：列表行内不再展开长表单 */
+  type ModelForm = { mode: 'add'; slot: SlotKey } | { mode: 'edit'; slot: SlotKey; idx: number }
+  let form = $state<ModelForm | null>(null)
+  let formDraft = $state(blankDraft())
+  const formSlotTitle = $derived(form ? (kinds.find((k) => k.key === form.slot)?.title ?? '') : '')
 
   /* 上下文窗口快捷档（与现有 1M=1024000 的千进口径一致） */
   const CTX_PRESETS = [
@@ -36,8 +40,6 @@
     { label: '512K', v: 512000 },
     { label: '1M', v: 1024000 },
   ]
-  let editing = $state<{ slot: SlotKey; idx: number } | null>(null)
-  let editDraft = $state({ name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] as HeaderPair[] })
 
   onMount(async () => {
     try {
@@ -160,32 +162,19 @@
     return out
   }
 
-  function addEntry(slot: SlotKey) {
-    if (!cfg || !draft.name.trim() || !draft.baseUrl.trim()) return
-    const headers = pairsToRecord(draft.pairs)
-    cfg[slot] = [
-      ...cfg[slot],
-      {
-        name: draft.name.trim(),
-        baseUrl: draft.baseUrl.trim(),
-        apiKey: draft.apiKey.trim(),
-        ...(Object.keys(headers).length ? { headers } : {}),
-        enabled: cfg[slot].length === 0,
-        ...(draft.vision ? { vision: true } : {}),
-        contextWindow: Number(draft.contextWindow) || 0,
-        protocol: draft.protocol || 'openai',
-      },
-    ]
-    draft = { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] }
-    adding = null
-    void persist()
+  function blankDraft() {
+    return { name: '', baseUrl: '', apiKey: '', contextWindow: 128000, protocol: 'openai', vision: false, pairs: [] as HeaderPair[] }
   }
 
-  function editEntry(slot: SlotKey, idx: number) {
+  function openAdd(slot: SlotKey) {
+    formDraft = blankDraft()
+    form = { mode: 'add', slot }
+  }
+
+  function openEdit(slot: SlotKey, idx: number) {
     if (!cfg) return
     const m = cfg[slot][idx]
-    editing = { slot, idx }
-    editDraft = {
+    formDraft = {
       name: m.name,
       baseUrl: m.baseUrl,
       apiKey: m.apiKey,
@@ -194,28 +183,31 @@
       vision: !!m.vision,
       pairs: Object.entries(m.headers ?? {}).map(([key, value]) => ({ key, value })),
     }
+    form = { mode: 'edit', slot, idx }
   }
 
-  function saveEdit() {
-    if (!cfg || !editing) return
-    const { slot, idx } = editing
-    if (!editDraft.name.trim() || !editDraft.baseUrl.trim()) return
-    const headers = pairsToRecord(editDraft.pairs)
-    cfg[slot] = cfg[slot].map((e, i) =>
-      i === idx
-        ? {
-            ...e,
-            name: editDraft.name.trim(),
-            baseUrl: editDraft.baseUrl.trim(),
-            apiKey: editDraft.apiKey.trim(),
-            headers: Object.keys(headers).length ? headers : undefined, // 删光时清掉旧值
-            ...(editDraft.vision ? { vision: true } : { vision: false }),
-            contextWindow: Number(editDraft.contextWindow) || 0,
-            protocol: editDraft.protocol || 'openai',
-          }
-        : e,
-    )
-    editing = null
+  function submitForm() {
+    if (!cfg || !form) return
+    const name = formDraft.name.trim()
+    const baseUrl = formDraft.baseUrl.trim()
+    if (!name || !baseUrl) return
+    const headers = pairsToRecord(formDraft.pairs)
+    const entry = {
+      name,
+      baseUrl,
+      apiKey: formDraft.apiKey.trim(),
+      headers: Object.keys(headers).length ? headers : undefined,
+      vision: formDraft.vision,
+      contextWindow: Number(formDraft.contextWindow) || 0,
+      protocol: formDraft.protocol || 'openai',
+    }
+    if (form.mode === 'add') {
+      cfg[form.slot] = [...cfg[form.slot], { ...entry, enabled: cfg[form.slot].length === 0 }]
+    } else {
+      const { slot, idx } = form
+      cfg[slot] = cfg[slot].map((e, i) => (i === idx ? { ...e, ...entry } : e))
+    }
+    form = null
     void persist()
   }
 
@@ -267,105 +259,24 @@
         <p class="hint">{k.hint} · 每类启用一个。</p>
         <div class="list">
           {#each cfg[k.key] as m, i (m.name + i)}
-            <div class="model-wrap">
-              <div class="model" class:enabled={m.enabled} class:closed={m.disabled}>
-                <button class="dot" class:on={m.enabled && !m.disabled} onclick={() => enable(k.key, i)} title={m.enabled && !m.disabled ? (k.key === 'main' ? '已启用（主模型必启用）' : '已启用（点击停用）') : '点击启用'}></button>
-                <div class="info">
-                  <span class="name">{m.name}</span>
-                  <span class="meta">{m.disabled ? '已关闭 · ' : ''}{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
-                </div>
-                <div class="usage">
-                  <span class="tokens" title="累计用量（输入/输出/缓存命中）">↑{fmtTokens(m.inTokens || 0)} ↓{fmtTokens(m.outTokens || 0)}{m.cacheTokens ? ` ⚡${fmtTokens(m.cacheTokens)}` : ''}</span>
-                  <button class="del" onclick={() => editEntry(k.key, i)} title="编辑">编辑</button>
-                  <button class="del" onclick={() => toggleClose(k.key, i)} title={m.disabled ? '重新开启（恢复可调用）' : '关闭（保留配置,不可被调用）'}>{m.disabled ? '开启' : '关闭'}</button>
-                  <button class="del" onclick={() => remove(k.key, i)} title="删除">删除</button>
-                </div>
+            <div class="model" class:enabled={m.enabled} class:closed={m.disabled}>
+              <button class="dot" class:on={m.enabled && !m.disabled} onclick={() => enable(k.key, i)} title={m.enabled && !m.disabled ? (k.key === 'main' ? '已启用（主模型必启用）' : '已启用（点击停用）') : '点击启用'}></button>
+              <div class="info">
+                <span class="name">{m.name}</span>
+                <span class="meta">{m.disabled ? '已关闭 · ' : ''}{m.protocol && m.protocol !== 'openai' ? `【${m.protocol}】` : ''}{m.baseUrl} · {maskKey(m.apiKey)}{m.contextWindow ? ` · ${fmtTokens(m.contextWindow)} ctx` : ''}{m.vision ? ' · 👁 视觉' : ''}{Object.keys(m.headers ?? {}).length ? ` · ${Object.keys(m.headers ?? {}).length} 个请求头` : ''}</span>
               </div>
-              {#if editing && editing.slot === k.key && editing.idx === i}
-                <div class="add-form">
-                  <input type="text" placeholder="模型名" bind:value={editDraft.name} />
-                  <select bind:value={editDraft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
-                    <option value="openai">OpenAI 兼容</option>
-                    <option value="responses">Responses</option>
-                    <option value="anthropic">Anthropic</option>
-                  </select>
-                  <input type="text" placeholder="API 端点" bind:value={editDraft.baseUrl} />
-                  <input type="password" placeholder="API Key" bind:value={editDraft.apiKey} />
-                  <input type="number" placeholder="上下文窗口（tokens）" bind:value={editDraft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
-                  <div class="ctx-quick">
-                    <span class="cq-label">快捷</span>
-                    {#each CTX_PRESETS as p (p.v)}
-                      <button type="button" class:active={Number(editDraft.contextWindow) === p.v} onclick={() => (editDraft.contextWindow = p.v)}>{p.label}</button>
-                    {/each}
-                  </div>
-                  <label class="vision-ck" title="勾选表示模型支持多模态视觉输入（可发图片）；未勾选时带图请求会自动省略图片，防止不支持视觉的模型报错卡死会话">
-                    <input type="checkbox" bind:checked={editDraft.vision} />
-                    <span>支持视觉（图片输入）</span>
-                  </label>
-                  {#each editDraft.pairs as p, j}
-                    <div class="hdr-row">
-                      <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />
-                      <input type="text" placeholder="Value（如 org-123）" bind:value={p.value} />
-                      <button class="hdr-x" onclick={() => (editDraft.pairs = editDraft.pairs.filter((_, k2) => k2 !== j))} title="移除">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-                          <path d="M6 6l12 12M18 6L6 18" />
-                        </svg>
-                      </button>
-                    </div>
-                  {/each}
-                  <button class="hdr-add" onclick={() => (editDraft.pairs = [...editDraft.pairs, { key: '', value: '' }])}>+ 请求头</button>
-                  <div class="add-actions">
-                    <button class="add-ok" disabled={!editDraft.name.trim() || !editDraft.baseUrl.trim()} onclick={saveEdit}>确定</button>
-                    <button class="add-no" onclick={() => (editing = null)}>取消</button>
-                  </div>
-                </div>
-              {/if}
+              <div class="usage">
+                <span class="tokens" title="累计用量（输入/输出/缓存命中）">↑{fmtTokens(m.inTokens || 0)} ↓{fmtTokens(m.outTokens || 0)}{m.cacheTokens ? ` ⚡${fmtTokens(m.cacheTokens)}` : ''}</span>
+                <button class="del" onclick={() => openEdit(k.key, i)} title="编辑">编辑</button>
+                <button class="del" onclick={() => toggleClose(k.key, i)} title={m.disabled ? '重新开启（恢复可调用）' : '关闭（保留配置,不可被调用）'}>{m.disabled ? '开启' : '关闭'}</button>
+                <button class="del" onclick={() => remove(k.key, i)} title="删除">删除</button>
+              </div>
             </div>
           {/each}
           {#if cfg[k.key].length === 0}
             <div class="model none">暂无模型</div>
           {/if}
-          {#if adding === k.key}
-            <div class="add-form">
-              <input type="text" placeholder="模型名（如 deepseek-ai/DeepSeek-V3.2）" bind:value={draft.name} />
-              <select bind:value={draft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
-                <option value="openai">OpenAI 兼容</option>
-                <option value="responses">Responses</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
-              <input type="text" placeholder={defaultBase()} bind:value={draft.baseUrl} />
-              <input type="password" placeholder="API Key" bind:value={draft.apiKey} />
-              <input type="number" placeholder="上下文窗口（tokens）" bind:value={draft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
-              <div class="ctx-quick">
-                <span class="cq-label">快捷</span>
-                {#each CTX_PRESETS as p (p.v)}
-                  <button type="button" class:active={Number(draft.contextWindow) === p.v} onclick={() => (draft.contextWindow = p.v)}>{p.label}</button>
-                {/each}
-              </div>
-              <label class="vision-ck" title="勾选表示模型支持多模态视觉输入（可发图片）；未勾选时带图请求会自动省略图片，防止不支持视觉的模型报错卡死会话">
-                <input type="checkbox" bind:checked={draft.vision} />
-                <span>支持视觉（图片输入）</span>
-              </label>
-              {#each draft.pairs as p, j}
-                <div class="hdr-row">
-                  <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />
-                  <input type="text" placeholder="Value（如 org-123）" bind:value={p.value} />
-                  <button class="hdr-x" onclick={() => (draft.pairs = draft.pairs.filter((_, k2) => k2 !== j))} title="移除">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
-                </div>
-              {/each}
-              <button class="hdr-add" onclick={() => (draft.pairs = [...draft.pairs, { key: '', value: '' }])}>+ 请求头</button>
-              <div class="add-actions">
-                <button class="add-ok" disabled={!draft.name.trim() || !draft.baseUrl.trim()} onclick={() => addEntry(k.key)}>添加</button>
-                <button class="add-no" onclick={() => (adding = null)}>取消</button>
-              </div>
-            </div>
-          {:else}
-            <button class="add" onclick={() => (adding = k.key)}>+ 添加模型</button>
-          {/if}
+          <button class="add" onclick={() => openAdd(k.key)}>+ 添加模型</button>
         </div>
       </section>
     {/each}
@@ -414,6 +325,81 @@
         <p class="sub">发起几轮对话后，这里会自动按天汇总。</p>
       </div>
     {/if}
+  </div>
+{/if}
+
+<!-- 添加/编辑模型：同一弹框形态，列表不再内嵌长表单 -->
+{#if form}
+  <div class="form-mask" onclick={() => (form = null)}></div>
+  <div class="form-modal" role="dialog" aria-modal="true" aria-label={form.mode === 'add' ? '添加模型' : '编辑模型'}>
+    <header class="form-head">
+      <div>
+        <h3>{form.mode === 'add' ? '添加模型' : '编辑模型'}</h3>
+        <p class="form-sub">{formSlotTitle} · 变更保存后下一轮生效</p>
+      </div>
+      <button class="form-close" onclick={() => (form = null)} title="关闭">✕</button>
+    </header>
+    <div class="form-body">
+      <div class="form-grid">
+        <label class="fld">
+          <span>模型名</span>
+          <input type="text" placeholder="如 deepseek-ai/DeepSeek-V3.2" bind:value={formDraft.name} />
+        </label>
+        <label class="fld">
+          <span>API 协议</span>
+          <select bind:value={formDraft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
+            <option value="openai">OpenAI 兼容</option>
+            <option value="responses">Responses</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </label>
+      </div>
+      <label class="fld">
+        <span>API 端点</span>
+        <input type="text" placeholder={defaultBase()} bind:value={formDraft.baseUrl} />
+      </label>
+      <label class="fld">
+        <span>API Key</span>
+        <input type="password" placeholder="sk-…" bind:value={formDraft.apiKey} />
+      </label>
+      <label class="fld">
+        <span>上下文窗口（tokens）</span>
+        <input type="number" bind:value={formDraft.contextWindow} title="上下文窗口（tokens），水位与压缩按此计算；0 表示未知（按 128k 兜底）" />
+      </label>
+      <div class="ctx-quick">
+        <span class="cq-label">快捷</span>
+        {#each CTX_PRESETS as p (p.v)}
+          <button type="button" class:active={Number(formDraft.contextWindow) === p.v} onclick={() => (formDraft.contextWindow = p.v)}>{p.label}</button>
+        {/each}
+      </div>
+      <label class="vision-ck" title="勾选表示模型支持多模态视觉输入（可发图片）；未勾选时带图请求会自动省略图片，防止不支持视觉的模型报错卡死会话">
+        <input type="checkbox" bind:checked={formDraft.vision} />
+        <span>支持视觉（图片输入）</span>
+      </label>
+      <div class="hdr-list">
+        <div class="hdr-head">
+          <span>请求头</span>
+          <button class="hdr-add" onclick={() => (formDraft.pairs = [...formDraft.pairs, { key: '', value: '' }])}>+ 请求头</button>
+        </div>
+        {#each formDraft.pairs as p, j}
+          <div class="hdr-row">
+            <input type="text" placeholder="Header（如 X-Org-Id）" bind:value={p.key} />
+            <input type="text" placeholder="Value（如 org-123）" bind:value={p.value} />
+            <button class="hdr-x" onclick={() => (formDraft.pairs = formDraft.pairs.filter((_, k2) => k2 !== j))} title="移除">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        {/each}
+      </div>
+    </div>
+    <footer class="form-actions">
+      <button class="add-no" onclick={() => (form = null)}>取消</button>
+      <button class="add-ok" disabled={!formDraft.name.trim() || !formDraft.baseUrl.trim()} onclick={submitForm}>
+        {form.mode === 'add' ? '添加' : '保存'}
+      </button>
+    </footer>
   </div>
 {/if}
 
@@ -556,22 +542,14 @@
     border-radius: 12px;
     overflow: hidden;
   }
-  .model-wrap + .model-wrap {
-    border-top: 1px solid var(--line);
-  }
-  .model-wrap .add-form {
-    border-top: 1px dashed var(--line);
-  }
   .model {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 11px 14px;
   }
-  .model-wrap + .model-wrap + .add,
-  .model-wrap + .add,
-  .add + .model-wrap,
-  .none + .add {
+  .model + .model,
+  .model + .add {
     border-top: 1px solid var(--line);
   }
   .model.enabled {
@@ -658,14 +636,8 @@
   .add:hover {
     color: var(--fg);
   }
-  .add-form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-  }
-  .add-form input,
-  .add-form select {
+  .form-body input,
+  .form-body select {
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 8px 10px;
@@ -675,8 +647,8 @@
     background: var(--bg);
     color: var(--fg);
   }
-  .add-form input:focus,
-  .add-form select:focus {
+  .form-body input:focus,
+  .form-body select:focus {
     border-color: var(--line-strong);
   }
   /* 视觉开关：checkbox 不吃表单输入框样式，横排一行 */
@@ -696,7 +668,7 @@
     cursor: pointer;
   }
   /* select 去原生外观（Windows 白底系统控件与表单不协调），自绘下拉箭头 */
-  .add-form select {
+  .form-body select {
     appearance: none;
     padding-right: 30px;
     cursor: pointer;
@@ -768,10 +740,6 @@
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
-  .add-actions {
-    display: flex;
-    gap: 8px;
-  }
   .add-ok {
     border: 1px solid var(--line-strong);
     background: var(--bg-invert);
@@ -792,6 +760,110 @@
     border-radius: 8px;
     padding: 6px 16px;
     font-size: 12px;
+  }
+
+  /* ── 添加/编辑模型弹框 ── */
+  .form-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgb(0 0 0 / 18%);
+  }
+  .form-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 61;
+    width: min(560px, 92vw);
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgb(0 0 0 / 18%);
+  }
+  .form-head {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 12px;
+  }
+  .form-head h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .form-sub {
+    font-size: 11px;
+    color: var(--faint);
+    margin-top: 2px;
+  }
+  .form-close {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .form-close:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+  }
+  .form-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 2px 20px 12px;
+  }
+  .form-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: 10px;
+  }
+  @media (max-width: 520px) {
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .fld {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .hdr-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .hdr-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .form-actions {
+    flex: none;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px 18px;
+    border-top: 1px solid var(--line);
   }
 
   /* ── 用量统计弹窗 ── */
