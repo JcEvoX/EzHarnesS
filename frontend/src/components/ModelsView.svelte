@@ -41,6 +41,13 @@
     { label: '1M', v: 1024000 },
   ]
 
+  /* 添加弹框的厂商预设：回填模型名/端点/窗口/视觉/协议，用户只需补 API Key */
+  const PRESETS = [
+    { label: 'DeepSeek 官方', name: 'deepseek-flash', baseUrl: 'https://api.deepseek.com/v1', contextWindow: 1024000, vision: true, protocol: 'openai' },
+    { label: '硅基流动 DeepSeek', name: 'deepseek-ai/DeepSeek-V3.2', baseUrl: 'https://api.siliconflow.cn/v1', contextWindow: 128000, vision: false, protocol: 'openai' },
+  ]
+  let apiKeyEl: HTMLInputElement | undefined
+
   onMount(async () => {
     try {
       cfg = await api.getModels()
@@ -169,6 +176,15 @@
   function openAdd(slot: SlotKey) {
     formDraft = blankDraft()
     form = { mode: 'add', slot }
+  }
+
+  function applyPreset(p: (typeof PRESETS)[number]) {
+    formDraft.name = p.name
+    formDraft.baseUrl = p.baseUrl
+    formDraft.contextWindow = p.contextWindow
+    formDraft.vision = p.vision
+    formDraft.protocol = p.protocol
+    apiKeyEl?.focus()
   }
 
   function openEdit(slot: SlotKey, idx: number) {
@@ -340,6 +356,14 @@
       <button class="form-close" onclick={() => (form = null)} title="关闭">✕</button>
     </header>
     <div class="form-body">
+      {#if form.mode === 'add'}
+        <div class="ctx-quick">
+          <span class="cq-label">预设</span>
+          {#each PRESETS as p (p.label)}
+            <button type="button" class:active={formDraft.name === p.name && formDraft.baseUrl === p.baseUrl} onclick={() => applyPreset(p)}>{p.label}</button>
+          {/each}
+        </div>
+      {/if}
       <div class="form-grid">
         <label class="fld">
           <span>模型名</span>
@@ -360,7 +384,7 @@
       </label>
       <label class="fld">
         <span>API Key</span>
-        <input type="password" placeholder="sk-…" bind:value={formDraft.apiKey} />
+        <input type="password" placeholder="sk-…" bind:this={apiKeyEl} bind:value={formDraft.apiKey} />
       </label>
       <label class="fld">
         <span>上下文窗口（tokens）</span>
