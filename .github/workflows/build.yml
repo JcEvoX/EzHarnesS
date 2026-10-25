@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - uses: actions/setup-go@v5
         with:
@@ -58,7 +58,7 @@ jobs:
         run: |
           cd desktop
           npm ci
-          npx electron-builder ${{ matrix.target }} --config.directories.output=../release/v${{ steps.ver.outputs.version }}
+          npx electron-builder ${{ matrix.target }} --publish never --config.directories.output=../release/v${{ steps.ver.outputs.version }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

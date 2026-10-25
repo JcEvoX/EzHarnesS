@@ -38,7 +38,7 @@ cd ..
 
 echo [build] packaging desktop (electron-builder)...
 cd desktop
-call npx electron-builder --win --config.directories.output=../release/v%VERSION%
+call npx electron-builder --win --publish never --config.directories.output=../release/v%VERSION%
 if errorlevel 1 exit /b 1
 cd ..
 
