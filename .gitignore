@@ -1,6 +1,6 @@
 # 敏感配置（API key）
 .env
-
+.claude
 # 构建产物
 .task/
 *.exe
