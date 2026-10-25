@@ -1269,6 +1269,8 @@
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 132px;
+    overflow-y: auto;
   }
   /* 行内操作占位不塌（visibility 而非 display 切换），悬浮不引起布局抖动 */
   .memtime {
