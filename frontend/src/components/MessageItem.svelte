@@ -73,7 +73,7 @@
           m = t.match(/^file:\/\/(.+)$/i)
           if (m) {
             const p = m[1].trim()
-            return `<span class="supper-url act" data-supper-kind="file" data-supper-id="${escHtml(p)}" role="button" tabindex="0" title="${escHtml(p)}">📄 ${escHtml(fileBaseName(p))}</span>`
+            return `<span class="supper-url act" data-supper-kind="file" data-supper-id="${escHtml(p)}" role="button" tabindex="0" title="${escHtml(p)}">${escHtml(fileBaseName(p))}</span>`
           }
           return `<a class="supper-url" data-supper-url="${b}">${b}</a>`
         },
@@ -267,10 +267,10 @@
                 {#if f.path}
                   <img src={fileUrl(f.path)} alt={f.name} loading="lazy" />
                 {:else}
-                  <span class="fico">🖼</span>
+                  <span class="fico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="M21 15l-5-5L5 19" /></svg></span>
                 {/if}
               {:else}
-                <span class="fico">📄</span>
+                <span class="fico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg></span>
               {/if}
               <span class="fname">{f.name}</span>
             </button>
@@ -281,7 +281,7 @@
         <div class="fchips">
           {#each fileRefs as r, i (i)}
             <button class="fchip ref" onclick={() => store.openFileAt(r.path)} title={`${r.path}（点击在资源页打开）`}>
-              <span class="fico">🔗</span>
+              <span class="fico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" /></svg></span>
               <span class="fname">{r.path.split(/[/\\]/).pop()}{r.count > 1 ? ` · ${r.count} 条标注` : r.count === 1 ? ' · 1 条标注' : ''}</span>
             </button>
           {/each}
@@ -518,7 +518,7 @@
     height: 26px;
     border-radius: 5px;
     background: var(--bg);
-    font-size: var(--font-size-section);
+    color: var(--muted);
     flex: none;
   }
   .fname {
