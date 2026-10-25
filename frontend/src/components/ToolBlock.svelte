@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ToolBlockData } from '../lib/store.svelte'
+  import ToolFace from './ToolFace.svelte'
 
   let { data }: { data: ToolBlockData } = $props()
   /* 详情一律默认折叠（头部右侧的一行摘要已够辨识）；只有用户手动点开
@@ -8,14 +9,6 @@
   let open = $state(false)
 
   const shown = $derived(open)
-
-  function prettyArgs(raw: string): string {
-    try {
-      return JSON.stringify(JSON.parse(raw), null, 2)
-    } catch {
-      return raw
-    }
-  }
 
   /* building 态参数尾部预览（tail 跟随，像日志一样看内容增长） */
   const tail = $derived(data.state === 'building' ? data.args.slice(-600) : '')
@@ -70,7 +63,7 @@
         {#if data.args}
           <div class="section">
             <span class="label">args</span>
-            <pre>{prettyArgs(data.args)}</pre>
+            <ToolFace name={data.name || 'tool'} raw={data.args} />
           </div>
         {/if}
         {#if data.result || data.err}

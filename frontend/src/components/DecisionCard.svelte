@@ -1,6 +1,7 @@
 <script lang="ts">
   import { store } from '../lib/store.svelte'
   import type { DecisionData } from '../lib/store.svelte'
+  import ToolFace from './ToolFace.svelte'
 
   let { data }: { data: DecisionData } = $props()
 
@@ -8,14 +9,6 @@
   /* 决策完成后自动折叠成一行；点头部可展开回看详情（open 用户操作优先） */
   let open = $state<boolean | null>(null)
   const collapsed = $derived(data.resolved && open !== true)
-
-  function pretty(raw: string): string {
-    try {
-      return JSON.stringify(JSON.parse(raw), null, 2)
-    } catch {
-      return raw
-    }
-  }
 
   function approve(yes: boolean) {
     void store.decideApprove(data, yes, yes ? '' : input)
@@ -85,7 +78,7 @@
     {:else}
       <div class="call">
         <span class="tool-name">{data.name}</span>
-        <pre>{pretty(data.args)}</pre>
+        <ToolFace name={data.name} raw={data.args} />
       </div>
     {/if}
   </div>
@@ -245,15 +238,6 @@
     font-family: var(--font-mono);
     font-size: 12.5px;
     font-weight: 700;
-  }
-  .content pre {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-all;
-    max-height: 200px;
-    overflow-y: auto;
   }
   .actions {
     display: flex;
