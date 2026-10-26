@@ -21,7 +21,7 @@
 | `term_tab` | `action`（new / list / close）、`name?`、`desc?`、`tabId?` | 终端标签信息 | list 免审，其余审批 |
 | `term_action` | `action`（send / read）、`tabId`、`command?`、`lines?` | send 返回前后屏差异；read 返回末尾 N 行（默认 100） | send 白名单内免审；read 免审 |
 | `browser_tab` | `action`（open / list / select / close）、`url?`、`tabId?` 等 | 标签信息 | list 免审，其余审批 |
-| `browser_action` | `action` 七选一、`tabId`、`url?`、`selector?`、`js?`、`note?`、`files?` 等 | 页面文本 / 控制台 / 网络 / 截图路径 | 免审 |
+| `browser_action` | `action` 七选一、`tabId`、`url?`、`selector?`、`js?`、`note?`、`files?` 等 | 页面文本 / 控制台 / 网络 / 截图路径 | navigate/eval/upload 审批；read/console/network/screenshot 免审 |
 
 `browser_action` 的七个动作：`navigate`、`read`、`eval`、`console`、`network`、`screenshot`、`upload`。点击、输入、滚动都通过 `eval` 完成。
 
@@ -55,7 +55,7 @@ __ezAll('.item .title').map((el) => el.textContent.trim())
 | `load_skill` | `name` | 技能全文 + 目录树 | 免审 |
 | `mcp_router` | `action`（mcp_list / tool_list / tool_call）、`server?`、`tool?`、`args?` | 服务器 / 工具 / 调用结果 | 发现免审，调用审批 |
 | `trim_context` | 无 | 就地折叠上下文，产出四节摘要 | 免审 |
-| `save_app` | `name`、`html`、`title?`、`version?`、`backend?` 等 | 应用路径 | 免审 |
+| `save_app` | `name`、`html`、`title?`、`version?`、`backend?` 等 | 应用路径 | 审批 |
 | `load_app` | `name` | 元数据 + 文档 + CHANGELOG | 免审 |
 
 ## 五、审批规则
