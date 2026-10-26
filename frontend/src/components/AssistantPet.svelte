@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import EzAvatar from './EzAvatar.svelte'
+  import { launchApp as openApp } from '../lib/apps'
 
   /*
   桌面宠物（pet=1 窗口）：悬浮球 + 环形菜单。
@@ -102,16 +103,10 @@
     })
   })
 
-  /* 启动快应用：core 校验返回入口路径，desktop 壳开子窗 */
+  /* 启动快应用：core 校验、首次打开授权，desktop 壳开子窗 */
   async function launchApp(a: PetApp) {
     try {
-      const r = await fetch('/api/apps/open', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: a.name }),
-      }).then((r) => (r.ok ? r.json() : null))
-      if (!r) return
-      ez?.window?.openApp?.(r.path, r.title)
+      await openApp(a.name)
     } catch {
       /* core 不可达：忽略，用户可从快应用页启动 */
     }

@@ -1,8 +1,8 @@
 /*
 快应用静态页伺服：/apps/* 不鉴权（页面本身可被打开），但页内调用 core API
-必须带令牌。HTML 响应注入令牌桥：从 URL 的 ?token=（桌面壳打开时带上）或
-同源 sessionStorage（主界面已登录）取令牌，给页内 fetch 补 X-EZ-Token。
-令牌不写进页面源码——只有已持有令牌的上下文能拿到并转交给应用页。
+必须带令牌。HTML 响应注入令牌桥：从打开 URL 的 ?token=（/api/apps/open 签发的
+受限令牌）取令牌，存进独立的 ez-app-token 键（不碰主界面的 ez-token），给页内
+fetch 补 X-EZ-Token。令牌不写进页面源码；无令牌直接打开页面时无法调用 API。
 */
 package controller
 
@@ -18,15 +18,16 @@ import (
 
 const appAuthBridge = `<script>
 (function () {
+  var KEY = 'ez-app-token';
   var q = new URLSearchParams(location.search);
   var t = q.get('token') || '';
   if (t) {
-    sessionStorage.setItem('ez-token', t);
+    sessionStorage.setItem(KEY, t);
     q.delete('token');
     var rest = q.toString();
     history.replaceState(null, '', location.pathname + (rest ? '?' + rest : ''));
   } else {
-    t = sessionStorage.getItem('ez-token') || '';
+    t = sessionStorage.getItem(KEY) || '';
   }
   if (!t) return;
   var orig = window.fetch;

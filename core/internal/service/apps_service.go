@@ -35,17 +35,20 @@ const (
 /* ErrAppNotFound 表示请求的名字不是可用快应用。 */
 var ErrAppNotFound = errors.New("app not found")
 
+/* ErrAppNotTrusted 表示该应用尚未获得用户首次打开授权。 */
+var ErrAppNotTrusted = errors.New("app not trusted")
+
 /* AppEntry 是快应用卡片数据。 */
 type AppEntry struct {
-	Name        string `json:"name"`                  // 应用目录名（应用的稳定身份）
+	Name        string `json:"name"` // 应用目录名（应用的稳定身份）
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"` // 一句话描述
 	Version     string `json:"version,omitempty"`     // 语义化版本
 	Kind        string `json:"kind"`
 	Mtime       string `json:"mtime"`
-	Icon        string `json:"icon,omitempty"`  // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
-	Pinned      bool   `json:"pinned"`          // 已钉到桌面小助手
-	Callable    bool   `json:"callable"`        // 应用文档含「Agent 调用」一节
+	Icon        string `json:"icon,omitempty"` // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
+	Pinned      bool   `json:"pinned"`         // 已钉到桌面小助手
+	Callable    bool   `json:"callable"`       // 应用文档含「Agent 调用」一节
 }
 
 /* AppView 是一次启动的结果：前端入口路径 + 后端终端（无后端时为空）。 */
@@ -156,6 +159,31 @@ func (s *AppsService) TogglePin(ctx context.Context, name string) (bool, error) 
 	return slices.Contains(st.PinnedApps, name), nil
 }
 
+/* trusted 判断应用是否已获首次打开授权（测试装配无 Hub 时视为已授权）。 */
+func (s *AppsService) trusted(name string) bool {
+	return s.Hub == nil || slices.Contains(s.Hub.SettingsSnapshot().TrustedApps, name)
+}
+
+/* Trust 记录用户对快应用的首次打开授权（落盘 settings.json，长期有效）。 */
+func (s *AppsService) Trust(ctx context.Context, name string) error {
+	if _, err := s.load(ctx, name); err != nil {
+		return err
+	}
+	if s.Hub == nil {
+		return errors.New("settings unavailable")
+	}
+	st := s.Hub.SettingsSnapshot()
+	if slices.Contains(st.TrustedApps, name) {
+		return nil
+	}
+	st.TrustedApps = append(st.TrustedApps, name)
+	if err := SaveSettings(ctx, s.Hub.Fsys, st); err != nil {
+		return err
+	}
+	s.Hub.ApplySettings(st)
+	return nil
+}
+
 /* iconURL 校验声明的 icon（同 entry 的相对路径约束）并拼成同源 URL；空/越界返回空串。 */
 func iconURL(name, icon string) string {
 	if strings.TrimSpace(icon) == "" {
@@ -182,6 +210,9 @@ func (s *AppsService) Launch(ctx context.Context, name string) (AppView, error) 
 		Path:  "/apps/" + a.Name + "/" + a.Entry,
 		Title: a.Title,
 		Kind:  kindOf(a.Spec),
+	}
+	if !s.trusted(a.Name) {
+		return view, ErrAppNotTrusted
 	}
 	if !a.Spec.HasBackend() {
 		return view, nil

@@ -466,10 +466,21 @@ export const api = {
   getApps: () => fetch('/api/apps').then(json<{ apps: AppEntry[] }>),
 
   /* 启动快应用（chip 的 id 来自模型输出不可信，名单校验在后端）：返回前端
-     入口路径与标题、以及声明了后端的应用的内置终端 id（无后端时不带该字段）；
+     入口路径、标题、受限令牌与后端终端 id；首次打开未授权时返回 needsTrust，
      开窗由调用方执行：desktop 壳 IPC 子窗口 / web 新标签页 */
   openApp: (name: string) =>
-    post<{ ok: boolean; path: string; title: string; termId?: string }>('/api/apps/open', { name }),
+    post<{
+      ok: boolean
+      needsTrust?: boolean
+      path: string
+      title: string
+      token?: string
+      termId?: string
+    }>('/api/apps/open', { name }),
+
+  /* 记录首次打开授权（用户确认后调用），之后该应用直接启动 */
+  trustApp: (name: string) =>
+    post<{ ok: boolean }>(`/api/apps/${encodeURIComponent(name)}/trust`, {}),
 
   /* 钉到桌面小助手/取消（toggle），返回新状态 */
   pinApp: (name: string) =>

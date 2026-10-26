@@ -34,6 +34,10 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
+	if c.Apps != nil {
+		c.Apps.AppToken = func(name string) string { return issueAppToken(token, name) }
+	}
+
 	api := r.Group("/api", authRequired(token))
 	{
 		api.GET("/app/health", c.App.Health)
@@ -105,8 +109,9 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 		api.POST("/mcp/oauth/logout", c.Mcp.OAuthLogout)
 
 		api.GET("/apps", c.Apps.List)
-		api.POST("/apps/open", c.Apps.Open)     // 名单校验+返回路径标题；开窗由 desktop 壳/web 端执行
-		api.POST("/apps/:name/pin", c.Apps.Pin) // 钉到桌面小助手/取消
+		api.POST("/apps/open", c.Apps.Open)         // 名单校验+返回路径标题；开窗由 desktop 壳/web 端执行
+		api.POST("/apps/:name/pin", c.Apps.Pin)     // 钉到桌面小助手/取消
+		api.POST("/apps/:name/trust", c.Apps.Trust) // 首次打开授权（用户确认后调用）
 
 		api.GET("/workspace/file", c.Workspace.File)         // 工作目录文件预览（附件 chips 源）
 		api.HEAD("/workspace/file", c.Workspace.File)        // 同上（文件页轮询 Last-Modified 用；gin 不自动映射 HEAD→GET）
@@ -136,14 +141,18 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 	return r
 }
 
-/* authRequired 校验 API 令牌：头/query 恒定时间比较，不认来源（Origin/Host 可伪造）。 */
+/*
+authRequired 校验 API 令牌：头/query 恒定时间比较，不认来源（Origin/Host
+可伪造）。快应用受限令牌只在其可访问的接口上放行。
+*/
 func authRequired(token string) gin.HandlerFunc {
 	return func(g *gin.Context) {
 		present := g.GetHeader("X-EZ-Token")
 		if present == "" {
 			present = g.Query("token")
 		}
-		if subtle.ConstantTimeCompare([]byte(present), []byte(token)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(present), []byte(token)) == 1 ||
+			(appAPIPath(g.Request.URL.Path) && validAppToken(token, present)) {
 			g.Next()
 			return
 		}
