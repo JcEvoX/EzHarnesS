@@ -3,6 +3,7 @@
   import DOMPurify from 'dompurify'
   import { api, type ImagePayload } from '../lib/api'
   import { fileBaseName, isImagePath } from '../lib/textfile'
+  import { authUrl } from '../lib/auth'
   import { store } from '../lib/store.svelte'
 
   let {
@@ -97,7 +98,7 @@
         .then((r) => {
           const desktopWindow = (window as any).ez?.window
           if (desktopWindow) desktopWindow.openApp(r.path, r.title)
-          else window.open(r.path, '_blank')
+          else window.open(authUrl(r.path), '_blank')
           if (r.termId) store.openTermAt(r.termId)
         })
         .catch((err: unknown) => (store.lastStatus = `打开快应用失败：${(err as Error).message}`))
@@ -248,7 +249,7 @@
 
   /* 附件预览地址（工作目录文件服务；带版本参数——画板写回后强制刷新） */
   const fileUrl = (p?: string) =>
-    p ? `/api/workspace/file?path=${encodeURIComponent(p)}${(store.imgVer[p] ?? 0) ? `&v=${store.imgVer[p]}` : ''}` : ''
+    p ? authUrl(`/api/workspace/file?path=${encodeURIComponent(p)}${(store.imgVer[p] ?? 0) ? `&v=${store.imgVer[p]}` : ''}`) : ''
 </script>
 
 {#if role === 'user'}

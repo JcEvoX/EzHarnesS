@@ -68,7 +68,7 @@ MCP 让 agent 接入外部工具服务器。ezharness 除了把 MCP 工具交给
 
 - 请求头 `X-EZ-Token: <token>`，或查询参数 `?token=<token>`；
 - 恒定时间比较，避免时序侧信道；
-- 同源请求（前端页面、`/apps/*` 下的快应用）按 Origin / Referer 放行，不需要令牌。
+- 不按来源放行（Origin / Host 都可伪造）：主界面把令牌放在 `?token=` 与 sessionStorage，由全局 fetch 补丁带上；快应用页由 core 注入令牌桥，同样自动带令牌。
 
 ### 4.1 直调 MCP 工具
 
@@ -122,9 +122,9 @@ POST /api/model/call
 | WS | `GET /api/terminal/ws` | 单连接多路复用：上行 `input` / `resize`，下行 `hello` / `data` / `terminals` / `error` |
 | WS | `GET /api/browser/bridge` | desktop 壳连入，转发 `browser_*` 指令 |
 
-### 4.5 快应用同源
+### 4.5 快应用页面
 
-快应用页面由 core 在 `/apps/<app-id>/` 同源伺服，因此页面里直接 `fetch('/api/mcp/call')` 即可，不需要密钥。
+快应用页面由 core 在 `/apps/<app-id>/` 同源伺服。HTML 响应注入令牌桥：从打开地址的 `?token=`（桌面壳）或同源 sessionStorage（主界面已登录）取令牌，给页内 `fetch('/api/mcp/call')` 补 `X-EZ-Token`，应用代码不需要自己保管密钥。
 
 内置的 `ez-mcp-auth.js` 提供 `ezMcp.call / authorize / deepParse`：自动处理 401、弹出授权并重试。带后端的快应用是独立端口，属于跨源，需要后端自己返回 CORS 头。
 
