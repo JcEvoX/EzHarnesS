@@ -44,7 +44,7 @@ jobs:
         run: node script/sync-version.js
 
       - name: Build frontend
-        run: cd frontend && npm ci && npm run build
+        run: cd frontend && npm ci && npm audit --audit-level=high --registry=https://registry.npmjs.org && npm run build
 
       - name: Embed dist into core
         shell: bash
@@ -61,6 +61,7 @@ jobs:
         run: |
           cd desktop
           npm ci
+          npm audit --audit-level=high --registry=https://registry.npmjs.org
           npx electron-builder ${{ matrix.target }} --publish never --config.directories.output=../release/v${{ steps.ver.outputs.version }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
