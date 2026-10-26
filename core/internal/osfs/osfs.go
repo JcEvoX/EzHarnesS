@@ -51,6 +51,24 @@ func (o OS) Write(_ context.Context, p string, data []byte) error {
 	return os.Rename(tmp, target)
 }
 
+/* WritePrivate 原子写敏感文件（tmp+rename，0600：仅属主可读写）。 */
+func (o OS) WritePrivate(_ context.Context, p string, data []byte) error {
+	target := abs1(p)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, target)
+}
+
+/* Restrict 把已存在文件收敛为 0600（Windows 只映射只读位，无实际隔离；失败忽略）。 */
+func (o OS) Restrict(p string) {
+	_ = os.Chmod(abs1(p), 0o600)
+}
+
 /* Append 追加写（自动建目录）。 */
 func (o OS) Append(_ context.Context, p string, data []byte) error {
 	target := abs1(p)

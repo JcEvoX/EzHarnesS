@@ -54,6 +54,7 @@ func LoadModelsConfig(ctx context.Context, fsys osfs.OS) domain.ModelsConfig {
 	if err != nil {
 		return domain.DefaultModelsConfig()
 	}
+	fsys.Restrict("models.json") // 含 apiKey：存量文件启动时收敛为仅属主可读写
 	var mc domain.ModelsConfig
 	if json.Unmarshal(data, &mc) == nil && (len(mc.Main)+len(mc.Image)+len(mc.Audio)) > 0 {
 		return mc
@@ -67,7 +68,7 @@ func SaveModelsConfig(ctx context.Context, fsys osfs.OS, m domain.ModelsConfig) 
 	if err != nil {
 		return err
 	}
-	return fsys.Write(ctx, "models.json", data)
+	return fsys.WritePrivate(ctx, "models.json", data)
 }
 
 /* LoadSettings 读 settings.json，缺失回落默认值。 */
