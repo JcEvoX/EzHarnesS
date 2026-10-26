@@ -6,10 +6,8 @@ require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/coder/websocket v1.8.14
 	github.com/gin-gonic/gin v1.12.0
-	github.com/xuanlv2002/ezloop v1.4.2
+	github.com/xuanlv2002/ezloop v1.4.3
 )
-
-replace github.com/xuanlv2002/ezloop => C:/Users/guy/Desktop/ai/ezloop
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
