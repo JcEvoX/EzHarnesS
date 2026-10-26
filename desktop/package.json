@@ -11,7 +11,7 @@
     "start": "electron ."
   },
   "devDependencies": {
-    "electron": "latest",
-    "electron-builder": "latest"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   }
 }
