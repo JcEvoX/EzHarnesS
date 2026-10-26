@@ -18,10 +18,6 @@
       label: '做个小网页工具',
       prompt: '写一个单文件 HTML 的番茄钟，支持自定时长、开始暂停和提示音，存到桌面。',
     },
-    {
-      label: '查资料做总结',
-      prompt: '用共享浏览器查一下今天的科技头条，整理成一份中文要点。',
-    },
   ]
 
   async function pick(prompt: string) {
@@ -42,7 +38,7 @@
 <style>
   .quickstart {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     width: min(560px, 100%);
     margin-top: 14px;

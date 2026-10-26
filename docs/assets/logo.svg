@@ -11,7 +11,7 @@
   <g>
     <circle cx="100" cy="100" r="62" fill="none" stroke="url(#ringGrad)" stroke-width="4.5"
             stroke-linecap="round" stroke-dasharray="290 99" transform="rotate(-35 100 100)"/>
-    <circle cx="151" cy="63" r="6.5" fill="#0369a1"/>
+    <circle cx="150.8" cy="64.4" r="6.5" fill="#0369a1"/>
     <animateTransform attributeName="transform" type="rotate" from="0 100 100" to="360 100 100"
                       dur="16s" repeatCount="indefinite"/>
   </g>

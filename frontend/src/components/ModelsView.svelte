@@ -40,6 +40,15 @@
   let formDraft = $state(blankDraft())
   const formSlotTitle = $derived(form ? (kinds.find((k) => k.key === form.slot)?.title ?? '') : '')
 
+  /* 协议下拉：与输入条菜单同款（原生 select 的弹出菜单不跟主题，展开也有卡顿） */
+  const PROTOCOLS = [
+    { v: 'openai', label: 'OpenAI 兼容', hint: 'chat/completions 请求格式' },
+    { v: 'responses', label: 'Responses', hint: 'OpenAI Responses 请求格式' },
+    { v: 'anthropic', label: 'Anthropic', hint: 'Claude messages 请求格式' },
+  ] as const
+  let protocolOpen = $state(false)
+  const protocolLabel = $derived(PROTOCOLS.find((p) => p.v === formDraft.protocol)?.label ?? formDraft.protocol)
+
   /* 上下文窗口快捷档（与现有 1M=1024000 的千进口径一致） */
   const CTX_PRESETS = [
     { label: '128K', v: 128000 },
@@ -67,6 +76,14 @@
     }
     hourly = await api.getHourlyStats().catch(() => [])
     loaded = true
+  })
+
+  onMount(() => {
+    const close = (e: MouseEvent) => {
+      if (protocolOpen && !(e.target as HTMLElement).closest('.proto-pick')) protocolOpen = false
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
   })
 
   /* 用量趋势（按小时分桶，近 30 天保留；范围 24h/7d/30d）。入口是页头
@@ -310,6 +327,7 @@
 
   function openAdd(slot: SlotKey) {
     formDraft = blankDraft()
+    protocolOpen = false
     form = { mode: 'add', slot }
   }
 
@@ -334,6 +352,7 @@
       vision: !!m.vision,
       pairs: Object.entries(m.headers ?? {}).map(([key, value]) => ({ key, value })),
     }
+    protocolOpen = false
     form = { mode: 'edit', slot, idx }
   }
 
@@ -490,14 +509,26 @@
           <span>模型名</span>
           <input type="text" placeholder="如 deepseek-ai/DeepSeek-V3.2" bind:value={formDraft.name} />
         </label>
-        <label class="fld">
+        <div class="fld">
           <span>API 协议</span>
-          <select bind:value={formDraft.protocol} title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
-            <option value="openai">OpenAI 兼容</option>
-            <option value="responses">Responses</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </label>
+          <div class="proto-pick">
+            <button type="button" class="proto-btn" onclick={() => (protocolOpen = !protocolOpen)}
+              title="API 协议：决定请求格式（chat/completions / responses / Claude messages）">
+              <span>{protocolLabel}</span>
+              <svg class="chev" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 1l4 4 4-4" />
+              </svg>
+            </button>
+            {#if protocolOpen}
+              <div class="proto-menu">
+                {#each PROTOCOLS as p (p.v)}
+                  <button type="button" class="proto-item" class:on={formDraft.protocol === p.v}
+                    onclick={() => { formDraft.protocol = p.v; protocolOpen = false }} title={p.hint}>{p.label}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
       </div>
       <label class="fld">
         <span>API 端点</span>
@@ -756,8 +787,7 @@
   .add:hover {
     color: var(--fg);
   }
-  .form-body input,
-  .form-body select {
+  .form-body input {
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 8px 10px;
@@ -767,8 +797,7 @@
     background: var(--bg);
     color: var(--fg);
   }
-  .form-body input:focus,
-  .form-body select:focus {
+  .form-body input:focus {
     border-color: var(--line-strong);
   }
   /* 视觉开关：checkbox 不吃表单输入框样式，横排一行 */
@@ -787,12 +816,69 @@
     accent-color: var(--accent);
     cursor: pointer;
   }
-  /* select 去原生外观（Windows 白底系统控件与表单不协调），自绘下拉箭头 */
-  .form-body select {
-    appearance: none;
-    padding-right: 30px;
+  /* 协议下拉：外观与输入条菜单一致（自绘，不受 Windows 原生菜单干扰） */
+  .proto-pick {
+    position: relative;
+  }
+  .proto-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-ui);
+    text-align: left;
     cursor: pointer;
-    background: var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>") no-repeat right 10px center;
+  }
+  .proto-btn:focus-visible {
+    border-color: var(--line-strong);
+    outline: none;
+  }
+  .proto-btn .chev {
+    width: 10px;
+    height: 6px;
+    flex: none;
+    color: var(--muted);
+  }
+  .proto-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    box-shadow: 0 10px 32px rgb(0 0 0 / 16%);
+  }
+  .proto-item {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: var(--font-size-small);
+    font-family: var(--font-mono);
+    text-align: left;
+    padding: 7px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .proto-item:hover {
+    background: var(--bg-soft);
+    color: var(--fg);
+  }
+  .proto-item.on {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
   .hdr-row {
     display: grid;

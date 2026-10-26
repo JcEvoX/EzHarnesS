@@ -297,7 +297,7 @@
       <p class="err">{restartErr}</p>
     {/if}
     <label class="field">
-      <span>API 访问令牌（外部客户端请求带 X-EZ-Token 头或 ?token=；本机页面同源免带）</span>
+      <span>API 访问令牌（所有请求都需携带：X-EZ-Token 头或 ?token=；主界面与快应用打开时自动传入）</span>
       <span class="tokenRow">
         <input type="text" bind:value={apiToken} readonly placeholder="加载中…" />
         <button onclick={(e) => copyToken((e.currentTarget as HTMLButtonElement).previousElementSibling as HTMLInputElement)}>

@@ -1,6 +1,6 @@
 {
   "name": "ezharness-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ezharness 桌面壳（Electron）：窗口/托盘/生命周期 + 内嵌共享浏览器（WebContentsView）",
   "repository": {
     "type": "git",
@@ -11,7 +11,7 @@
     "start": "electron ."
   },
   "devDependencies": {
-    "electron": "latest",
-    "electron-builder": "latest"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   }
 }

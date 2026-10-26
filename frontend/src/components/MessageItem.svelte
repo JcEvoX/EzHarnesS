@@ -3,6 +3,8 @@
   import DOMPurify from 'dompurify'
   import { api, type ImagePayload } from '../lib/api'
   import { fileBaseName, isImagePath } from '../lib/textfile'
+  import { authUrl } from '../lib/auth'
+  import { launchApp } from '../lib/apps'
   import { store } from '../lib/store.svelte'
 
   let {
@@ -92,15 +94,7 @@
     } else if (kind === 'browser') {
       store.openBrowserAt(id)
     } else if (kind === 'app') {
-      void api
-        .openApp(id)
-        .then((r) => {
-          const desktopWindow = (window as any).ez?.window
-          if (desktopWindow) desktopWindow.openApp(r.path, r.title)
-          else window.open(r.path, '_blank')
-          if (r.termId) store.openTermAt(r.termId)
-        })
-        .catch((err: unknown) => (store.lastStatus = `打开快应用失败：${(err as Error).message}`))
+      launchApp(id).catch((err: unknown) => (store.lastStatus = `打开快应用失败：${(err as Error).message}`))
     } else if (kind === 'file') {
       /* 资源页按类型路由（registry）：文本进编辑器、图片进画板、
       html/pdf 有专属查看器、其余占位提示 */
@@ -248,7 +242,7 @@
 
   /* 附件预览地址（工作目录文件服务；带版本参数——画板写回后强制刷新） */
   const fileUrl = (p?: string) =>
-    p ? `/api/workspace/file?path=${encodeURIComponent(p)}${(store.imgVer[p] ?? 0) ? `&v=${store.imgVer[p]}` : ''}` : ''
+    p ? authUrl(`/api/workspace/file?path=${encodeURIComponent(p)}${(store.imgVer[p] ?? 0) ? `&v=${store.imgVer[p]}` : ''}`) : ''
 </script>
 
 {#if role === 'user'}

@@ -504,7 +504,8 @@ function registerIpc() {
       return false
     }
   })
-  /* 快应用子窗口：加载 core 同源页面，独立标题；右键可检查元素 */
+  /* 快应用子窗口：加载 core 同源页面，独立标题；右键可检查元素。
+     URL 自带受限令牌（主渲染层拼好），不能再补主令牌。 */
   ipcMain.on('ez:open-app', (_e, url, title) => {
     if (typeof url !== 'string' || !url.startsWith('/')) return
     const win = new BrowserWindow({
@@ -514,7 +515,7 @@ function registerIpc() {
       autoHideMenuBar: true,
     })
     attachInspectMenu(win.webContents)
-    win.loadURL(pageUrl(url))
+    win.loadURL(pageBase() + url)
     guardWebContents(win.webContents)
   })
   /* 桌面宠物：点小按钮 → 显示主窗口（拖动走渲染层 app-region，无 IPC） */

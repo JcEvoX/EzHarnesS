@@ -7,12 +7,9 @@ import (
 	"crypto/subtle"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-
-	"ezharness/core/internal/service"
 )
 
 /* Controllers 是路由依赖集合（main 装配）。 */
@@ -134,43 +131,24 @@ func NewRouter(c Controllers, dist fs.FS, token string) *gin.Engine {
 	if dist != nil {
 		serveStatic(r, dist)
 	}
-	/* 快应用静态服务：apps/ 下的 html 由前端直开 */
-	appsFS := http.Dir(service.AppsDir)
-	r.GET("/apps/*filepath", func(g *gin.Context) {
-		g.Request.URL.Path = g.Param("filepath")
-		http.FileServer(appsFS).ServeHTTP(g.Writer, g.Request)
-	})
+	/* 快应用静态服务：apps/ 下的 html 由前端直开（页面注入令牌桥） */
+	r.GET("/apps/*filepath", serveApps())
 	return r
 }
 
-/* authRequired 校验 API 令牌：头/query 恒定时间比较，同源（Origin/Referer）放行。 */
+/* authRequired 校验 API 令牌：头/query 恒定时间比较，不认来源（Origin/Host 可伪造）。 */
 func authRequired(token string) gin.HandlerFunc {
 	return func(g *gin.Context) {
 		present := g.GetHeader("X-EZ-Token")
 		if present == "" {
 			present = g.Query("token")
 		}
-		if subtle.ConstantTimeCompare([]byte(present), []byte(token)) == 1 || sameOrigin(g) {
+		if subtle.ConstantTimeCompare([]byte(present), []byte(token)) == 1 {
 			g.Next()
 			return
 		}
 		g.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 	}
-}
-
-/* sameOrigin 判定请求是否来自同源页面（Origin 优先，GET 看 Referer）。 */
-func sameOrigin(g *gin.Context) bool {
-	for _, h := range []string{"Origin", "Referer"} {
-		v := g.GetHeader(h)
-		if v == "" {
-			continue
-		}
-		u, err := url.Parse(v)
-		if err == nil && u.Host == g.Request.Host {
-			return true
-		}
-	}
-	return false
 }
 
 /* serveStatic 服务 SPA：静态资源 + 非 /api 路径回退 index.html。 */

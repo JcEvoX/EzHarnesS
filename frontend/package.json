@@ -1,7 +1,7 @@
 {
   "name": "ezharness-frontend",
   "private": true,
-  "version": "v1.0.0",
+  "version": "v1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,6 +25,6 @@
     "marked": "^18.0.10",
     "mermaid": "^11.17.1",
     "pptx-preview": "^1.0.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

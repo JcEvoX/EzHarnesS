@@ -8,7 +8,7 @@
 
 一个专注为用户提供最简单交互方案的桌面智能体 harness
 
-[![Release](https://img.shields.io/badge/release-v1.0.0-blue?logo=github)](https://github.com/xuanlv2002/ezharness/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.1-blue?logo=github)](https://github.com/xuanlv2002/ezharness/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)](https://github.com/xuanlv2002/ezharness/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-38bdf8?logo=readthedocs)](https://xuanlv2002.github.io/ezharness/)
@@ -93,7 +93,7 @@ apps/<app-id>/
 
 1. **目录名即身份，未识别字段一律忽略。** `app-id` 创建后不改；新字段不会破旧内核，旧应用也不会因升级失效。协议向前兼容是设计出来的，不是碰巧。
 2. **能否被 agent 调用，由应用自己的文档决定，不由内核开关决定。** `APP.md` 里有「Agent 调用」一节，应用才向模型开放；没有就只面向人类。内核不提供统一的 `app_call` 转发——因为调用方式必须由应用定义（前端 JS、HTTP、CLI 都行），**框架不该把应用形态写死**。
-3. **同源伺服，能力天然共享。** 页面由 core 在 `/apps/<app-id>/` 同源提供，因此可以直接使用 MCP、模型调用等本机能力，无需密钥；带后端的应用前台运行，日志与生命周期都归用户可见。
+3. **同源伺服，令牌转交。** 页面由 core 在 `/apps/<app-id>/` 同源提供，打开时入口 URL 带上访问令牌，HTML 响应注入令牌桥，页内 `fetch('/api/...')` 自动带上 `X-EZ-Token`。应用自己不需要保管密钥；带后端的应用前台运行，日志与生命周期都归用户可见。
 
 对内，每个应用的清单常驻系统提示（`<apps>` 段），新增、更新、移除经 `<resource_change>` 增量上报，`load_app` 读取完整文档与变更历史——和技能库同构。模型因此不必猜「现在有哪些应用、哪个能调、怎么调」。
 
@@ -122,6 +122,19 @@ ezharness 在每轮对话里持续做三件事：**修剪**（按窗口水位就
 1. 下载并运行安装包；
 2. 按引导选择安装目录，自动创建开始菜单与桌面快捷方式，可选「添加到 PATH」。
 
+**校验与系统拦截**
+
+每个平台附 `SHA256SUMS-<win32|darwin|linux>.txt`，安装前可校验（文件名与哈希应为同一行）：
+
+- Windows（PowerShell）：`Get-FileHash .\ezharness-v<版本>-setup.exe -Algorithm SHA256`
+- macOS / Linux：`shasum -a 256 <文件>` 或 `sha256sum <文件>`
+
+产物未做代码签名，系统会拦截：
+
+- Windows SmartScreen「Windows 已保护你的电脑」→ 更多信息 → 仍要运行。
+- macOS 首次打开被 Gatekeeper 拦截 → 右键「打开」，或 `xattr -dr com.apple.quarantine /Applications/ezharness.app`。
+- macOS 安装包当前为 arm64（Apple Silicon）；Intel 机器请自行构建。
+
 **纯 server 形态**
 
 直接运行 `ezharness-core.exe`，浏览器访问 `http://127.0.0.1:<port>`。与桌面端同一份页面，桌面专属能力（如浏览器控制）自动降级。
@@ -137,7 +150,7 @@ ezharness 在每轮对话里持续做三件事：**修剪**（按窗口水位就
 - **MCP**：接入外部工具服务器（http / stdio），探活、启停、热加载；快应用也能直调
 - **魔法画板**：丢一张截图进去，圈注要改的地方，一键回填给 agent
 - **模型三槽**：main / image / audio 单选槽位，各自带用量统计；图片识别由主模型多模态承担
-- **安全**：全 API 令牌鉴权 + 同源放行；终端命令包含匹配拦截（宁误拦不漏拦）
+- **安全**：全 API 令牌鉴权（主界面、快应用页与终端脚本统一使用同一令牌）；终端命令含 shell 拼接元字符即转审批；浏览器导航/脚本/上传与应用写入默认审批
 
 ## 核心玩法
 

@@ -19,6 +19,15 @@ export function initToken(): void {
   if (!token) return
   const orig = window.fetch
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    let u: URL
+    try {
+      u = new URL(raw, location.href)
+    } catch {
+      return orig(input, init)
+    }
+    /* 只给本机 API 补令牌：data:/跨域请求不塞自定义头（会触发无谓的 CORS 预检） */
+    if (u.origin !== location.origin || !u.pathname.startsWith('/api/')) return orig(input, init)
     const headers = new Headers(init?.headers)
     headers.set('X-EZ-Token', token)
     return orig(input, { ...init, headers })

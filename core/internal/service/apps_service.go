@@ -37,15 +37,15 @@ var ErrAppNotFound = errors.New("app not found")
 
 /* AppEntry 是快应用卡片数据。 */
 type AppEntry struct {
-	Name        string `json:"name"`                  // 应用目录名（应用的稳定身份）
+	Name        string `json:"name"` // 应用目录名（应用的稳定身份）
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"` // 一句话描述
 	Version     string `json:"version,omitempty"`     // 语义化版本
 	Kind        string `json:"kind"`
 	Mtime       string `json:"mtime"`
-	Icon        string `json:"icon,omitempty"`  // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
-	Pinned      bool   `json:"pinned"`          // 已钉到桌面小助手
-	Callable    bool   `json:"callable"`        // 应用文档含「Agent 调用」一节
+	Icon        string `json:"icon,omitempty"` // 卡片头像（同源 URL /apps/<名>/<icon>，空=未声明或越界）
+	Pinned      bool   `json:"pinned"`         // 已钉到桌面小助手
+	Callable    bool   `json:"callable"`       // 应用文档含「Agent 调用」一节
 }
 
 /* AppView 是一次启动的结果：前端入口路径 + 后端终端（无后端时为空）。 */

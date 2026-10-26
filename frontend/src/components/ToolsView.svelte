@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, type AppEntry } from '../lib/api'
   import { store } from '../lib/store.svelte'
+  import { launchApp } from '../lib/apps'
 
   /* 快应用 = apps/<名>/ 目录应用（app.quick 声明）。desktop 壳 = IPC 开独立
   子窗口；浏览器访问 = 新标签页直开。声明了后端的应用由后端把终端拉进侧边栏。 */
@@ -22,11 +23,7 @@
   终端拉到侧边栏（后端可能起不来，失败要出声） */
   async function launch(a: AppEntry) {
     try {
-      const r = await api.openApp(a.name)
-      const desktopWindow = (window as any).ez?.window
-      if (desktopWindow) desktopWindow.openApp(r.path, r.title)
-      else window.open(r.path, '_blank')
-      if (r.termId) store.openTermAt(r.termId)
+      await launchApp(a.name)
     } catch (err) {
       store.lastStatus = `启动快应用失败：${(err as Error).message}`
     }

@@ -3,6 +3,7 @@
      保证两处块类型、工具卡、记忆 diff、资源变更、图片与收尾提示完全一致。
      两处差异只有头像尺寸/神态和是否播放历史入场动画，由 props 控制。 */
   import { store } from '../lib/store.svelte'
+  import { authUrl } from '../lib/auth'
   import { TOOL_GROUP_MIN, type Row } from '../lib/rows'
   import EzAvatar from './EzAvatar.svelte'
   import MessageItem from './MessageItem.svelte'
@@ -110,13 +111,17 @@
                 <span class="line"></span>
               </div>
             {:else if seg.b.kind === 'imgload'}
-              <div class="imgload" class:reveal={reveal?.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
+              <div
+                class="imgload"
+                class:reveal={reveal?.has(seg.b.uid)}
+                title={seg.b.paths.map((p, j) => (seg.b.notes?.[j] ? `${p}（${seg.b.notes[j]}）` : p)).join('\n')}
+              >
                 {#each seg.b.paths as p, j (p)}
                   {@const snap = seg.b.images?.[j]}
                   <img
                     src={snap
                       ? `data:${snap.mimeType};base64,${snap.data}`
-                      : `/api/workspace/file?path=${encodeURIComponent(p)}`}
+                      : authUrl(`/api/workspace/file?path=${encodeURIComponent(p)}`)}
                     alt={p}
                     loading="lazy"
                     onclick={() => store.openFileAt(p)}
@@ -124,7 +129,7 @@
                     title={`${p}（点击打开文件，可编辑保存写回；缩略图为当时进上下文的快照）`}
                   />
                 {/each}
-                <span class="label">已加载上下文</span>
+                <span class="label">{seg.b.notes?.filter((n) => n).join(' · ') || '已加载上下文'}</span>
               </div>
             {:else if seg.b.kind === 'endtick'}
               <div class="endtick" class:reveal={reveal?.has(seg.b.uid)} title={seg.b.title}>
@@ -275,5 +280,8 @@
   }
   .imgload .label {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 </style>

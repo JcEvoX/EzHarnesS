@@ -221,19 +221,24 @@
           <circle cx="5" cy="13" r="1.25" /><circle cx="11" cy="13" r="1.25" />
         </svg>
       </span>
-      <h3 title={title[1]}>{title[0]}</h3>
-      <button class="pop" onclick={() => popOut()} title="弹出为独立窗口（也可按住头部拖出）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M15 4h5v5" />
-          <path d="M20 4l-8 8" />
-          <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
-        </svg>
-      </button>
-      <button class="pop" onclick={() => store.closeTermDrawer()} title="收起抽屉（Esc）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
+      <div class="head-text">
+        <h3>{title[0]}</h3>
+        <p>{title[1]}</p>
+      </div>
+      <div class="actions">
+        <button class="pop" onclick={() => popOut()} title="弹出为独立窗口（也可按住头部拖出）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 4h5v5" />
+            <path d="M20 4l-8 8" />
+            <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+          </svg>
+        </button>
+        <button class="pop" onclick={() => store.closeTermDrawer()} title="收起抽屉（Esc）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
     </header>
     <div class="body">
       <div class="pane" class:hidden={tool !== 'term'}>
@@ -310,7 +315,9 @@
     align-items: center;
     gap: 10px;
     flex: none;
-    padding: 14px 12px 8px 16px;
+    padding: 12px 12px 12px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
     cursor: grab;
     user-select: none;
   }
@@ -342,36 +349,67 @@
     font-weight: 600;
     box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
   }
+  /* 标题两行：主名 + 一句用途；操作按钮右对齐 */
+  .head-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
   h3 {
-    font-size: var(--font-size-section);
+    margin: 0;
+    font-size: var(--font-size-body);
     font-weight: 700;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .head-text p {
+    margin: 0;
+    font-size: var(--font-size-ui);
+    line-height: 1.25;
+    color: var(--faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .actions {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .pop {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     border: none;
     background: transparent;
     color: var(--muted);
     border-radius: 8px;
     cursor: pointer;
     flex: none;
+    transition:
+      background var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out);
   }
   .pop:hover {
     background: var(--line);
     color: var(--fg);
   }
   .pop svg {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
   }
   .body {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 0 12px 12px 16px;
+    padding: 12px 12px 12px 16px;
   }
   /* 工具页互斥显隐（pane 常驻保活——不进 {#if}） */
   .pane {

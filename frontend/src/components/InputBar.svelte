@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { store, type Attachment, type FileRef } from '../lib/store.svelte'
   import { fileBaseName, isImagePath } from '../lib/textfile'
+  import { authUrl } from '../lib/auth'
   import type { ReasoningEffort } from '../lib/api'
   import PlanPanel from './PlanPanel.svelte'
   import SessionStatus from './SessionStatus.svelte'
@@ -77,7 +78,7 @@
         name: a.name,
         path: a.path,
         isImage,
-        url: isImage && a.path ? `/api/workspace/file?path=${encodeURIComponent(a.path)}${v ? `&v=${v}` : ''}` : '',
+        url: isImage && a.path ? authUrl(`/api/workspace/file?path=${encodeURIComponent(a.path)}${v ? `&v=${v}` : ''}`) : '',
         ready: !!a.path,
       }
     }),
@@ -736,9 +737,9 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    flex-wrap: wrap;
-    gap: 8px;
-    row-gap: 6px;
+    /* 始终单行：窄列下靠收缩模型名与压缩间距收住，不换行 */
+    flex-wrap: nowrap;
+    gap: 6px;
     padding: 6px 6px 0;
     /* 容器查询：窄列下压缩设置按钮（见下） */
     container-type: inline-size;
@@ -753,6 +754,14 @@
     .reason-pick .model-btn .model-name.short,
     .approve-pick .model-btn .model-name.short {
       display: inline;
+    }
+    /* 窄列再压一档按钮内边距，保证整行放得下 */
+    .model-btn {
+      gap: 4px;
+      padding: 4px 7px;
+    }
+    .ws-btn {
+      width: 26px;
     }
   }
   /* 工具入口靠左、设置类按钮靠右 */
@@ -789,6 +798,20 @@
   .reason-pick,
   .model-pick {
     position: relative;
+  }
+  .ws-entries,
+  .approve-pick,
+  .reason-pick,
+  .status-pick {
+    flex: none;
+  }
+  /* 模型按钮是可压缩项：窄列下模型名省略，其余按钮不动 */
+  .model-pick {
+    min-width: 0;
+    max-width: 280px;
+  }
+  .model-pick .model-btn {
+    max-width: 100%;
   }
   .model-btn {
     display: inline-flex;
