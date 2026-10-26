@@ -125,7 +125,7 @@ POST /api/model/call
 
 ### 4.5 快应用页面
 
-快应用页面由 core 在 `/apps/<app-id>/` 同源伺服。`/api/apps/open` 为每个应用签发受限令牌（主令牌 + 应用名 HMAC 派生），只放行 `/api/model/call` 与 `/api/mcp/*`；HTML 响应注入令牌桥，从打开地址的 `?token=` 取令牌给页内 `fetch('/api/mcp/call')` 补 `X-EZ-Token`，应用代码不需要自己保管密钥。首次打开需用户明确授权一次。
+快应用页面由 core 在 `/apps/<app-id>/` 同源伺服。打开时入口 URL 带上主访问令牌；HTML 响应注入令牌桥，从打开地址的 `?token=` 取令牌给页内 `fetch('/api/mcp/call')` 补 `X-EZ-Token`，应用代码不需要自己保管密钥。
 
 内置的 `ez-mcp-auth.js` 提供 `ezMcp.call / authorize / deepParse`：自动处理 401、弹出授权并重试。带后端的快应用是独立端口，属于跨源，需要后端自己返回 CORS 头。
 

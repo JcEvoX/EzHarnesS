@@ -1,8 +1,8 @@
 /*
 快应用静态页伺服：/apps/* 不鉴权（页面本身可被打开），但页内调用 core API
-必须带令牌。HTML 响应注入令牌桥：从打开 URL 的 ?token=（/api/apps/open 签发的
-受限令牌）取令牌，存进独立的 ez-app-token 键（不碰主界面的 ez-token），给页内
-fetch 补 X-EZ-Token。令牌不写进页面源码；无令牌直接打开页面时无法调用 API。
+必须带令牌。HTML 响应注入令牌桥：从打开 URL 的 ?token= 取令牌，存进独立的
+ez-app-token 键（不碰主界面的 ez-token），给页内 fetch 补 X-EZ-Token。
+令牌不写进页面源码；无令牌直接打开页面时无法调用 API。
 */
 package controller
 

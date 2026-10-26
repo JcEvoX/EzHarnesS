@@ -210,9 +210,6 @@ class AppStore {
   busy = $state(false)
   archivingRootId = $state('') // 归档进行中的分支（线根 ID，空=无）：锁该分支输入与按钮
   lastStatus = $state('')
-  /* 快应用首次打开授权卡：App 根组件渲染，resolve 交给 resolveAppTrust */
-  appTrust = $state<{ name: string; title: string } | null>(null)
-  private appTrustResolve: ((ok: boolean) => void) | null = null
   tick = $state(0)
   /* 分身抽屉：当前打开的分身与待定位的决策卡（通知跳转用） */
   activeForkId = $state('')
@@ -692,22 +689,6 @@ class AppStore {
     } catch {
       this.lastStatus = '图片读取失败，未能打开画板'
     }
-  }
-
-  /* askAppTrust 弹首次打开授权卡，返回用户是否同意。 */
-  askAppTrust(name: string, title: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      this.appTrustResolve = resolve
-      this.appTrust = { name, title }
-    })
-  }
-
-  /* resolveAppTrust 关闭授权卡并落定用户选择。 */
-  resolveAppTrust(ok: boolean) {
-    const resolve = this.appTrustResolve
-    this.appTrustResolve = null
-    this.appTrust = null
-    resolve?.(ok)
   }
 
   /* yieldDrawer 工具页已弹出为独立窗口时把抽屉让出来：同一份内容只有一处

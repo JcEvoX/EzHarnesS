@@ -18,7 +18,6 @@
   import BrowserPane from './components/board/BrowserPane.svelte'
   import AssistantPet from './components/AssistantPet.svelte'
   import NoticeWindow from './components/NoticeWindow.svelte'
-  import AppTrustCard from './components/AppTrustCard.svelte'
 
   let view = $state<'chat' | 'models' | 'memory' | 'tools' | 'mcp' | 'security' | 'settings'>('chat')
   let expanded = $state(false)
@@ -94,8 +93,6 @@
     }
   })
 </script>
-
-<AppTrustCard />
 
 {#if petView}
   <AssistantPet />

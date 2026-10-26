@@ -12,8 +12,7 @@ import (
 
 /* AppsController 快应用表现层。 */
 type AppsController struct {
-	Svc      *service.AppsService
-	AppToken func(name string) string // 受限令牌派生（NewRouter 注入）
+	Svc *service.AppsService
 }
 
 /* List GET /api/apps。 */
@@ -40,34 +39,15 @@ func (c *AppsController) Open(g *gin.Context) {
 		g.JSON(http.StatusNotFound, gin.H{"error": "app not found"})
 		return
 	}
-	if errors.Is(err, service.ErrAppNotTrusted) {
-		g.JSON(http.StatusOK, gin.H{"ok": false, "needsTrust": true, "name": req.Name, "title": view.Title})
-		return
-	}
 	if err != nil {
 		g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	out := gin.H{"ok": true, "path": view.Path, "title": view.Title + " · ezharness"}
-	if c.AppToken != nil {
-		out["token"] = c.AppToken(req.Name) // 受限令牌：只放行模型与 MCP 接口
-	}
 	if view.TermID != "" {
 		out["termId"] = view.TermID // 纯前端应用不带该字段
 	}
 	g.JSON(http.StatusOK, out)
-}
-
-/* Trust POST /api/apps/:name/trust：记录用户对首次打开的明确授权。 */
-func (c *AppsController) Trust(g *gin.Context) {
-	if err := c.Svc.Trust(g.Request.Context(), g.Param("name")); errors.Is(err, service.ErrAppNotFound) {
-		g.JSON(http.StatusNotFound, gin.H{"error": "app not found"})
-		return
-	} else if err != nil {
-		g.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	g.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 /* Pin POST /api/apps/:name/pin：钉到桌面小助手/取消（toggle），返回新状态。 */

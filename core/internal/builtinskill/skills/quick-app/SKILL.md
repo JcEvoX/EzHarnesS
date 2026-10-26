@@ -72,8 +72,8 @@ description: 构建/更新快应用——判断纯前端还是需要后端，app
 
 ## 页面与 core 的关系
 
-- 前端由 core **同源**伺服（`/apps/<名>/`），页面拿到的是**受限令牌**，只放行 `/api/mcp/*` 与 `/api/model/call`；其余 core 接口（文件、设置、终端、浏览器）一律 401，不要尝试。
-- 后端在终端里跑，继承 `EZHARNESS_TOKEN`（主令牌）；需要文件等全部能力时由后端去调，**不要把这个变量写进页面或返回给前端**。
+- 前端由 core **同源**伺服（`/apps/<名>/`），令牌桥自动带上访问令牌，页内可调全部 core 接口；应用目录就是信任边界。
+- 后端在终端里跑，同样继承 `EZHARNESS_TOKEN`；**不要把令牌写进页面或返回给前端**，页面不需要知道它。
 - 后端在另一个端口 = **跨源**：页面直接 fetch 后端时，后端必须返回 CORS 头（`Access-Control-Allow-Origin: *`），否则浏览器拦掉。
 - **没有就绪握手**：点启动会立刻开窗，后端可能还没监听——页面首次请求自带重试（如 3 次 × 300ms），不要假设一开就有响应。
 
@@ -99,7 +99,7 @@ description: 构建/更新快应用——判断纯前端还是需要后端，app
 
 ## 大模型直调（model call）
 
-页面由令牌桥自动带受限令牌，直调即可；后端脚本用终端继承的环境变量 `EZHARNESS_TOKEN` 作为 `X-EZ-Token`（Windows `%EZHARNESS_TOKEN%`，sh `$EZHARNESS_TOKEN`），不要写死在代码里：
+页面由令牌桥自动带访问令牌，直调即可；后端脚本用终端继承的环境变量 `EZHARNESS_TOKEN` 作为 `X-EZ-Token`（Windows `%EZHARNESS_TOKEN%`，sh `$EZHARNESS_TOKEN`），不要写死在代码里：
 
 ```js
 const r = await fetch('/api/model/call', {

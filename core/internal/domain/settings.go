@@ -74,7 +74,6 @@ type Settings struct {
 	MaxIterations    int      `json:"maxIterations"`             // 单轮对话的最大模型迭代次数（0 = 默认 64，上限 128；随 Reassemble 生效）
 	DebugMode        bool     `json:"debugMode"`                 // 调试模式：把每次模型请求的全量输入写进日志（modeldump 实时读取，即改即生效）
 	PinnedApps       []string `json:"pinnedApps,omitempty"`      // 钉到桌面小助手的快应用名（快应用页/宠物窗轮询读取，即改即生效）
-	TrustedApps      []string `json:"trustedApps,omitempty"`     // 用户明确授权过首次打开的快应用名（打开前校验，授权一次长期有效）
 	ReasoningEffort  string   `json:"reasoningEffort,omitempty"` // 思考强度档位（''=不控制 | none=关闭 | low/high/max；请求侧经 reasoningeffort warp 即改即生效）
 	ApproveMode      string   `json:"approveMode,omitempty"`     // 审批档位（''=跟随安全配置 | off=全放行 | strict=全审；工具审批实时读取全局快照）
 	OffloadThreshold int      `json:"offloadThreshold"`          // 工具结果卸载阈值（字节；超过即卸载到文件只留摘要，0=默认 4096；随 Reassemble 生效）
