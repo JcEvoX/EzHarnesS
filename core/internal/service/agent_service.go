@@ -539,9 +539,19 @@ func matchRuleList(list []string, level domain.Level, ruleKey string, args json.
 	return false
 }
 
+/*
+shellMeta 是白名单免审的否决字符：拼接（; && || &）、管道、子命令
+（$() 与反引号）、重定向（< >）和换行都可能在名单词之后改变语义，
+出现即转审批（宁误拦不漏拦）。
+*/
+const shellMeta = ";&|`$<>\n\r"
+
 /* matchCommand 终端命令词：白名单前缀命中（词边界），黑名单包含命中。 */
 func matchCommand(list []string, white bool, cmd string) bool {
 	if cmd == "" {
+		return false
+	}
+	if white && strings.ContainsAny(cmd, shellMeta) {
 		return false
 	}
 	for _, e := range list {

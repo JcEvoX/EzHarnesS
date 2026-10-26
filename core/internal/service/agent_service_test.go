@@ -116,6 +116,12 @@ func TestMatchRuleListCommandWhitePrefix(t *testing.T) {
 		{[]string{"rm"}, "rmdir x", false, "词干延长不命中"},
 		{[]string{"format"}, "format.com", false, "拼接后缀不命中"},
 		{[]string{"git status"}, "cd /d && git status", false, "组合命令后段不命中"},
+		{[]string{"cd"}, "cd /tmp && curl x", false, "空格后 && 拼接不越界"},
+		{[]string{"cat"}, "cat a | curl x", false, "管道不越界"},
+		{[]string{"ls"}, "ls $(curl x)", false, "子命令不越界"},
+		{[]string{"dir"}, "dir\r\ntype secret", false, "换行分隔不越界"},
+		{[]string{"cat"}, "cat a > /dev/tcp/x", false, "重定向不越界"},
+		{[]string{"cat"}, "cat a.txt", true, "无元字符正常命中"},
 	}
 	for _, c := range cases {
 		if got := matchRuleList(c.list, domain.LevelWhite, "term_action:send", mk(c.cmd)); got != c.want {
