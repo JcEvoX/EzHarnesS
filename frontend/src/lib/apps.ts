@@ -6,11 +6,7 @@ import { store } from './store.svelte'
 export async function launchApp(name: string): Promise<void> {
   let r = await api.openApp(name)
   if (r.needsTrust) {
-    const ok = window.confirm(
-      `应用「${r.title || name}」首次打开。\n\n` +
-        '它将以受限令牌调用本机模型与 MCP 工具，可能读写你的数据。\n' +
-        '只打开你信任的应用。\n\n继续打开？',
-    )
+    const ok = await store.askAppTrust(name, r.title || name)
     if (!ok) return
     await api.trustApp(name)
     r = await api.openApp(name)

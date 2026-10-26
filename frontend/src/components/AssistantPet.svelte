@@ -51,7 +51,7 @@
       const dist = Math.hypot(x - C, y - C)
       const inWin = x >= 0 && y >= 0 && x <= C * 2 && y <= C * 2
       const el = document.elementFromPoint(x, y)
-      const interactive = !!el?.closest('.avatar-wrap, .orb.on, .orbwrap.on, .traylist.open')
+      const interactive = !!el?.closest('.avatar-wrap, .orb.on, .orbwrap.on, .traylist.open, .trustmask')
       hovered = interactive || (hovered && inWin && dist < 120)
       if (!hovered) trayOpen = false
       ez?.pet?.passthrough?.(!interactive)
