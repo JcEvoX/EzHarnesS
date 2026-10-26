@@ -30,6 +30,10 @@ mac:
   target:
     - dmg
   category: public.app-category.productivity
+  # 无 Apple 开发者证书：强制 ad-hoc 签名，避免 macOS 把未签名包判为「已损坏」
+  identity: "-"
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
 linux:
   target:
     - AppImage
