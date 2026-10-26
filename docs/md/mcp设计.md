@@ -69,6 +69,7 @@ MCP 让 agent 接入外部工具服务器。ezharness 除了把 MCP 工具交给
 - 请求头 `X-EZ-Token: <token>`，或查询参数 `?token=<token>`；
 - 恒定时间比较，避免时序侧信道；
 - 不按来源放行（Origin / Host 都可伪造）：主界面把令牌放在 `?token=` 与 sessionStorage，由全局 fetch 补丁带上；快应用页由 core 注入令牌桥，同样自动带令牌。
+- 脚本：terminal / 共享终端 / 快应用后端等子进程继承环境变量 `EZHARNESS_TOKEN`，请求时把它放进 `X-EZ-Token` 头即可，不需要用户手填。
 
 ### 4.1 直调 MCP 工具
 

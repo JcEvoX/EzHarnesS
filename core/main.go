@@ -73,6 +73,8 @@ func main() {
 		url := fmt.Sprintf("http://127.0.0.1:%d/?token=%s", c.Port, token)
 		log.Printf("web 入口（含 token，勿外传）：%s", url)
 	}
+	/* 写回环境：terminal 与快应用后端等子进程继承，脚本用 EZHARNESS_TOKEN 鉴权 */
+	_ = os.Setenv("EZHARNESS_TOKEN", token)
 
 	a, err := newApp(c, token)
 	if err != nil {
@@ -140,7 +142,7 @@ func (a *app) buildRouter() *gin.Engine {
 			Settings: &service.SettingsService{Hub: hub, Agents: agents},
 			Memory:   &service.MemoryService{Hub: hub},
 		},
-		Topics:   &controller.TopicController{Svc: &service.TopicService{Hub: hub, Agents: agents}},
+		Topics:    &controller.TopicController{Svc: &service.TopicService{Hub: hub, Agents: agents}},
 		Mcp:       &controller.McpController{Svc: service.NewMcpService(hub.Fsys, a.mcpRouter, a.mcpAuth)},
 		Apps:      &controller.AppsController{Svc: &service.AppsService{Fsys: hub.Fsys, Term: termSvc, Hub: hub}},
 		App:       &controller.AppController{Svc: appSvc},

@@ -749,7 +749,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 		for _, l := range lines {
 			b.WriteString("\n" + l)
 		}
-		b.WriteString("\n（HTTP 直调：core 把上面的 MCP 服务整体暴露为本机 API，不经你中转，页面、脚本、外部程序都可调——\n" +
+		b.WriteString("\n（HTTP 直调：core 把上面的 MCP 服务整体暴露为本机 API，不经你中转。鉴权：快应用页由令牌桥自动带令牌；脚本/后端用终端环境变量里的 EZHARNESS_TOKEN 作为 X-EZ-Token（Windows cmd 写 %EZHARNESS_TOKEN%，sh 写 $EZHARNESS_TOKEN）；外部程序用设置页的 API 令牌。\n" +
 			"POST /api/mcp/call，JSON 载荷 {\"server\":\"服务名\",\"tool\":\"工具名\",\"args\":{参数}}，" +
 			"成功 {\"result\":\"文本\"}、失败 {\"error\":\"原因\"}；GET /api/mcp 返回服务清单。\n" +
 			"需要 OAuth 的服务未授权时返回 HTTP 401 + {\"needs_auth\":true,\"server\":\"服务名\",\"auth_url\":\"授权地址\"}（OAuth 自动检测，无需给 server 配置）；" +
@@ -761,12 +761,15 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 			"即可把 MCP 工具当作页面后端。页面里调用遵守实战守则（都是真实踩过的坑）：\n" +
 			"重点:result 是字符串化文本，里面可能还内嵌一层 JSON——先 r.text() 再层层 JSON.parse 直到解析成对象（deepParse）")
 		if base := localAPIBase(); base != "" {
-			b.WriteString("\n（非同源客户端用完整地址：" + base + "/api/mcp/call（调用）/ " + base + "/api/mcp（清单））")
+			b.WriteString("\n（脚本用完整地址：" + base + "/api/mcp/call（调用）/ " + base + "/api/mcp（清单）；" +
+				"示例：curl -s -X POST " + base + "/api/mcp/call -H \"Content-Type: application/json\" " +
+				"-H \"X-EZ-Token: $EZHARNESS_TOKEN\" -d '{\"server\":\"服务名\",\"tool\":\"工具名\",\"args\":{}}'" +
+				"（Windows cmd 把 $EZHARNESS_TOKEN 换成 %EZHARNESS_TOKEN%））")
 		}
 		b.WriteString("\n</mcp>")
 	}
 	// 大模型直调与 MCP 无关，独立成段（未配 MCP 的服务也要可见）
-	b.WriteString("\n\n<local_api>\n（core 暴露的本机 API：快应用/脚本直调，无需密钥——密钥由 core 持有）\n" +
+	b.WriteString("\n\n<local_api>\n（core 暴露的本机 API：快应用页经令牌桥自动带令牌；脚本/后端用终端环境变量里的 EZHARNESS_TOKEN 作为 X-EZ-Token，不用自己保管密钥）\n" +
 		"大模型直调：POST /api/model/call，载荷 {\"prompt\":\"提示词\", \"model\":\"可选模型名（省略=主模型）\", " +
 		"\"images\":[\"可选的本机图片绝对路径，目标模型须支持视觉\"]}，返回 {\"result\":\"模型输出文本\"}；" +
 		"翻译/总结/识别/生成这类一次问答直接调它，不必绕道 MCP 或后端。\n</local_api>")
