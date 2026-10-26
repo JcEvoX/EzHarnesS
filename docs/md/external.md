@@ -7,12 +7,12 @@
 
 | 工具 | 参数 | 返回 / 边界 | 默认 |
 | --- | --- | --- | --- |
-| `read_file` | `path`、`offset?`、`limit?` | 文本或图片标记；2000 行、20 万字符、图片 8MB | 免审 |
+| `read_file` | `path`、`offset?`、`limit?`、`note?` | 文本或图片标记；2000 行、20 万字符、图片 8MB | 免审 |
 | `write_file` | `path`、`content` | 写入字节数 | 审批；路径白名单内免审 |
 | `edit_file` | `path`、`old_text`、`new_text` | 替换次数；全部命中才原子写入 | 审批；路径白名单内免审 |
 | `terminal` | `command`、`timeout_s?` | stdout + stderr + exit code；默认 600 秒，上限 3600 秒 | 命令白名单内免审，否则审批 |
 
-`read_file` 读到图片时返回图片标记，由引擎在下一轮转成图片消息；无视觉模型会被拒绝。
+`read_file` 读到图片时返回图片标记，由引擎在下一轮转成图片消息；`note`（看图目的）会随图片一起写入该消息。无视觉模型会被拒绝。
 
 ## 二、共享终端与浏览器
 
@@ -21,7 +21,7 @@
 | `term_tab` | `action`（new / list / close）、`name?`、`desc?`、`tabId?` | 终端标签信息 | list 免审，其余审批 |
 | `term_action` | `action`（send / read）、`tabId`、`command?`、`lines?` | send 返回前后屏差异；read 返回末尾 N 行（默认 100） | send 白名单内免审；read 免审 |
 | `browser_tab` | `action`（open / list / select / close）、`url?`、`tabId?` 等 | 标签信息 | list 免审，其余审批 |
-| `browser_action` | `action` 七选一、`tabId`、`url?`、`selector?`、`js?`、`files?` 等 | 页面文本 / 控制台 / 网络 / 截图路径 | 免审 |
+| `browser_action` | `action` 七选一、`tabId`、`url?`、`selector?`、`js?`、`note?`、`files?` 等 | 页面文本 / 控制台 / 网络 / 截图路径 | 免审 |
 
 `browser_action` 的七个动作：`navigate`、`read`、`eval`、`console`、`network`、`screenshot`、`upload`。点击、输入、滚动都通过 `eval` 完成。
 

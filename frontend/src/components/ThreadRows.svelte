@@ -110,7 +110,11 @@
                 <span class="line"></span>
               </div>
             {:else if seg.b.kind === 'imgload'}
-              <div class="imgload" class:reveal={reveal?.has(seg.b.uid)} title={seg.b.paths.join('\n')}>
+              <div
+                class="imgload"
+                class:reveal={reveal?.has(seg.b.uid)}
+                title={seg.b.paths.map((p, j) => (seg.b.notes?.[j] ? `${p}（${seg.b.notes[j]}）` : p)).join('\n')}
+              >
                 {#each seg.b.paths as p, j (p)}
                   {@const snap = seg.b.images?.[j]}
                   <img
@@ -124,7 +128,7 @@
                     title={`${p}（点击打开文件，可编辑保存写回；缩略图为当时进上下文的快照）`}
                   />
                 {/each}
-                <span class="label">已加载上下文</span>
+                <span class="label">{seg.b.notes?.filter((n) => n).join(' · ') || '已加载上下文'}</span>
               </div>
             {:else if seg.b.kind === 'endtick'}
               <div class="endtick" class:reveal={reveal?.has(seg.b.uid)} title={seg.b.title}>
@@ -275,5 +279,8 @@
   }
   .imgload .label {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 </style>

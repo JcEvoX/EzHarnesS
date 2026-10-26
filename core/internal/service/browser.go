@@ -299,7 +299,7 @@ browser/<tabID>-<时间戳>-<序号>.png(每张一个新文件——图片按路
 image_loaded 标记(filetools 的 OnLoop 会把批内全部标记合并成一条多图 user
 消息),无视觉返回路径文字引导。
 */
-func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector string, timeoutMs int) (string, error) {
+func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fullPage bool, selector, note string, timeoutMs int) (string, error) {
 	/* timeoutMs 透传:desktop 先等加载收尾(默认 10000ms)再截,消除
 	"返回即截图"撞首帧未合成的竞态;桥上限 = 等待 + 截图余量 */
 	timeout := bridgeOpTimeout
@@ -341,11 +341,22 @@ func (s *BrowserService) ScreenshotBrowser(ctx context.Context, tabID string, fu
 	if !s.ModelSeesImages() {
 		return head + "\n已保存至 " + strings.Join(paths, "、") + ";当前模型无多模态能力,如需识别请在设置·模型为主模型勾选\"支持视觉\"", nil
 	}
+	note = imageNote(note)
 	markers := make([]string, 0, len(paths))
 	for _, p := range paths {
+		if note != "" {
+			markers = append(markers, `<image_loaded path="`+p+`" note="`+note+`"/>`)
+			continue
+		}
 		markers = append(markers, `<image_loaded path="`+p+`"/>`)
 	}
 	return head + "\n" + strings.Join(markers, "\n"), nil
+}
+
+/* imageNote 把看图目的压成单行标记属性值(空白折叠、双引号换单引号,
+属性正则才安全)。 */
+func imageNote(s string) string {
+	return strings.ReplaceAll(strings.Join(strings.Fields(s), " "), `"`, `'`)
 }
 
 /* CloseBrowserTab 关闭标签;幂等,返回 desktop 回执的 closed JSON。 */

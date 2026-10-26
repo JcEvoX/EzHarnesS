@@ -106,7 +106,7 @@ export type Block = { uid: number } & (
   | { kind: 'status'; text: string; data: StatusPayload | null }
   | { kind: 'resourcechange'; items: string[] }
   | { kind: 'endtick'; icon: string; title: string }
-  | { kind: 'imgload'; paths: string[]; images?: ImagePayload[] }
+  | { kind: 'imgload'; paths: string[]; notes?: string[]; images?: ImagePayload[] }
 )
 
 export interface TotalUsage {
@@ -508,14 +508,23 @@ class AppStore {
           }
         } else if (m.content.includes('<image_loaded>')) {
           // read_file/截图 图片已进上下文：渲染为缩略图小行（paths 在标签体内，
-          // 每行一个；m.images 是当时进上下文的 base64 快照——磁盘文件后续
-          // 改/删不影响展示，点击开快照画板草稿）
+          // 每行一个，紧随其后的“目的：…”行是该图当时的看图目的；m.images 是
+          // 当时进上下文的 base64 快照——磁盘文件后续改/删不影响展示，点击开
+          // 快照画板草稿）
           const inner = m.content.replace(/^[\s\S]*?<image_loaded>|<\/image_loaded>[\s\S]*$/g, '')
-          const paths = inner
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean)
-          out.push({ kind: 'imgload', uid: this.nuid(), paths, images: m.images })
+          const paths: string[] = []
+          const notes: string[] = []
+          for (const raw of inner.split('\n')) {
+            const line = raw.trim()
+            if (!line) continue
+            if (line.startsWith('目的：') && paths.length) {
+              notes[paths.length - 1] = line.slice(3)
+              continue
+            }
+            paths.push(line)
+            notes.push('')
+          }
+          out.push({ kind: 'imgload', uid: this.nuid(), paths, notes, images: m.images })
         } else if (m.content.includes('<end_reason>')) {
           const detail = endReasonText(m.content)
           if (detail) out.push({ kind: 'endtick', uid: this.nuid(), icon: endIcon(detail), title: detail })
@@ -1688,9 +1697,10 @@ class AppStore {
         }
         // 工具结果携带图片加载标记：实时渲染缩略图行（历史路径走
         // <image_loaded> user 消息，两条路径渲染同一 imgload 块）
-        const loadedPaths = [...String(d.content || '').matchAll(/<image_loaded path="([^"]*)"\s*\/>/g)].map((m) => m[1])
+        const marks = [...String(d.content || '').matchAll(/<image_loaded path="([^"]*)"(?: note="([^"]*)")?\s*\/>/g)]
+        const loadedPaths = marks.map((m) => m[1])
         if (loadedPaths.length) {
-          bs.push({ kind: 'imgload', uid: this.nuid(), paths: loadedPaths })
+          bs.push({ kind: 'imgload', uid: this.nuid(), paths: loadedPaths, notes: marks.map((m) => m[2] || '') })
         }
         // 记忆待确认：立即拉一次通知数据，聊天记忆卡与通知栏同源显示
         if (d.name === 'memory' && String(d.content || '').includes('"pendingId"')) void this.refreshNotices()
