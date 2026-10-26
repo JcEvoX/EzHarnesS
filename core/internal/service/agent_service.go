@@ -745,34 +745,27 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 	}
 	if lines := mcpListLines(fsys); len(lines) > 0 {
 		b.WriteString("\n\n<mcp>\n（可用 MCP 服务清单，以此为准，不要读取 mcp.json 来发现服务；" +
-			"经 mcp_router 工具调用，先用 tool_list 拉取某服务的工具清单再 tool_call，轮内变更见 <resource_change>）")
+			"经 mcp_router 工具调用，先用 tool_list 拉取某服务的工具清单再 tool_call；工具名与参数以 schema 为准，不要臆造；" +
+			"页面/脚本直调见 <local_api>；轮内变更见 <resource_change>）")
 		for _, l := range lines {
 			b.WriteString("\n" + l)
 		}
-		b.WriteString("\n（HTTP 直调：core 把上面的 MCP 服务整体暴露为本机 API，不经你中转。鉴权：快应用页由令牌桥自动带令牌；脚本/后端用终端环境变量里的 EZHARNESS_TOKEN 作为 X-EZ-Token（Windows cmd 写 %EZHARNESS_TOKEN%，sh 写 $EZHARNESS_TOKEN）；外部程序用设置页的 API 令牌。\n" +
-			"POST /api/mcp/call，JSON 载荷 {\"server\":\"服务名\",\"tool\":\"工具名\",\"args\":{参数}}，" +
-			"成功 {\"result\":\"文本\"}、失败 {\"error\":\"原因\"}；GET /api/mcp 返回服务清单。\n" +
-			"需要 OAuth 的服务未授权时返回 HTTP 401 + {\"needs_auth\":true,\"server\":\"服务名\",\"auth_url\":\"授权地址\"}（OAuth 自动检测，无需给 server 配置）；" +
-			"快应用引同源组件 <script src=\"/ez-mcp-auth.js\"></script> 后直接用 ezMcp.call(server,tool,args)——需要授权时它会自动居中弹框、开浏览器、授权后重试，别自己写弹框；" +
-			"组件用法见 quick-app 技能。\n" +
-			"工具名与参数以清单/工具 schema 为准，不要臆造（例：time 服务的工具是 getCurrentTime，不是 timeNow）。\n" +
-			"同源页面（save_app 快应用）用相对路径 fetch('/api/mcp/call', {method: 'POST', " +
-			"headers: {'Content-Type': 'application/json'}, body: JSON.stringify({server: '服务名', tool: '工具名', args: {}})})，" +
-			"即可把 MCP 工具当作页面后端。页面里调用遵守实战守则（都是真实踩过的坑）：\n" +
-			"重点:result 是字符串化文本，里面可能还内嵌一层 JSON——先 r.text() 再层层 JSON.parse 直到解析成对象（deepParse）")
-		if base := localAPIBase(); base != "" {
-			b.WriteString("\n（脚本用完整地址：" + base + "/api/mcp/call（调用）/ " + base + "/api/mcp（清单）；" +
-				"示例：curl -s -X POST " + base + "/api/mcp/call -H \"Content-Type: application/json\" " +
-				"-H \"X-EZ-Token: $EZHARNESS_TOKEN\" -d '{\"server\":\"服务名\",\"tool\":\"工具名\",\"args\":{}}'" +
-				"（Windows cmd 把 $EZHARNESS_TOKEN 换成 %EZHARNESS_TOKEN%））")
-		}
 		b.WriteString("\n</mcp>")
 	}
-	// 大模型直调与 MCP 无关，独立成段（未配 MCP 的服务也要可见）
-	b.WriteString("\n\n<local_api>\n（core 暴露的本机 API：快应用页经令牌桥自动带令牌；脚本/后端用终端环境变量里的 EZHARNESS_TOKEN 作为 X-EZ-Token，不用自己保管密钥）\n" +
-		"大模型直调：POST /api/model/call，载荷 {\"prompt\":\"提示词\", \"model\":\"可选模型名（省略=主模型）\", " +
-		"\"images\":[\"可选的本机图片绝对路径，目标模型须支持视觉\"]}，返回 {\"result\":\"模型输出文本\"}；" +
-		"翻译/总结/识别/生成这类一次问答直接调它，不必绕道 MCP 或后端。\n</local_api>")
+	// core 暴露的可调用 API 统一在此说明（鉴权 + 端点），MCP 清单段不再重复
+	b.WriteString("\n\n<local_api>\n" +
+		"（core 暴露的本机 API。鉴权统一：同源页面直接 fetch('/api/…')，API 访问令牌自动携带，不要自己加头；" +
+		"终端/脚本用请求头 X-EZ-Token: $EZHARNESS_TOKEN（Windows %EZHARNESS_TOKEN%）；" +
+		"外部程序由用户在设置页复制「API 访问令牌」，不要让用户把 API 访问令牌贴进对话；任何情况下不要把 API 访问令牌写进页面源码或回传前端。\n" +
+		"POST /api/model/call — 直调大模型：载荷 {\"prompt\":\"提示词\",\"model\":\"可选，省略=主模型\",\"images\":[\"可选，本机绝对路径，最多 4 张，模型须支持视觉\"]}，返回 {\"result\":\"输出文本\"}；" +
+		"翻译/总结/识别/生成这类一次问答直接用它，不必绕道 MCP 或后端。\n" +
+		"POST /api/mcp/call — 调 MCP 工具：载荷 {\"server\":\"服务名\",\"tool\":\"工具名\",\"args\":{}}，成功 {\"result\":\"文本\"}、失败 {\"error\":\"原因\"}；" +
+		"需 OAuth 的服务未授权时返回 401 + {\"needs_auth\":true,...}，页面统一用 ezMcp.call 自动授权重试（见 quick-app 技能），不要自己写弹框。\n" +
+		"GET /api/mcp — MCP 服务清单。")
+	if base := localAPIBase(); base != "" {
+		b.WriteString("\n脚本用完整地址：" + base + "/api/<路径>。")
+	}
+	b.WriteString("\n</local_api>")
 	b.WriteString("\n\n<action>\n" +
 		"# 行动准则\n" +
 		"1. 接任务先匹配技能：对照 <skills> 清单，命中就 load_skill 加载后按其指引执行，不要绕过现成技能自己造流程；没命中再自行设计。\n" +
@@ -813,7 +806,7 @@ func buildSystemBase(ctx context.Context, st domain.Settings, fsys osfs.OS, mc d
 	return b.String()
 }
 
-/* localAPIBase 返回本机 API 基址（供 <mcp> 段告知 HTTP 直调端点；读不到配置返回空）。 */
+/* localAPIBase 返回本机 API 基址（供 <local_api> 段告知完整地址；读不到配置返回空）。 */
 func localAPIBase() string {
 	cfg, err := config.Load()
 	if err != nil || cfg.Port <= 0 {
