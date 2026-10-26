@@ -129,10 +129,10 @@ ezharness 在每轮对话里持续做三件事：**修剪**（按窗口水位就
 - Windows（PowerShell）：`Get-FileHash .\ezharness-v<版本>-setup.exe -Algorithm SHA256`
 - macOS / Linux：`shasum -a 256 <文件>` 或 `sha256sum <文件>`
 
-产物未做代码签名，系统会拦截：
+产物为 ad-hoc 签名、未做 Apple 公证，系统仍会拦截：
 
 - Windows SmartScreen「Windows 已保护你的电脑」→ 更多信息 → 仍要运行。
-- macOS 首次打开被 Gatekeeper 拦截 → 右键「打开」，或 `xattr -dr com.apple.quarantine /Applications/ezharness.app`。
+- macOS 首次打开可能提示「无法验证开发者」→ 右键「打开」；若提示「已损坏」，执行 `xattr -dr com.apple.quarantine /Applications/ezharness.app`。
 - macOS 安装包当前为 arm64（Apple Silicon）；Intel 机器请自行构建。
 
 **纯 server 形态**
