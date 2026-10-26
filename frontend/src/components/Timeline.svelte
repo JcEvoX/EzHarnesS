@@ -557,7 +557,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding-bottom: 80px; /* 补偿下方输入框高度，视觉重心略上提 */
+    padding-bottom: 24px; /* 视觉重心略上提；留白过大时矮窗初始化就会溢出出滚动条 */
     color: var(--muted);
   }
   .mark {

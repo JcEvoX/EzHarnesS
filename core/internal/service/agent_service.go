@@ -368,7 +368,15 @@ func (a *AgentService) Assemble(s *domain.Session, st domain.Settings) {
 			hooks.NewRefFile(), // 有引用轮次在输入前插 <reference_file> 结构化告知（附件+文件页标注统一，模型按需 read_file）
 			approver,
 			asker,
-			task.New(task.WithModelFactory(modelFactoryOf(a.Hub))),
+			task.New(task.WithModelFactory(modelFactoryOf(a.Hub)),
+				// 子会话存档地址随结果回传，主模型可按需 read_file 回查过程
+				task.WithSessionRef(func(forkID string) string {
+					p, err := filepath.Abs(filepath.Join(hooks.SessionsDir, s.Sess.ID(), "forks", forkID))
+					if err != nil {
+						return ""
+					}
+					return filepath.ToSlash(p)
+				})),
 			mcpHook,
 			offload.New(s.Fsys, offload.WithThreshold(st.OffloadThreshold), offload.WithSkip(askuser.ToolName, task.ToolName, skilltool.ToolName), offload.WithReplayTool("read_file"),
 				offload.WithAbs(func(p string) string { // 提示给绝对路径：模型不知道 FS 挂载基准，按工作目录拼相对路径必错

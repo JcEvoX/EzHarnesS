@@ -1408,8 +1408,8 @@ class AppStore {
 
   apply(ev: SseEvent) {
     this.tick++
-    // 迭代数实时跟随（所有帧都带 iter；loop_start/turn_end 在上面各自清零）
-    if (typeof ev.iter === 'number' && ev.iter > 0) this.currentIter = ev.iter
+    // 迭代数实时跟随（仅主轮帧；分身帧带 forkId，其轮次不能覆盖主轮进度）
+    if (!ev.forkId && typeof ev.iter === 'number' && ev.iter > 0) this.currentIter = ev.iter
     switch (ev.type) {
       case 'loop.guard': {
         // 循环护栏：时间线实时小字条（历史重建由 <loop_guard> 消息渲染，回放不重发）

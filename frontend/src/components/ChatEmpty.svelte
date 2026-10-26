@@ -31,7 +31,7 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding-bottom: 60px;
+    padding-bottom: 20px;
   }
   .logo {
     width: 46px;

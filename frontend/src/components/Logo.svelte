@@ -29,7 +29,7 @@
       stroke-dasharray="290 87"
       transform="rotate(-35 100 100)"
     />
-    <circle cx="146" cy="61" r="6.5" fill="#0369a1" />
+    <circle cx="149.15" cy="65.59" r="6.5" fill="#0369a1" />
     <animateTransform
       attributeName="transform"
       type="rotate"

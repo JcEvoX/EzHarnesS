@@ -9,6 +9,8 @@ require (
 	github.com/xuanlv2002/ezloop v1.4.2
 )
 
+replace github.com/xuanlv2002/ezloop => C:/Users/guy/Desktop/ai/ezloop
+
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect

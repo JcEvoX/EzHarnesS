@@ -71,33 +71,44 @@ func TestLoopGuardRepeat(t *testing.T) {
 	}
 }
 
-/* 轮数压力线：soft/hard 各注入一次收敛指令，短上限时 soft<hard 仍成立。 */
+/* 轮数压力线：20%/50%/70%/90% 各注入一次收敛指令。 */
 func TestLoopGuardPressure(t *testing.T) {
 	ctx := context.Background()
 	h := NewLoopGuard(64)
 	state := newTestState([]types.Message{{Role: types.RoleSystem, Content: "base"}})
 	state.MaxIterations = 64
-	soft, hard := h.pressureLines()
-	if soft != 24 || hard != 48 {
-		t.Fatalf("default 64 pressure lines want 24/48, got %d/%d", soft, hard)
+	lines := h.pressureLines()
+	want := []int{13, 32, 45, 58}
+	if len(lines) != len(want) {
+		t.Fatalf("want %d pressure lines, got %d", len(want), len(lines))
 	}
-	for i := 1; i <= hard+5; i++ {
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("pressure line %d want %d, got %d", i, want[i], lines[i])
+		}
+	}
+	for i := 1; i <= lines[len(lines)-1]+5; i++ {
 		state.Iteration = i
 		if err := h.OnModelStart(ctx, state); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if n := countGuard(state.Messages); n != 2 {
-		t.Fatalf("soft+hard each fire once, got %d", n)
+	if n := countGuard(state.Messages); n != 4 {
+		t.Fatalf("each pressure line fires once, got %d", n)
+	}
+	if !strings.Contains(lastGuard(state.Messages), "收尾") {
+		t.Fatalf("last pressure note must ask for wrap-up: %q", lastGuard(state.Messages))
 	}
 	if err := h.OnEnd(ctx, state); err != nil {
 		t.Fatal(err)
 	}
 
 	h2 := NewLoopGuard(10)
-	s2, h2line := h2.pressureLines()
-	if s2 >= h2line {
-		t.Fatalf("soft must stay below hard, got %d/%d", s2, h2line)
+	l2 := h2.pressureLines()
+	for i := 1; i < len(l2); i++ {
+		if l2[i] <= l2[i-1] {
+			t.Fatalf("pressure lines must increase, got %v", l2)
+		}
 	}
 }
 

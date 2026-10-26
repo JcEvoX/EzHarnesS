@@ -50,6 +50,9 @@
     text-align: left;
     cursor: pointer;
     overflow: hidden;
+    box-sizing: border-box;
+    /* button 的 auto 宽度按内容收缩，长任务描述会把卡片顶出右缘 */
+    max-width: calc(100% - var(--proc-indent, 40px));
     transition: background var(--dur-fast) var(--ease-out);
   }
   .entry:hover {
