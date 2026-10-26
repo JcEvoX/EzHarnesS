@@ -122,6 +122,19 @@ ezharness 在每轮对话里持续做三件事：**修剪**（按窗口水位就
 1. 下载并运行安装包；
 2. 按引导选择安装目录，自动创建开始菜单与桌面快捷方式，可选「添加到 PATH」。
 
+**校验与系统拦截**
+
+每个平台附 `SHA256SUMS-<win32|darwin|linux>.txt`，安装前可校验（文件名与哈希应为同一行）：
+
+- Windows（PowerShell）：`Get-FileHash .\ezharness-v<版本>-setup.exe -Algorithm SHA256`
+- macOS / Linux：`shasum -a 256 <文件>` 或 `sha256sum <文件>`
+
+产物未做代码签名，系统会拦截：
+
+- Windows SmartScreen「Windows 已保护你的电脑」→ 更多信息 → 仍要运行。
+- macOS 首次打开被 Gatekeeper 拦截 → 右键「打开」，或 `xattr -dr com.apple.quarantine /Applications/ezharness.app`。
+- macOS 安装包当前为 arm64（Apple Silicon）；Intel 机器请自行构建。
+
 **纯 server 形态**
 
 直接运行 `ezharness-core.exe`，浏览器访问 `http://127.0.0.1:<port>`。与桌面端同一份页面，桌面专属能力（如浏览器控制）自动降级。

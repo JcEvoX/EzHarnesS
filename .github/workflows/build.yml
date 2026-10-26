@@ -66,6 +66,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: Generate checksums
+        run: node script/checksums.js release/v${{ steps.ver.outputs.version }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -81,5 +84,6 @@ jobs:
             release/v${{ steps.ver.outputs.version }}/ezharness-v*.exe
             release/v${{ steps.ver.outputs.version }}/ezharness-*.dmg
             release/v${{ steps.ver.outputs.version }}/ezharness-v*.AppImage
+            release/v${{ steps.ver.outputs.version }}/SHA256SUMS-*.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
