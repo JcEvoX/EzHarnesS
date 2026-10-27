@@ -1,4 +1,4 @@
-package dock
+package desktop
 
 /*
 #cgo CFLAGS: -x objective-c
@@ -23,9 +23,9 @@ static void ezSetDockVisible(int visible) {
 */
 import "C"
 
-// SetVisible 切换 macOS 程序坞图标：仅托盘常驻时用 Accessory 策略
+// SetDockVisible 切换 macOS 程序坞图标：仅托盘常驻时用 Accessory 策略
 // 隐藏图标，窗口恢复前切回 Regular。
-func SetVisible(visible bool) {
+func SetDockVisible(visible bool) {
 	v := C.int(0)
 	if visible {
 		v = 1

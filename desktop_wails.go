@@ -1,6 +1,6 @@
 /*
 desktop 是桌面壳的装配层（Wails v3，跨平台）：把窗口、托盘、程序坞
-三个互不依赖的子模块（internal/desktop/{window,tray,dock}）接到一起，
+三个互不依赖的部件（internal/desktop 下的 window/tray/dock）接到一起，
 并持有"退出意图"。各模块职责：
 
 - window：窗口本身（创建/显示时序/关闭钩子/子窗口）
@@ -25,9 +25,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"ezharness/internal/desktop/dock"
-	"ezharness/internal/desktop/tray"
-	"ezharness/internal/desktop/window"
+	"ezharness/internal/desktop"
 )
 
 //go:embed assets/icon.png
@@ -40,7 +38,7 @@ URL 走本进程真实网络地址（start 已完成 listen 后才开窗，无�
 */
 func openWindow(a *app) {
 	wailsApp := application.New(application.Options{Name: "ezharness"})
-	win := window.New(wailsApp, window.Config{
+	win := desktop.NewWindow(wailsApp, desktop.WindowConfig{
 		Title:  "ezharness",
 		URL:    fmt.Sprintf("http://127.0.0.1:%d/?desktop=1", a.cfg.Port),
 		Width:  a.cfg.WindowW,
@@ -51,10 +49,10 @@ func openWindow(a *app) {
 
 	hideToTray := func() {
 		win.Hide()
-		dock.SetVisible(false)
+		desktop.SetDockVisible(false)
 	}
 	showMain := func() {
-		dock.SetVisible(true)
+		desktop.SetDockVisible(true)
 		win.Show()
 		win.Focus()
 	}
@@ -83,7 +81,7 @@ func openWindow(a *app) {
 
 	a.winCtl.Set(windowControl{win: win, hideToTray: hideToTray, quit: shutdown})
 
-	tray.New(wailsApp, tray.Options{
+	desktop.NewTray(wailsApp, desktop.TrayOptions{
 		Icon:     trayIcon,
 		Tooltip:  "ezharness",
 		OpenText: "打开 ezharness",
@@ -108,7 +106,7 @@ func openWindow(a *app) {
 "最小化到托盘"与退出走装配层闭包（含程序坞联动）。
 */
 type windowControl struct {
-	win        *window.Window
+	win        *desktop.Window
 	hideToTray func()
 	quit       func()
 }

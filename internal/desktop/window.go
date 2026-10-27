@@ -1,16 +1,4 @@
-/*
-Package window 只管 Wails 窗口：无边框主窗口创建、首屏显示时序、
-尺寸钳制、关闭拦截钩子与快应用子窗口。
-
-  - 页面一律走本进程 gin 的真实网络地址（http://127.0.0.1:<port>）：
-    不经 wails 资产桥——该桥在 Windows 上缓冲整个响应，SSE 等流式无法
-    工作；走网络后桌面端与浏览器访问行为完全一致。
-  - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
-    （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
-
-不涉及托盘与程序坞：关闭后是隐藏还是退出由 OnClosing 回调的上层决定。
-*/
-package window
+package desktop
 
 import (
 	"fmt"
@@ -24,7 +12,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-type Config struct {
+type WindowConfig struct {
 	Title  string
 	URL    string
 	Width  int
@@ -36,7 +24,7 @@ type Config struct {
 type Window struct {
 	app *application.App
 	win *application.WebviewWindow
-	cfg Config
+	cfg WindowConfig
 
 	// OnClosing 在主窗口即将关闭时调用；返回 true = 已接管（取消关闭）。
 	// 须在 App.Run 之前设置。
@@ -59,8 +47,8 @@ func clampToScreen(win *application.WebviewWindow, w, h int) (int, int) {
 	return int(float64(w) * scale), int(float64(h) * scale)
 }
 
-/* New 创建主窗口（Hidden 起步，页面加载完成后钳制尺寸并显示）。 */
-func New(app *application.App, cfg Config) *Window {
+/* NewWindow 创建主窗口（Hidden 起步，页面加载完成后钳制尺寸并显示）。 */
+func NewWindow(app *application.App, cfg WindowConfig) *Window {
 	opts := application.WebviewWindowOptions{
 		Name:      "main",
 		Title:     cfg.Title,

@@ -1,13 +1,8 @@
-/*
-Package tray 只管系统托盘：图标、提示、左键与右键菜单。
-
-不持有窗口或退出逻辑：点击/打开/退出均以回调交给上层装配。
-*/
-package tray
+package desktop
 
 import "github.com/wailsapp/wails/v3/pkg/application"
 
-type Options struct {
+type TrayOptions struct {
 	Icon     []byte
 	Tooltip  string
 	OpenText string // 菜单「打开」文案
@@ -17,8 +12,8 @@ type Options struct {
 	OnQuit   func() // 菜单：退出
 }
 
-/* New 创建托盘并挂上菜单。 */
-func New(app *application.App, o Options) *application.SystemTray {
+/* NewTray 创建托盘并挂上菜单。 */
+func NewTray(app *application.App, o TrayOptions) *application.SystemTray {
 	t := app.SystemTray.New()
 	t.SetIcon(o.Icon)
 	t.SetTooltip(o.Tooltip)
