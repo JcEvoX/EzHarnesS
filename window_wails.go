@@ -8,6 +8,8 @@ window 是桌面窗口壳（Wails v3，跨平台）：无边框窗口 + 系统�
 - 无边框拖拽/双击最大化走 WebView2 原生非客户区支持
   （NonClientRegionSupport + 前端 CSS app-region: drag），无需 JS 注入。
 - 托盘常驻：左键切换窗口显示，右键菜单（打开/退出）。
+- macOS：窗口可见时程序坞+托盘并存；隐藏到托盘时切 Accessory 策略收起
+  程序坞图标，从托盘恢复前切回 Regular（dock_darwin.go）。
 - 关闭行为实时读设置：CloseToTray 开 = 隐藏到托盘不弹窗；关 = 前端
   关闭询问（页面 modal，勾选「以后最小化到托盘」即持久化）。Alt+F4/
   任务栏关闭走系统惯例直接退出。
@@ -95,6 +97,11 @@ func openWindow(a *app) {
 	// 半根因）。标题栏 X 的询问弹窗在前端（页面 modal），Alt+F4/任务栏
 	// 关闭走系统惯例直接退出。
 	var quitting atomic.Bool
+	// hideToTray 隐藏主窗口并收起 macOS 程序坞图标（仅保留托盘）
+	hideToTray := func() {
+		win.Hide()
+		setDockVisible(false)
+	}
 	// shutdown 退出流程：置 quitting 让关窗放行 → 同步收尾（取消运行轮并
 	// 落盘；无轮时毫秒级）→ Quit 正常走关窗退出；Quit 卡死时超时强退兜底
 	shutdown := func() {
@@ -104,11 +111,16 @@ func openWindow(a *app) {
 		time.Sleep(5 * time.Second)
 		os.Exit(0)
 	}
+	showMain := func() {
+		setDockVisible(true)
+		win.Show()
+		win.Focus()
+	}
 	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if quitting.Load() || !a.hub.SettingsSnapshot().CloseToTray {
 			return
 		}
-		win.Hide()
+		hideToTray()
 		e.Cancel()
 	})
 	a.winCtl.Set(wailsWindow{
@@ -123,17 +135,13 @@ func openWindow(a *app) {
 	tray.SetTooltip("ezharness")
 	tray.OnClick(func() {
 		if win.IsVisible() {
-			win.Hide()
+			hideToTray()
 		} else {
-			win.Show()
-			win.Focus()
+			showMain()
 		}
 	})
 	menu := application.NewMenu()
-	menu.Add("打开 ezharness").OnClick(func(*application.Context) {
-		win.Show()
-		win.Focus()
-	})
+	menu.Add("打开 ezharness").OnClick(func(*application.Context) { showMain() })
 	menu.Add("退出").OnClick(func(*application.Context) { go shutdown() })
 	tray.SetMenu(menu)
 
@@ -152,7 +160,10 @@ type wailsWindow struct {
 func (a wailsWindow) Minimise()         { a.win.Minimise() }
 func (a wailsWindow) ToggleMaximise()   { a.win.ToggleMaximise() }
 func (a wailsWindow) IsMaximised() bool { return a.win.IsMaximised() }
-func (a wailsWindow) Hide()             { a.win.Hide() }
+func (a wailsWindow) Hide() {
+	a.win.Hide()
+	setDockVisible(false)
+}
 
 /* RequestQuit 真退出（前端关闭询问确认后调用）：quitting 置位让关窗
 钩子放行，再走完整收尾退出流程。 */
